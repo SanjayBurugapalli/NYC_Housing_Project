@@ -1,3 +1,5 @@
+import math
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,15 +25,27 @@ async def list_neighborhoods(
         """)
     )
 
-    neighborhoods = [
-        NeighborhoodResponse(
-            name=row.name,
-            borough=row.borough,
-            avg_score=row.avg_health_score or 0,
-            building_count=row.building_count or 0,
-            centroid=[row.centroid_lng, row.centroid_lat] if row.centroid_lat else [],
+    neighborhoods = []
+    for row in result:
+        # Skip rows with NaN coordinates or NaN names
+        if not row.centroid_lat or not row.centroid_lng:
+            continue
+        if math.isnan(row.centroid_lat) or math.isnan(row.centroid_lng):
+            continue
+        if row.name and row.name.startswith("NaN"):
+            continue
+        score = row.avg_health_score or 0
+        if math.isnan(score):
+            continue
+
+        neighborhoods.append(
+            NeighborhoodResponse(
+                name=row.name,
+                borough=row.borough,
+                avg_score=round(score, 1),
+                building_count=row.building_count or 0,
+                centroid=[row.centroid_lng, row.centroid_lat],
+            )
         )
-        for row in result
-    ]
 
     return NeighborhoodListResponse(neighborhoods=neighborhoods)
