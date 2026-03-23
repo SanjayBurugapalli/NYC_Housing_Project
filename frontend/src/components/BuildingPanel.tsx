@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchBuildingDetail } from "@/lib/api";
 import { useStore } from "@/lib/store";
@@ -16,19 +17,34 @@ function gradeColor(grade: string): string {
 export function BuildingPanel({ bbl }: { bbl: string }) {
   const selectBuilding = useStore((s) => s.selectBuilding);
 
+  // Escape key to close panel
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") selectBuilding(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectBuilding]);
+
   const { data, isLoading, error } = useQuery({
     queryKey: ["building", bbl],
     queryFn: () => fetchBuildingDetail(bbl),
   });
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-gray-800/95 backdrop-blur-sm shadow-xl border-l border-gray-700">
+    <div
+      className="flex h-full flex-col overflow-y-auto bg-gray-800/95 backdrop-blur-sm shadow-xl border-l border-gray-700"
+      role="dialog"
+      aria-label="Building detail panel"
+    >
       {/* Header */}
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-700 bg-gray-800 px-4 py-3">
         <h2 className="text-lg font-semibold">Building Detail</h2>
         <button
           onClick={() => selectBuilding(null)}
-          className="rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-white"
+          className="rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          aria-label="Close building detail panel"
+          title="Close (Esc)"
         >
           ✕
         </button>

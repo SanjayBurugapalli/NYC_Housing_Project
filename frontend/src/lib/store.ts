@@ -1,11 +1,20 @@
 import { create } from "zustand";
 import type { BuildingSummary, ViewportBounds } from "@/types/building";
+import type mapboxgl from "mapbox-gl";
 
 interface AppState {
   // Map viewport
   viewport: ViewportBounds;
   zoom: number;
   setViewport: (viewport: ViewportBounds, zoom: number) => void;
+
+  // Map reference (for flyTo from search)
+  mapRef: mapboxgl.Map | null;
+  setMapRef: (map: mapboxgl.Map | null) => void;
+
+  // Building count visible on map
+  buildingCount: number;
+  setBuildingCount: (count: number) => void;
 
   // Selected building
   selectedBbl: string | null;
@@ -15,9 +24,11 @@ interface AppState {
   searchQuery: string;
   searchResults: BuildingSummary[];
   isSearching: boolean;
+  searchError: string | null;
   setSearchQuery: (query: string) => void;
   setSearchResults: (results: BuildingSummary[]) => void;
   setIsSearching: (isSearching: boolean) => void;
+  setSearchError: (error: string | null) => void;
   clearSearch: () => void;
 }
 
@@ -27,6 +38,14 @@ export const useStore = create<AppState>((set) => ({
   zoom: 11,
   setViewport: (viewport, zoom) => set({ viewport, zoom }),
 
+  // Map reference
+  mapRef: null,
+  setMapRef: (mapRef) => set({ mapRef }),
+
+  // Building count
+  buildingCount: 0,
+  setBuildingCount: (buildingCount) => set({ buildingCount }),
+
   // Selected building
   selectedBbl: null,
   selectBuilding: (bbl) => set({ selectedBbl: bbl }),
@@ -35,9 +54,11 @@ export const useStore = create<AppState>((set) => ({
   searchQuery: "",
   searchResults: [],
   isSearching: false,
+  searchError: null,
   setSearchQuery: (query) => set({ searchQuery: query }),
   setSearchResults: (results) => set({ searchResults: results }),
   setIsSearching: (isSearching) => set({ isSearching }),
+  setSearchError: (error) => set({ searchError: error }),
   clearSearch: () =>
-    set({ searchQuery: "", searchResults: [], isSearching: false }),
+    set({ searchQuery: "", searchResults: [], isSearching: false, searchError: null }),
 }));

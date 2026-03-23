@@ -3,9 +3,19 @@
 import { useEffect, useRef, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
 import { useStore } from "@/lib/store";
+import { fetchNeighborhoods } from "@/lib/api";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+// Grade color mapping
+const GRADE_COLORS: Record<string, string> = {
+  A: "#22c55e",
+  B: "#84cc16",
+  C: "#eab308",
+  D: "#f97316",
+  F: "#ef4444",
+};
 
 export function Map() {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -13,6 +23,9 @@ export function Map() {
   const abortRef = useRef<AbortController | null>(null);
   const setViewport = useStore((s) => s.setViewport);
   const selectBuilding = useStore((s) => s.selectBuilding);
+  const setMapRef = useStore((s) => s.setMapRef);
+  const setBuildingCount = useStore((s) => s.setBuildingCount);
+  const searchResults = useStore((s) => s.searchResults);
 
   const fetchAndRenderBuildings = useCallback(async (m: mapboxgl.Map) => {
     const zoom = m.getZoom();
@@ -22,10 +35,12 @@ export function Map() {
       if (source) {
         source.setData({ type: "FeatureCollection", features: [] });
       }
+      setBuildingCount(0);
       return;
     }
 
     const bounds = m.getBounds();
+    if (!bounds) return;
     const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
 
     // Cancel previous request
@@ -61,8 +76,37 @@ export function Map() {
         }));
 
       source.setData({ type: "FeatureCollection", features });
+      setBuildingCount(features.length);
     } catch (e: any) {
       if (e.name !== "AbortError") console.error("Failed to fetch buildings:", e);
+    }
+  }, [setBuildingCount]);
+
+  const loadNeighborhoods = useCallback(async (m: mapboxgl.Map) => {
+    try {
+      const data = await fetchNeighborhoods();
+      const features = data.neighborhoods
+        .filter((n) => n.centroid && n.centroid.length === 2)
+        .map((n) => ({
+          type: "Feature" as const,
+          geometry: {
+            type: "Point" as const,
+            coordinates: n.centroid,
+          },
+          properties: {
+            name: n.name,
+            borough: n.borough,
+            avg_score: n.avg_score,
+            building_count: n.building_count,
+          },
+        }));
+
+      const source = m.getSource("neighborhoods") as mapboxgl.GeoJSONSource | undefined;
+      if (source) {
+        source.setData({ type: "FeatureCollection", features });
+      }
+    } catch (e) {
+      console.error("Failed to load neighborhoods:", e);
     }
   }, []);
 
@@ -85,11 +129,13 @@ export function Map() {
     });
 
     const m = map.current;
+    setMapRef(m);
 
     m.addControl(new mapboxgl.NavigationControl(), "bottom-right");
 
     m.on("moveend", () => {
       const bounds = m.getBounds();
+      if (!bounds) return;
       setViewport(
         {
           west: bounds.getWest(),
@@ -103,6 +149,70 @@ export function Map() {
     });
 
     m.on("load", () => {
+      // --- Neighborhood layer (low zoom) ---
+      m.addSource("neighborhoods", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      m.addLayer({
+        id: "neighborhoods-circles",
+        type: "circle",
+        source: "neighborhoods",
+        maxzoom: 13,
+        paint: {
+          "circle-radius": [
+            "interpolate",
+            ["linear"],
+            ["get", "building_count"],
+            100, 12,
+            1000, 20,
+            10000, 35,
+            50000, 50,
+          ],
+          "circle-color": [
+            "interpolate",
+            ["linear"],
+            ["get", "avg_score"],
+            55, "#ef4444",
+            75, "#f97316",
+            90, "#eab308",
+            95, "#84cc16",
+            100, "#22c55e",
+          ],
+          "circle-opacity": 0.6,
+          "circle-stroke-width": 1,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-opacity": 0.3,
+        },
+      });
+
+      m.addLayer({
+        id: "neighborhoods-labels",
+        type: "symbol",
+        source: "neighborhoods",
+        maxzoom: 13,
+        layout: {
+          "text-field": [
+            "concat",
+            ["get", "name"],
+            "\n",
+            ["to-string", ["round", ["get", "avg_score"]]],
+          ],
+          "text-size": 11,
+          "text-font": ["DIN Pro Medium", "Arial Unicode MS Regular"],
+          "text-allow-overlap": false,
+        },
+        paint: {
+          "text-color": "#ffffff",
+          "text-halo-color": "#000000",
+          "text-halo-width": 1,
+        },
+      });
+
+      loadNeighborhoods(m);
+
+      // --- Buildings layer (high zoom) ---
       m.addSource("buildings", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -137,7 +247,69 @@ export function Map() {
         },
       });
 
+      // --- Search results highlight layer ---
+      m.addSource("search-results", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      m.addLayer({
+        id: "search-results-dots",
+        type: "circle",
+        source: "search-results",
+        paint: {
+          "circle-radius": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            10, 5,
+            14, 8,
+            16, 10,
+          ],
+          "circle-color": [
+            "match",
+            ["get", "grade"],
+            "A", "#22c55e",
+            "B", "#84cc16",
+            "C", "#eab308",
+            "D", "#f97316",
+            "F", "#ef4444",
+            "#6b7280",
+          ],
+          "circle-opacity": 0.95,
+          "circle-stroke-width": 2.5,
+          "circle-stroke-color": "#ffffff",
+        },
+      });
+
+      m.addLayer({
+        id: "search-results-labels",
+        type: "symbol",
+        source: "search-results",
+        minzoom: 13,
+        layout: {
+          "text-field": ["get", "address"],
+          "text-size": 10,
+          "text-offset": [0, 1.5],
+          "text-font": ["DIN Pro Medium", "Arial Unicode MS Regular"],
+          "text-allow-overlap": false,
+        },
+        paint: {
+          "text-color": "#ffffff",
+          "text-halo-color": "#000000",
+          "text-halo-width": 1,
+        },
+      });
+
+      // Click handlers
       m.on("click", "buildings-dots", (e) => {
+        if (e.features && e.features[0]) {
+          const bbl = e.features[0].properties?.bbl;
+          if (bbl) selectBuilding(bbl);
+        }
+      });
+
+      m.on("click", "search-results-dots", (e) => {
         if (e.features && e.features[0]) {
           const bbl = e.features[0].properties?.bbl;
           if (bbl) selectBuilding(bbl);
@@ -152,15 +324,70 @@ export function Map() {
         m.getCanvas().style.cursor = "";
       });
 
+      m.on("mouseenter", "search-results-dots", () => {
+        m.getCanvas().style.cursor = "pointer";
+      });
+
+      m.on("mouseleave", "search-results-dots", () => {
+        m.getCanvas().style.cursor = "";
+      });
+
       // Fetch buildings for initial viewport
       fetchAndRenderBuildings(m);
     });
 
     return () => {
+      setMapRef(null);
       m.remove();
       map.current = null;
     };
-  }, [setViewport, selectBuilding, fetchAndRenderBuildings]);
+  }, [setViewport, selectBuilding, fetchAndRenderBuildings, setMapRef, loadNeighborhoods]);
+
+  // Update search results on map when they change
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !m.isStyleLoaded()) return;
+
+    const source = m.getSource("search-results") as mapboxgl.GeoJSONSource | undefined;
+    if (!source) return;
+
+    if (searchResults.length === 0) {
+      source.setData({ type: "FeatureCollection", features: [] });
+      return;
+    }
+
+    const features = searchResults
+      .filter((b) => b.latitude != null && b.longitude != null)
+      .map((b) => ({
+        type: "Feature" as const,
+        geometry: {
+          type: "Point" as const,
+          coordinates: [b.longitude, b.latitude],
+        },
+        properties: {
+          bbl: b.bbl,
+          health_score: b.health_score ?? 0,
+          grade: b.grade ?? "A",
+          address: b.address ?? "",
+          borough: b.borough ?? "",
+        },
+      }));
+
+    source.setData({ type: "FeatureCollection", features });
+
+    // Fly to search results bounds
+    if (features.length > 0) {
+      const bounds = new mapboxgl.LngLatBounds();
+      features.forEach((f) => {
+        bounds.extend(f.geometry.coordinates as [number, number]);
+      });
+      m.fitBounds(bounds, {
+        padding: { top: 80, bottom: 40, left: 40, right: 420 },
+        maxZoom: 16,
+        duration: 1500,
+      });
+    }
+  }, [searchResults]);
 
   return <div ref={mapContainer} className="h-full w-full" />;
 }
