@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
 import { useStore } from "@/lib/store";
 import { fetchNeighborhoods } from "@/lib/api";
+import { NEIGHBORHOOD_SPLITS } from "@/lib/neighborhoodSplits";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -85,27 +86,54 @@ export function Map() {
   const loadNeighborhoods = useCallback(async (m: mapboxgl.Map) => {
     try {
       const data = await fetchNeighborhoods();
-      const features = data.neighborhoods
-        .filter((n) => n.centroid && n.centroid.length === 2)
-        .map((n) => ({
-          type: "Feature" as const,
-          geometry: {
-            type: "Point" as const,
-            coordinates: n.centroid,
-          },
-          properties: {
-            name: n.name,
-            name_short: n.name.includes("/") ? n.name.split("/")[0].trim() : n.name,
-            borough: n.borough,
-            avg_score: n.avg_score,
-            building_count: n.building_count,
-          },
-        }));
+      const valid = data.neighborhoods.filter((n) => n.centroid && n.centroid.length === 2);
 
-      const source = m.getSource("neighborhoods") as mapboxgl.GeoJSONSource | undefined;
-      if (source) {
-        source.setData({ type: "FeatureCollection", features });
+      // Combined features — one bubble per community district (shown at zoom < 11)
+      const combinedFeatures = valid.map((n) => ({
+        type: "Feature" as const,
+        geometry: { type: "Point" as const, coordinates: n.centroid },
+        properties: {
+          name: n.name,
+          borough: n.borough,
+          avg_score: n.avg_score,
+          building_count: n.building_count,
+        },
+      }));
+
+      // Detail features — split compound names into sub-neighborhood bubbles (shown at zoom 11–13)
+      const detailFeatures: Array<{
+        type: "Feature";
+        geometry: { type: "Point"; coordinates: [number, number] };
+        properties: Record<string, unknown>;
+      }> = [];
+
+      for (const n of valid) {
+        const splits = NEIGHBORHOOD_SPLITS[n.name];
+        if (splits && splits.length > 0) {
+          // One smaller bubble per sub-neighborhood
+          const countEach = Math.round(n.building_count / splits.length);
+          for (const sub of splits) {
+            detailFeatures.push({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [sub.lng, sub.lat] },
+              properties: { name: sub.name, borough: n.borough, avg_score: n.avg_score, building_count: countEach },
+            });
+          }
+        } else {
+          // No split defined — show full compound name at detail level too
+          detailFeatures.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: n.centroid as [number, number] },
+            properties: { name: n.name, borough: n.borough, avg_score: n.avg_score, building_count: n.building_count },
+          });
+        }
       }
+
+      const combined = m.getSource("neighborhoods") as mapboxgl.GeoJSONSource | undefined;
+      if (combined) combined.setData({ type: "FeatureCollection", features: combinedFeatures });
+
+      const detail = m.getSource("neighborhoods-detail") as mapboxgl.GeoJSONSource | undefined;
+      if (detail) detail.setData({ type: "FeatureCollection", features: detailFeatures });
     } catch (e) {
       console.error("Failed to load neighborhoods:", e);
     }
@@ -156,31 +184,28 @@ export function Map() {
         data: { type: "FeatureCollection", features: [] },
       });
 
+      // Shared score color expression for neighborhood circles
+      const scoreColor = [
+        "interpolate", ["linear"], ["get", "avg_score"],
+        55, "#ef4444",
+        75, "#f97316",
+        90, "#eab308",
+        95, "#84cc16",
+        100, "#22c55e",
+      ] as mapboxgl.Expression;
+
+      // ── Combined bubbles (zoom 9 – 11) ─────────────────────────────────────
       m.addLayer({
         id: "neighborhoods-circles",
         type: "circle",
         source: "neighborhoods",
-        maxzoom: 13,
+        maxzoom: 11,
         paint: {
           "circle-radius": [
-            "interpolate",
-            ["linear"],
-            ["get", "building_count"],
-            100, 12,
-            1000, 20,
-            10000, 35,
-            50000, 50,
+            "interpolate", ["linear"], ["get", "building_count"],
+            100, 12,  1000, 20,  10000, 35,  50000, 50,
           ],
-          "circle-color": [
-            "interpolate",
-            ["linear"],
-            ["get", "avg_score"],
-            55, "#ef4444",
-            75, "#f97316",
-            90, "#eab308",
-            95, "#84cc16",
-            100, "#22c55e",
-          ],
+          "circle-color": scoreColor,
           "circle-opacity": 0.6,
           "circle-stroke-width": 1,
           "circle-stroke-color": "#ffffff",
@@ -192,15 +217,64 @@ export function Map() {
         id: "neighborhoods-labels",
         type: "symbol",
         source: "neighborhoods",
+        maxzoom: 11,
+        layout: {
+          "text-field": [
+            "concat",
+            ["get", "name"],
+            "\n",
+            ["to-string", ["round", ["get", "avg_score"]]],
+          ],
+          "text-size": 11,
+          "text-font": ["DIN Pro Medium", "Arial Unicode MS Regular"],
+          "text-allow-overlap": false,
+        },
+        paint: {
+          "text-color": "#ffffff",
+          "text-halo-color": "#000000",
+          "text-halo-width": 1,
+        },
+      });
+
+      // ── Detail bubbles — split sub-neighborhoods (zoom 11 – 13) ────────────
+      m.addSource("neighborhoods-detail", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      m.addLayer({
+        id: "neighborhoods-detail-circles",
+        type: "circle",
+        source: "neighborhoods-detail",
+        minzoom: 11,
+        maxzoom: 13,
+        paint: {
+          "circle-radius": [
+            "interpolate", ["linear"], ["get", "building_count"],
+            50, 9,  500, 14,  5000, 22,  25000, 32,
+          ],
+          "circle-color": scoreColor,
+          "circle-opacity": 0.65,
+          "circle-stroke-width": 1,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-opacity": 0.35,
+        },
+      });
+
+      m.addLayer({
+        id: "neighborhoods-detail-labels",
+        type: "symbol",
+        source: "neighborhoods-detail",
+        minzoom: 11,
         maxzoom: 13,
         layout: {
           "text-field": [
-            "step", ["zoom"],
-            ["concat", ["get", "name_short"], "\n", ["to-string", ["round", ["get", "avg_score"]]]],
-            11,
-            ["concat", ["get", "name"], "\n", ["to-string", ["round", ["get", "avg_score"]]]],
+            "concat",
+            ["get", "name"],
+            "\n",
+            ["to-string", ["round", ["get", "avg_score"]]],
           ],
-          "text-size": ["interpolate", ["linear"], ["zoom"], 9, 10, 12, 13],
+          "text-size": 11,
           "text-font": ["DIN Pro Medium", "Arial Unicode MS Regular"],
           "text-allow-overlap": false,
         },
