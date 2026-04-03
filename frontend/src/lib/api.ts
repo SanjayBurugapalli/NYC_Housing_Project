@@ -39,6 +39,19 @@ export async function fetchNeighborhoods(): Promise<{
   return fetchApi("/api/neighborhoods");
 }
 
+export interface SubNeighborhoodScore {
+  name: string;
+  avg_score: number;
+  building_count: number;
+  centroid: [number, number];
+}
+
+export async function fetchSubNeighborhoods(): Promise<{
+  sub_neighborhoods: SubNeighborhoodScore[];
+}> {
+  return fetchApi("/api/neighborhoods/detail");
+}
+
 export async function searchBuildings(query: string): Promise<SearchResult> {
   return fetchApi("/api/search", {
     method: "POST",

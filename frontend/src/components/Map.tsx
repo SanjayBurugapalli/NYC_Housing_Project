@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
 import { useStore } from "@/lib/store";
-import { fetchNeighborhoods } from "@/lib/api";
+import { fetchNeighborhoods, fetchSubNeighborhoods } from "@/lib/api";
 import { NEIGHBORHOOD_SPLITS } from "@/lib/neighborhoodSplits";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -85,10 +85,21 @@ export function Map() {
 
   const loadNeighborhoods = useCallback(async (m: mapboxgl.Map) => {
     try {
-      const data = await fetchNeighborhoods();
-      const valid = data.neighborhoods.filter((n) => n.centroid && n.centroid.length === 2);
+      const [neighborhoodData, subData] = await Promise.all([
+        fetchNeighborhoods(),
+        fetchSubNeighborhoods(),
+      ]);
 
-      // Combined features — one bubble per community district (shown at zoom < 11)
+      const valid = neighborhoodData.neighborhoods.filter(
+        (n) => n.centroid && n.centroid.length === 2
+      );
+
+      // Build a lookup from sub-neighborhood name → computed score/count
+      const subScoreLookup = Object.fromEntries(
+        subData.sub_neighborhoods.map((s) => [s.name, s])
+      ) as Record<string, (typeof subData.sub_neighborhoods)[0]>;
+
+      // Combined features — one bubble per community district (zoom < 11)
       const combinedFeatures = valid.map((n) => ({
         type: "Feature" as const,
         geometry: { type: "Point" as const, coordinates: n.centroid },
@@ -100,7 +111,7 @@ export function Map() {
         },
       }));
 
-      // Detail features — split compound names into sub-neighborhood bubbles (shown at zoom 11–13)
+      // Detail features — individual sub-neighborhood bubbles (zoom 11–13)
       const detailFeatures: Array<{
         type: "Feature";
         geometry: { type: "Point"; coordinates: [number, number] };
@@ -110,21 +121,31 @@ export function Map() {
       for (const n of valid) {
         const splits = NEIGHBORHOOD_SPLITS[n.name];
         if (splits && splits.length > 0) {
-          // One smaller bubble per sub-neighborhood
-          const countEach = Math.round(n.building_count / splits.length);
           for (const sub of splits) {
+            // Use computed score if available, fall back to parent CD score
+            const computed = subScoreLookup[sub.name];
             detailFeatures.push({
               type: "Feature",
               geometry: { type: "Point", coordinates: [sub.lng, sub.lat] },
-              properties: { name: sub.name, borough: n.borough, avg_score: n.avg_score, building_count: countEach },
+              properties: {
+                name: sub.name,
+                borough: n.borough,
+                avg_score: computed?.avg_score ?? n.avg_score,
+                building_count: computed?.building_count ?? Math.round(n.building_count / splits.length),
+              },
             });
           }
         } else {
-          // No split defined — show full compound name at detail level too
+          // No split — show at detail level with same data
           detailFeatures.push({
             type: "Feature",
             geometry: { type: "Point", coordinates: n.centroid as [number, number] },
-            properties: { name: n.name, borough: n.borough, avg_score: n.avg_score, building_count: n.building_count },
+            properties: {
+              name: n.name,
+              borough: n.borough,
+              avg_score: n.avg_score,
+              building_count: n.building_count,
+            },
           });
         }
       }
