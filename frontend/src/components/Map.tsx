@@ -95,6 +95,7 @@ export function Map() {
           },
           properties: {
             name: n.name,
+            name_short: n.name.includes("/") ? n.name.split("/")[0].trim() : n.name,
             borough: n.borough,
             avg_score: n.avg_score,
             building_count: n.building_count,
@@ -194,12 +195,12 @@ export function Map() {
         maxzoom: 13,
         layout: {
           "text-field": [
-            "concat",
-            ["get", "name"],
-            "\n",
-            ["to-string", ["round", ["get", "avg_score"]]],
+            "step", ["zoom"],
+            ["concat", ["get", "name_short"], "\n", ["to-string", ["round", ["get", "avg_score"]]]],
+            11,
+            ["concat", ["get", "name"], "\n", ["to-string", ["round", ["get", "avg_score"]]]],
           ],
-          "text-size": 11,
+          "text-size": ["interpolate", ["linear"], ["zoom"], 9, 10, 12, 13],
           "text-font": ["DIN Pro Medium", "Arial Unicode MS Regular"],
           "text-allow-overlap": false,
         },

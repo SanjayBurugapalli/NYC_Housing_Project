@@ -53,11 +53,11 @@ export default function Home() {
       {/* Info button */}
       <button
         onClick={() => setShowInfo(true)}
-        className="absolute bottom-6 right-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-gray-800/90 text-sm font-bold text-blue-400 backdrop-blur-sm hover:bg-gray-700 hover:text-white transition-colors border border-gray-700"
+        className="absolute bottom-6 right-4 z-10 flex items-center gap-1.5 rounded-lg border border-gray-600 bg-gray-800/95 px-3 py-2 text-sm font-semibold text-blue-400 backdrop-blur-sm hover:bg-gray-700 hover:text-white transition-colors shadow-lg"
         aria-label="About this project"
-        title="About / Scoring / Glossary"
       >
-        ?
+        <span className="text-base leading-none">?</span>
+        <span>About &amp; Guide</span>
       </button>
 
       {/* Info panel */}
