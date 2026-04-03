@@ -3,6 +3,8 @@
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.neighborhood_names import get_neighborhood_name
+
 GRADE_MAP = {100: "A", 80: "B", 60: "C", 40: "D", 20: "F"}
 
 
@@ -118,7 +120,8 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
     # Recent complaints (last 50)
     complaints_result = await db.execute(
         text("""
-            SELECT id, source, complaint_type, created_date, status, description
+            SELECT id, source, complaint_type, descriptor, created_date, closed_date,
+                   status, description, category, resolution_days
             FROM complaints
             WHERE bbl = :bbl
             ORDER BY created_date DESC NULLS LAST
@@ -130,10 +133,14 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         {
             "id": str(row.id),
             "type": row.complaint_type,
+            "descriptor": row.descriptor,
             "date": row.created_date.strftime("%Y-%m-%d") if row.created_date else None,
+            "closed_date": row.closed_date.strftime("%Y-%m-%d") if row.closed_date else None,
             "status": row.status,
             "source": row.source,
             "description": row.description,
+            "category": row.category,
+            "resolution_days": row.resolution_days,
         }
         for row in complaints_result
     ]
@@ -141,7 +148,9 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
     # Recent violations (last 50, excluding admin filings, dismissed, and blank entries)
     violations_result = await db.execute(
         text("""
-            SELECT id, source, violation_type, severity, inspection_date, status, description
+            SELECT id, source, violation_type, severity, inspection_date, status, description,
+                   order_number, status_date, approved_date,
+                   original_certify_by_date, original_correct_by_date
             FROM violations
             WHERE bbl = :bbl
                 AND (description IS NULL OR description NOT ILIKE :filing_pattern)
@@ -161,6 +170,11 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
             "status": row.status,
             "source": row.source,
             "description": row.description,
+            "order_number": row.order_number,
+            "status_date": row.status_date.strftime("%Y-%m-%d") if row.status_date else None,
+            "approved_date": row.approved_date.strftime("%Y-%m-%d") if row.approved_date else None,
+            "certify_by_date": row.original_certify_by_date.strftime("%Y-%m-%d") if row.original_certify_by_date else None,
+            "correct_by_date": row.original_correct_by_date.strftime("%Y-%m-%d") if row.original_correct_by_date else None,
         }
         for row in violations_result
     ]
@@ -256,7 +270,7 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         "bin": b["bin"],
         "address": b["address"],
         "borough": b["borough"],
-        "neighborhood": b["neighborhood"],
+        "neighborhood": get_neighborhood_name(b["neighborhood"] or "", b["borough"] or "") if b.get("neighborhood") else b["neighborhood"],
         "latitude": b["latitude"],
         "longitude": b["longitude"],
         "residential_units": b["residential_units"] or 0,

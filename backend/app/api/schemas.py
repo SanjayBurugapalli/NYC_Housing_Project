@@ -52,10 +52,14 @@ class ScoreBreakdownResponse(BaseModel):
 class ComplaintResponse(BaseModel):
     id: str
     type: str | None = None
+    descriptor: str | None = None
     date: str | None = None
+    closed_date: str | None = None
     status: str | None = None
     source: str
     description: str | None = None
+    category: str | None = None
+    resolution_days: int | None = None
 
 
 class ViolationResponse(BaseModel):
@@ -66,6 +70,11 @@ class ViolationResponse(BaseModel):
     status: str | None = None
     source: str
     description: str | None = None
+    order_number: str | None = None
+    status_date: str | None = None
+    approved_date: str | None = None
+    certify_by_date: str | None = None
+    correct_by_date: str | None = None
 
 
 class LitigationResponse(BaseModel):

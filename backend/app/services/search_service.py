@@ -1,14 +1,17 @@
-"""Keyword-based search for NYC residential buildings.
+"""Search for NYC residential buildings.
 
-Translates natural language queries into structured database queries
-using keyword matching and regex patterns. No external API required.
+Combines keyword parsing (fast, no API needed) with Claude API fallback
+for complex natural language queries.
 """
 
 import logging
 import re
 
+import anthropic
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -178,16 +181,21 @@ def parse_search_query(query: str) -> dict:
     return filters
 
 
+def _word_match(needle: str, haystack: str) -> bool:
+    """Check if needle appears as a whole word/phrase in haystack."""
+    return bool(re.search(r'\b' + re.escape(needle) + r'\b', haystack))
+
+
 def _extract_borough(q: str, filters: dict) -> None:
     for alias, borough in _BOROUGH_SORTED:
-        if alias in q:
+        if _word_match(alias, q):
             filters["borough"] = borough
             return
 
 
 def _extract_neighborhood(q: str, filters: dict) -> None:
     for alias, cd_code in _NEIGHBORHOOD_SORTED:
-        if alias in q:
+        if _word_match(alias, q):
             filters["neighborhood"] = cd_code
             return
 
@@ -345,11 +353,33 @@ def _describe_filters(filters: dict) -> str | None:
 async def search_buildings_ai(
     db: AsyncSession, query: str
 ) -> dict:
-    """Translate natural language into a structured search using keyword parsing."""
+    """Translate natural language into a structured search.
 
+    Strategy: try keyword parsing first (fast). If no filters extracted,
+    fall through to Claude API for complex queries.
+    """
+    # 1. Try keyword parsing
     filters = parse_search_query(query)
 
-    if not filters:
+    if filters:
+        logger.info(f"Keyword parsed '{query}' -> {filters}")
+        filters = validate_filters(filters)
+        results = await execute_search(db, filters)
+        return {
+            "results": results,
+            "total": len(results),
+            "query": query,
+            "clarification": _describe_filters(filters),
+        }
+
+    # 2. Fall through to Claude API
+    logger.info(f"No keyword match for '{query}', trying Claude API")
+    return await _claude_search(db, query)
+
+
+async def _claude_search(db: AsyncSession, query: str) -> dict:
+    """Use Claude API tool-use to translate query into structured filters."""
+    if not settings.anthropic_api_key:
         return {
             "results": [],
             "total": 0,
@@ -361,17 +391,100 @@ async def search_buildings_ai(
             ),
         }
 
-    logger.info(f"Parsed search query '{query}' -> {filters}")
+    try:
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
-    filters = validate_filters(filters)
-    results = await execute_search(db, filters)
+        tool = {
+            "name": "search_buildings",
+            "description": (
+                "Search NYC residential buildings by filters. "
+                "Returns buildings matching criteria with health scores."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "borough": {
+                        "type": "string",
+                        "enum": ["MANHATTAN", "BRONX", "BROOKLYN", "QUEENS", "STATEN ISLAND"],
+                    },
+                    "neighborhood": {
+                        "type": "string",
+                        "description": "Community district code (e.g. '110' for Central Harlem)",
+                    },
+                    "min_score": {"type": "number", "minimum": 0, "maximum": 100},
+                    "max_score": {"type": "number", "minimum": 0, "maximum": 100},
+                    "complaint_types": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["heat", "pest", "noise", "structural"]},
+                    },
+                    "min_units": {"type": "integer", "minimum": 1},
+                    "max_units": {"type": "integer"},
+                    "min_year_built": {"type": "integer"},
+                    "max_year_built": {"type": "integer"},
+                    "has_litigation": {"type": "boolean"},
+                    "sort_by": {
+                        "type": "string",
+                        "enum": ["score_asc", "score_desc", "complaints", "violations"],
+                    },
+                },
+            },
+        }
 
-    return {
-        "results": results,
-        "total": len(results),
-        "query": query,
-        "clarification": _describe_filters(filters),
-    }
+        neighborhood_context = ", ".join(f"{k}={v}" for k, v in list(CD_NAMES.items())[:20])
+
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=512,
+            system=(
+                "Translate NYC building search queries into structured filters. "
+                "Use the search_buildings tool. "
+                f"Neighborhood codes: {neighborhood_context}... "
+                "For 'worst'/'unhealthy', use low max_score. "
+                "For 'best'/'healthy', use high min_score. "
+                "Always sort by score_asc for 'worst' queries."
+            ),
+            messages=[{"role": "user", "content": query}],
+            tools=[tool],
+        )
+
+        filters = {}
+        clarification = None
+        for block in response.content:
+            if block.type == "tool_use" and block.name == "search_buildings":
+                filters = block.input
+            elif block.type == "text" and block.text:
+                clarification = block.text
+
+        if not filters:
+            return {
+                "results": [],
+                "total": 0,
+                "query": query,
+                "clarification": clarification or "Could not understand the search. Try rephrasing.",
+            }
+
+        filters = validate_filters(filters)
+        results = await execute_search(db, filters)
+
+        return {
+            "results": results,
+            "total": len(results),
+            "query": query,
+            "clarification": clarification or _describe_filters(filters),
+        }
+
+    except Exception as e:
+        logger.error(f"Claude API search failed: {e}")
+        return {
+            "results": [],
+            "total": 0,
+            "query": query,
+            "clarification": (
+                "Could not understand the search query. "
+                "Try keywords like borough names, neighborhood names, "
+                "'rat', 'heat', 'noise', 'worst', 'best', 'pre-war', etc."
+            ),
+        }
 
 
 def validate_filters(filters: dict) -> dict:

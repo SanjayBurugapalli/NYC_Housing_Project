@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchBuildingDetail } from "@/lib/api";
+import type { ViolationRecord, ComplaintRecord } from "@/types/building";
 import { useStore } from "@/lib/store";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 
@@ -44,6 +45,7 @@ function gradeColor(grade: string): string {
 
 export function BuildingPanel({ bbl }: { bbl: string }) {
   const selectBuilding = useStore((s) => s.selectBuilding);
+  const hasSearchResults = useStore((s) => s.searchResults.length > 0);
 
   // Escape key to close panel
   useEffect(() => {
@@ -68,14 +70,25 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
       {/* Header */}
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-700 bg-gray-800 px-4 py-3">
         <h2 className="text-lg font-semibold">Building Detail</h2>
-        <button
-          onClick={() => selectBuilding(null)}
-          className="rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          aria-label="Close building detail panel"
-          title="Close (Esc)"
-        >
-          ✕
-        </button>
+        <div className="flex items-center gap-1">
+          {hasSearchResults && (
+            <button
+              onClick={() => selectBuilding(null)}
+              className="rounded px-2 py-1 text-xs text-blue-400 hover:bg-gray-700 hover:text-blue-300 focus:outline-none"
+              aria-label="Back to search results"
+            >
+              ← Results
+            </button>
+          )}
+          <button
+            onClick={() => selectBuilding(null)}
+            className="rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            aria-label="Close building detail panel"
+            title="Close (Esc)"
+          >
+            ✕
+          </button>
+        </div>
       </div>
 
       {/* Content */}
@@ -152,58 +165,12 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
 
             {/* Recent Violations */}
             {data.violations && data.violations.length > 0 && (
-              <div>
-                <h4 className="mb-2 font-semibold">
-                  Recent Violations ({data.violations.length})
-                </h4>
-                <div className="space-y-2">
-                  {data.violations.slice(0, 10).map((v) => (
-                    <div
-                      key={v.id}
-                      className="rounded border border-gray-700 p-2 text-sm"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span
-                          className={
-                            v.severity === "C"
-                              ? "text-red-400"
-                              : v.severity === "B"
-                                ? "text-yellow-400"
-                                : "text-gray-400"
-                          }
-                        >
-                          Class {v.severity}
-                        </span>
-                        <span className="text-gray-500">{v.date}</span>
-                      </div>
-                      <p className="mt-1 text-gray-300">{v.description}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <ViolationsList violations={data.violations} />
             )}
 
             {/* Recent Complaints */}
             {data.complaints && data.complaints.length > 0 && (
-              <div>
-                <h4 className="mb-2 font-semibold">
-                  Recent Complaints ({data.complaints.length})
-                </h4>
-                <div className="space-y-2">
-                  {data.complaints.slice(0, 10).map((c) => (
-                    <div
-                      key={c.id}
-                      className="rounded border border-gray-700 p-2 text-sm"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-blue-400">{c.type}</span>
-                        <span className="text-gray-500">{c.date}</span>
-                      </div>
-                      <p className="mt-1 text-gray-300">{c.description}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <ComplaintsList complaints={data.complaints} />
             )}
 
             {/* Litigations */}
@@ -273,6 +240,159 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Expandable Violations List                                        */
+/* ------------------------------------------------------------------ */
+
+function ViolationsList({ violations }: { violations: ViolationRecord[] }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  return (
+    <div>
+      <h4 className="mb-2 font-semibold">
+        Recent Violations ({violations.length})
+      </h4>
+      <div className="space-y-2">
+        {violations.slice(0, 20).map((v) => {
+          const isExpanded = expandedId === v.id;
+          return (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => setExpandedId(isExpanded ? null : v.id)}
+              className="w-full rounded border border-gray-700 p-2 text-sm text-left hover:border-gray-500 transition-colors"
+            >
+              <div className="flex items-center justify-between">
+                <span
+                  className={
+                    v.severity === "C"
+                      ? "text-red-400"
+                      : v.severity === "B"
+                        ? "text-yellow-400"
+                        : "text-gray-400"
+                  }
+                >
+                  {v.severity ? `Class ${v.severity}` : v.source}
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500">{v.date}</span>
+                  <span className="text-gray-500 text-xs">{isExpanded ? "▲" : "▼"}</span>
+                </div>
+              </div>
+              {v.description && (
+                <p className={`mt-1 text-gray-300 ${isExpanded ? "" : "line-clamp-1"}`}>
+                  {v.description}
+                </p>
+              )}
+
+              {isExpanded && (
+                <div className="mt-2 space-y-1 border-t border-gray-700 pt-2 text-xs text-gray-400">
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    {v.source && (
+                      <><span className="text-gray-500">Source</span><span>{v.source}</span></>
+                    )}
+                    {v.type && (
+                      <><span className="text-gray-500">Type</span><span>{v.type}</span></>
+                    )}
+                    {v.status && (
+                      <><span className="text-gray-500">Status</span><span>{v.status}</span></>
+                    )}
+                    {v.order_number && (
+                      <><span className="text-gray-500">Order #</span><span>{v.order_number}</span></>
+                    )}
+                    {v.approved_date && (
+                      <><span className="text-gray-500">Approved</span><span>{v.approved_date}</span></>
+                    )}
+                    {v.status_date && (
+                      <><span className="text-gray-500">Status Date</span><span>{v.status_date}</span></>
+                    )}
+                    {v.certify_by_date && (
+                      <><span className="text-gray-500">Certify By</span><span>{v.certify_by_date}</span></>
+                    )}
+                    {v.correct_by_date && (
+                      <><span className="text-gray-500">Correct By</span><span className="text-yellow-400">{v.correct_by_date}</span></>
+                    )}
+                  </div>
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Expandable Complaints List                                        */
+/* ------------------------------------------------------------------ */
+
+function ComplaintsList({ complaints }: { complaints: ComplaintRecord[] }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  return (
+    <div>
+      <h4 className="mb-2 font-semibold">
+        Recent Complaints ({complaints.length})
+      </h4>
+      <div className="space-y-2">
+        {complaints.slice(0, 20).map((c) => {
+          const isExpanded = expandedId === c.id;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => setExpandedId(isExpanded ? null : c.id)}
+              className="w-full rounded border border-gray-700 p-2 text-sm text-left hover:border-gray-500 transition-colors"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-blue-400">{c.type}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500">{c.date}</span>
+                  <span className="text-gray-500 text-xs">{isExpanded ? "▲" : "▼"}</span>
+                </div>
+              </div>
+              {c.description && (
+                <p className={`mt-1 text-gray-300 ${isExpanded ? "" : "line-clamp-1"}`}>
+                  {c.description}
+                </p>
+              )}
+
+              {isExpanded && (
+                <div className="mt-2 space-y-1 border-t border-gray-700 pt-2 text-xs text-gray-400">
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    {c.source && (
+                      <><span className="text-gray-500">Source</span><span>{c.source}</span></>
+                    )}
+                    {c.descriptor && (
+                      <><span className="text-gray-500">Descriptor</span><span>{c.descriptor}</span></>
+                    )}
+                    {c.category && (
+                      <><span className="text-gray-500">Category</span><span className="capitalize">{c.category}</span></>
+                    )}
+                    {c.status && (
+                      <><span className="text-gray-500">Status</span>
+                      <span className={c.status === "Closed" ? "text-gray-500" : "text-yellow-400"}>
+                        {c.status}
+                      </span></>
+                    )}
+                    {c.closed_date && (
+                      <><span className="text-gray-500">Closed</span><span>{c.closed_date}</span></>
+                    )}
+                    {c.resolution_days != null && (
+                      <><span className="text-gray-500">Resolution</span><span>{c.resolution_days} days</span></>
+                    )}
+                  </div>
+                </div>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

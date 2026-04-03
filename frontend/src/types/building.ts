@@ -40,10 +40,14 @@ export interface ScoreBreakdown {
 export interface ComplaintRecord {
   id: string;
   type: string;
+  descriptor: string | null;
   date: string;
+  closed_date: string | null;
   status: string;
   source: "311" | "HPD" | "DOB";
   description: string;
+  category: string | null;
+  resolution_days: number | null;
 }
 
 export interface ViolationRecord {
@@ -54,6 +58,11 @@ export interface ViolationRecord {
   status: string;
   source: "HPD" | "DOB";
   description: string;
+  order_number: string | null;
+  status_date: string | null;
+  approved_date: string | null;
+  certify_by_date: string | null;
+  correct_by_date: string | null;
 }
 
 export interface LitigationRecord {

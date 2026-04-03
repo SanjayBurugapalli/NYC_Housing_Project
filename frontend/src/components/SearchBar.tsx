@@ -12,8 +12,10 @@ export function SearchBar() {
     setSearchResults,
     setIsSearching,
     setSearchError,
+    setSearchClarification,
     isSearching,
     searchError,
+    searchClarification,
     clearSearch,
   } = useStore();
 
@@ -37,7 +39,10 @@ export function SearchBar() {
       const result = await searchBuildings(query);
       setSearchResults(result.results);
       if (result.results.length === 0) {
-        setSearchError("No buildings found matching your search.");
+        setSearchError(result.clarification || "No buildings found matching your search.");
+        setSearchClarification(null);
+      } else {
+        setSearchClarification(result.clarification || null);
       }
     } catch {
       setSearchResults([]);
@@ -95,6 +100,13 @@ export function SearchBar() {
       {searchError && (
         <div className="absolute top-full mt-2 w-full rounded-lg border border-red-800 bg-red-900/90 px-4 py-2 text-sm text-red-200 backdrop-blur-sm">
           {searchError}
+        </div>
+      )}
+
+      {/* Clarification / filter description — only show when no results panel is open */}
+      {searchClarification && !searchError && (
+        <div className="absolute top-full mt-2 w-full rounded-lg border border-blue-800 bg-blue-900/80 px-4 py-2 text-sm text-blue-200 backdrop-blur-sm md:hidden">
+          {searchClarification}
         </div>
       )}
     </div>

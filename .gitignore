@@ -40,3 +40,4 @@ data/raw/
 # Tiles
 tiles/*.mbtiles
 tiles/*.geojson
+.claude/

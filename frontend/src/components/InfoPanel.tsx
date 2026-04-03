@@ -128,11 +128,11 @@ function ScoringTab() {
 
       <div className="rounded bg-gray-700/50 p-3">
         <div className="grid grid-cols-5 gap-2 text-center text-xs font-medium">
-          <div><span className="text-score-excellent text-lg font-bold">A</span><br/>90&ndash;100</div>
-          <div><span className="text-score-good text-lg font-bold">B</span><br/>80&ndash;89</div>
-          <div><span className="text-score-fair text-lg font-bold">C</span><br/>65&ndash;79</div>
-          <div><span className="text-score-poor text-lg font-bold">D</span><br/>50&ndash;64</div>
-          <div><span className="text-score-critical text-lg font-bold">F</span><br/>0&ndash;49</div>
+          <div><span className="text-score-excellent text-lg font-bold">A</span><br/>97&ndash;100</div>
+          <div><span className="text-score-good text-lg font-bold">B</span><br/>90&ndash;96</div>
+          <div><span className="text-score-fair text-lg font-bold">C</span><br/>75&ndash;89</div>
+          <div><span className="text-score-poor text-lg font-bold">D</span><br/>55&ndash;74</div>
+          <div><span className="text-score-critical text-lg font-bold">F</span><br/>0&ndash;54</div>
         </div>
       </div>
 
@@ -155,7 +155,7 @@ function ScoringTab() {
         <h3 className="mb-2 font-semibold text-white">How Scores Are Calculated</h3>
         <ul className="list-disc space-y-1 pl-5 text-gray-400">
           <li><span className="text-gray-300">Per-unit normalization:</span> complaint and violation counts are divided by the number of residential units, so larger buildings aren&apos;t penalized for naturally receiving more reports.</li>
-          <li><span className="text-gray-300">Time decay:</span> recent issues (0&ndash;6 months) count 2x, 6&ndash;12 months count 1.5x, 1&ndash;2 years count 1x, and older issues count 0.5x.</li>
+          <li><span className="text-gray-300">5-year window:</span> only data from the last 5 years is considered. Recent issues (0&ndash;6 months) count 2x, 6&ndash;12 months 1.5x, 1&ndash;2 years 0.5x, 2&ndash;5 years 0.25x.</li>
           <li><span className="text-gray-300">Exponential decay scoring:</span> each sub-score uses the formula <code className="rounded bg-gray-700 px-1 text-xs">100 &times; e^(-rate &times; issues_per_unit)</code>, so buildings with zero issues score 100 and scores decrease smoothly as issues accumulate.</li>
         </ul>
       </div>

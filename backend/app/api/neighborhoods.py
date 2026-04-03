@@ -5,6 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas import NeighborhoodListResponse, NeighborhoodResponse
+from app.api.neighborhood_names import get_neighborhood_name
 from app.core.database import get_db
 
 router = APIRouter(tags=["neighborhoods"])
@@ -38,9 +39,11 @@ async def list_neighborhoods(
         if math.isnan(score):
             continue
 
+        display_name = get_neighborhood_name(row.name, row.borough)
+
         neighborhoods.append(
             NeighborhoodResponse(
-                name=row.name,
+                name=display_name,
                 borough=row.borough,
                 avg_score=round(score, 1),
                 building_count=row.building_count or 0,

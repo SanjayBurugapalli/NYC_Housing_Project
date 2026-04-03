@@ -119,18 +119,29 @@ DECAY_RATES = {
 }
 
 
+# Hard cutoff: only consider data from the last 5 years
+DATA_CUTOFF_YEARS = 5
+
+
 def time_weight(dates: pd.Series) -> pd.Series:
-    """Gradual time decay: recent issues matter more, old ones fade."""
+    """Gradual time decay: recent issues matter more, old ones fade.
+
+    Anything older than DATA_CUTOFF_YEARS gets weight 0 (excluded).
+    Weights are assigned from oldest to newest so newer tiers override older ones.
+    """
     now = datetime.now(timezone.utc)
-    cutoff_6mo = now - timedelta(days=180)
-    cutoff_12mo = now - timedelta(days=365)
+    cutoff_5yr = now - timedelta(days=DATA_CUTOFF_YEARS * 365)
     cutoff_24mo = now - timedelta(days=730)
+    cutoff_12mo = now - timedelta(days=365)
+    cutoff_6mo = now - timedelta(days=180)
 
     dates = pd.to_datetime(dates, utc=True)
-    weights = pd.Series(0.5, index=dates.index)  # default: 2+ years old
-    weights[dates >= cutoff_24mo] = 1.0   # 1-2 years
-    weights[dates >= cutoff_12mo] = 1.5   # 6-12 months
-    weights[dates >= cutoff_6mo] = 2.0    # 0-6 months
+    # Assign from oldest → newest; newer tiers override older ones
+    weights = pd.Series(0.0, index=dates.index)    # older than 5yr = excluded
+    weights[dates >= cutoff_5yr] = 0.25            # 2-5 years
+    weights[dates >= cutoff_24mo] = 0.5            # 1-2 years
+    weights[dates >= cutoff_12mo] = 1.5            # 6-12 months
+    weights[dates >= cutoff_6mo] = 2.0             # 0-6 months
     return weights
 
 
@@ -235,13 +246,15 @@ def compute_complaint_score(
     engine, buildings: pd.DataFrame, category: str, decay_rate: float
 ) -> pd.Series:
     """Compute a sub-score based on complaint counts per unit with time decay."""
+    since = (datetime.now(timezone.utc) - timedelta(days=DATA_CUTOFF_YEARS * 365)).strftime("%Y-%m-%d")
     complaints = pd.read_sql(
         text(
             "SELECT bbl, created_date FROM complaints "
-            "WHERE category = :category AND bbl IS NOT NULL"
+            "WHERE category = :category AND bbl IS NOT NULL "
+            "AND created_date >= :since"
         ),
         engine,
-        params={"category": category},
+        params={"category": category, "since": since},
     )
 
     if complaints.empty:
@@ -263,21 +276,26 @@ def compute_pest_score(
     engine, buildings: pd.DataFrame, decay_rate: float
 ) -> pd.Series:
     """Combine pest complaints and rodent inspections."""
+    since = (datetime.now(timezone.utc) - timedelta(days=DATA_CUTOFF_YEARS * 365)).strftime("%Y-%m-%d")
     pest_complaints = pd.read_sql(
         text(
             "SELECT bbl, created_date FROM complaints "
-            "WHERE category = 'pest' AND bbl IS NOT NULL"
+            "WHERE category = 'pest' AND bbl IS NOT NULL "
+            "AND created_date >= :since"
         ),
         engine,
+        params={"since": since},
     )
 
     rodent = pd.read_sql(
         text(
             "SELECT bbl, inspection_date FROM rodent_inspections "
             "WHERE (result ILIKE '%%rat%%' OR result ILIKE '%%active%%') "
-            "AND bbl IS NOT NULL"
+            "AND bbl IS NOT NULL "
+            "AND inspection_date >= :since"
         ),
         engine,
+        params={"since": since},
     )
 
     combined = pd.DataFrame()
@@ -307,23 +325,27 @@ def compute_structural_score(
     engine, buildings: pd.DataFrame, decay_rate: float
 ) -> pd.Series:
     """Score based on DOB violations/complaints (excluding administrative/filing violations)."""
+    since = (datetime.now(timezone.utc) - timedelta(days=DATA_CUTOFF_YEARS * 365)).strftime("%Y-%m-%d")
     violations = pd.read_sql(
         text(
             "SELECT bbl, inspection_date FROM violations "
             "WHERE source = 'DOB' AND bbl IS NOT NULL "
             "AND (description IS NULL OR description NOT ILIKE :filing_pattern) "
-            "AND (violation_type NOT ILIKE :dismissed_pattern)"
+            "AND (violation_type NOT ILIKE :dismissed_pattern) "
+            "AND inspection_date >= :since"
         ),
         engine,
-        params={"filing_pattern": "%failure to file%", "dismissed_pattern": "%dismissed%"},
+        params={"filing_pattern": "%failure to file%", "dismissed_pattern": "%dismissed%", "since": since},
     )
 
     dob_complaints = pd.read_sql(
         text(
             "SELECT bbl, created_date as inspection_date FROM complaints "
-            "WHERE source = 'DOB' AND bbl IS NOT NULL"
+            "WHERE source = 'DOB' AND bbl IS NOT NULL "
+            "AND created_date >= :since"
         ),
         engine,
+        params={"since": since},
     )
 
     combined = pd.concat([violations, dob_complaints])
@@ -347,12 +369,15 @@ def compute_hpd_severity_score(
     engine, buildings: pd.DataFrame, decay_rate: float
 ) -> pd.Series:
     """Score based on HPD violation severity (Class A/B/C). C is worst."""
+    since = (datetime.now(timezone.utc) - timedelta(days=DATA_CUTOFF_YEARS * 365)).strftime("%Y-%m-%d")
     violations = pd.read_sql(
         text(
             "SELECT bbl, severity, inspection_date FROM violations "
-            "WHERE source = 'HPD' AND bbl IS NOT NULL"
+            "WHERE source = 'HPD' AND bbl IS NOT NULL "
+            "AND inspection_date >= :since"
         ),
         engine,
+        params={"since": since},
     )
 
     if violations.empty:
@@ -376,9 +401,14 @@ def compute_hpd_severity_score(
 
 def compute_litigation_score(engine, buildings: pd.DataFrame) -> pd.Series:
     """Score based on litigation history with time decay."""
+    since = (datetime.now(timezone.utc) - timedelta(days=DATA_CUTOFF_YEARS * 365)).strftime("%Y-%m-%d")
     litigations = pd.read_sql(
-        "SELECT bbl, case_open_date FROM litigations WHERE bbl IS NOT NULL",
+        text(
+            "SELECT bbl, case_open_date FROM litigations "
+            "WHERE bbl IS NOT NULL AND case_open_date >= :since"
+        ),
         engine,
+        params={"since": since},
     )
 
     if litigations.empty:
@@ -397,11 +427,16 @@ def compute_litigation_score(engine, buildings: pd.DataFrame) -> pd.Series:
 
 
 def get_raw_counts(engine, buildings: pd.DataFrame) -> pd.DataFrame:
-    """Get raw complaint/violation/rodent/litigation counts per building."""
+    """Get raw complaint/violation/rodent/litigation counts per building (within cutoff)."""
+    since = (datetime.now(timezone.utc) - timedelta(days=DATA_CUTOFF_YEARS * 365)).strftime("%Y-%m-%d")
+
     complaint_counts = pd.read_sql(
-        "SELECT bbl, COUNT(*) as total_complaints FROM complaints "
-        "WHERE bbl IS NOT NULL GROUP BY bbl",
+        text(
+            "SELECT bbl, COUNT(*) as total_complaints FROM complaints "
+            "WHERE bbl IS NOT NULL AND created_date >= :since GROUP BY bbl"
+        ),
         engine,
+        params={"since": since},
     )
 
     violation_counts = pd.read_sql(
@@ -410,10 +445,11 @@ def get_raw_counts(engine, buildings: pd.DataFrame) -> pd.DataFrame:
             "WHERE bbl IS NOT NULL "
             "AND (description IS NULL OR description NOT ILIKE :filing_pattern) "
             "AND (violation_type NOT ILIKE :dismissed_pattern) "
+            "AND inspection_date >= :since "
             "GROUP BY bbl"
         ),
         engine,
-        params={"filing_pattern": "%failure to file%", "dismissed_pattern": "%dismissed%"},
+        params={"filing_pattern": "%failure to file%", "dismissed_pattern": "%dismissed%", "since": since},
     )
 
     rodent_counts = pd.read_sql(
@@ -421,16 +457,20 @@ def get_raw_counts(engine, buildings: pd.DataFrame) -> pd.DataFrame:
             "SELECT bbl, COUNT(*) as total_rodent FROM rodent_inspections "
             "WHERE bbl IS NOT NULL "
             "AND (result ILIKE :rat_pattern OR result ILIKE :active_pattern) "
+            "AND inspection_date >= :since "
             "GROUP BY bbl"
         ),
         engine,
-        params={"rat_pattern": "%rat%", "active_pattern": "%active%"},
+        params={"rat_pattern": "%rat%", "active_pattern": "%active%", "since": since},
     )
 
     litigation_counts = pd.read_sql(
-        "SELECT bbl, COUNT(*) as total_litigations FROM litigations "
-        "WHERE bbl IS NOT NULL GROUP BY bbl",
+        text(
+            "SELECT bbl, COUNT(*) as total_litigations FROM litigations "
+            "WHERE bbl IS NOT NULL AND case_open_date >= :since GROUP BY bbl"
+        ),
         engine,
+        params={"since": since},
     )
 
     counts = buildings[["bbl", "residential_units"]].copy()

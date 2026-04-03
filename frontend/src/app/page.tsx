@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { SearchBar } from "@/components/SearchBar";
 import { BuildingPanel } from "@/components/BuildingPanel";
 import { InfoPanel } from "@/components/InfoPanel";
+import { SearchResultsPanel } from "@/components/SearchResultsPanel";
 import { Legend } from "@/components/Legend";
 import { useStore } from "@/lib/store";
 
@@ -18,7 +19,10 @@ export default function Home() {
   const buildingCount = useStore((s) => s.buildingCount);
   const zoom = useStore((s) => s.zoom);
   const searchResults = useStore((s) => s.searchResults);
+  const searchClarification = useStore((s) => s.searchClarification);
   const [showInfo, setShowInfo] = useState(false);
+
+  const showSearchResults = searchResults.length > 0 && !selectedBuilding && !showInfo;
 
   return (
     <main className="relative h-screen w-screen">
@@ -66,6 +70,20 @@ export default function Home() {
           {/* Desktop: right sidebar */}
           <div className="absolute top-0 right-0 z-10 hidden h-full w-96 md:block">
             <InfoPanel onClose={() => setShowInfo(false)} />
+          </div>
+        </>
+      )}
+
+      {/* Search results panel — shows when results exist and no building is selected */}
+      {showSearchResults && (
+        <>
+          {/* Mobile: compact list at bottom */}
+          <div className="absolute bottom-0 left-0 right-0 z-20 h-[50vh] md:hidden">
+            <SearchResultsPanel clarification={searchClarification} />
+          </div>
+          {/* Desktop: right sidebar */}
+          <div className="absolute top-0 right-0 z-10 hidden h-full w-96 md:block">
+            <SearchResultsPanel clarification={searchClarification} />
           </div>
         </>
       )}
