@@ -21,6 +21,7 @@ BATCH_SIZE = 50000
 def pull_rodent_inspections(limit: int | None = None):
     """Pull rodent inspections and upsert."""
     client = get_socrata_client()
+    client.timeout = 300
     engine = get_db_engine()
 
     offset = 0
@@ -92,7 +93,9 @@ def transform_rodent(df: pd.DataFrame) -> pd.DataFrame:
         df.get("house_number", "").fillna("") + " " + df.get("street_name", "").fillna("")
     ).str.upper().str.strip()
 
-    df["borough"] = df["borough"].apply(normalize_borough)
+    df["borough"] = df["borough"].astype(str).replace("nan", None).apply(
+        lambda x: normalize_borough(x) if x else None
+    )
     if "bbl" in df.columns:
         df["bbl"] = pd.to_numeric(df["bbl"], errors="coerce").fillna(0).astype(int).astype(str).str.zfill(10)
 

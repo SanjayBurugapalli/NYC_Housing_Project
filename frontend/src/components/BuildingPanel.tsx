@@ -6,6 +6,34 @@ import { fetchBuildingDetail } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 
+function buildStreetEasyUrl(address: string, borough: string): string {
+  // StreetEasy building URLs use specific area names:
+  //   Manhattan → "new_york", Staten Island → "staten_island",
+  //   Brooklyn/Bronx → lowercase as-is.
+  //   Queens uses neighborhood names we can't predict, so fall back to search.
+  const boroughMap: Record<string, string> = {
+    MANHATTAN: "new_york",
+    BROOKLYN: "brooklyn",
+    BRONX: "bronx",
+    "STATEN ISLAND": "staten_island",
+  };
+
+  const area = boroughMap[borough.toUpperCase()];
+  if (area) {
+    const slug = `${address}-${area}`
+      .toLowerCase()
+      // Strip ordinal suffixes (19th→19, 1st→1, 2nd→2, 3rd→3)
+      .replace(/(\d+)(?:st|nd|rd|th)\b/g, "$1")
+      .replace(/[^a-z0-9_\s-]/g, "")
+      .replace(/\s+/g, "-");
+    return `https://streeteasy.com/building/${slug}`;
+  }
+
+  // Queens: StreetEasy uses neighborhood names, so link to search
+  const query = encodeURIComponent(`${address}, ${borough}, NY`);
+  return `https://streeteasy.com/search?query=${query}`;
+}
+
 function gradeColor(grade: string): string {
   if (grade === "A") return "text-score-excellent";
   if (grade === "B") return "text-score-good";
@@ -86,6 +114,15 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
                 </span>
                 <span className="text-sm text-gray-400">Health Grade</span>
               </div>
+              {/* StreetEasy link */}
+              <a
+                href={buildStreetEasyUrl(data.address, data.borough)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-flex items-center gap-1 rounded bg-gray-700 px-2.5 py-1 text-xs font-medium text-blue-400 hover:bg-gray-600 hover:text-blue-300 transition-colors"
+              >
+                View on StreetEasy ↗
+              </a>
             </div>
 
             {/* Building Info */}

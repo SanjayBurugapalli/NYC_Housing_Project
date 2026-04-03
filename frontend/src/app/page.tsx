@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import dynamic from "next/dynamic";
 import { SearchBar } from "@/components/SearchBar";
 import { BuildingPanel } from "@/components/BuildingPanel";
+import { InfoPanel } from "@/components/InfoPanel";
 import { Legend } from "@/components/Legend";
 import { useStore } from "@/lib/store";
 
@@ -16,6 +18,7 @@ export default function Home() {
   const buildingCount = useStore((s) => s.buildingCount);
   const zoom = useStore((s) => s.zoom);
   const searchResults = useStore((s) => s.searchResults);
+  const [showInfo, setShowInfo] = useState(false);
 
   return (
     <main className="relative h-screen w-screen">
@@ -42,6 +45,30 @@ export default function Home() {
       </div>
 
       <Legend />
+
+      {/* Info button */}
+      <button
+        onClick={() => setShowInfo(true)}
+        className="absolute bottom-6 right-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-gray-800/90 text-sm font-bold text-blue-400 backdrop-blur-sm hover:bg-gray-700 hover:text-white transition-colors border border-gray-700"
+        aria-label="About this project"
+        title="About / Scoring / Glossary"
+      >
+        ?
+      </button>
+
+      {/* Info panel */}
+      {showInfo && !selectedBuilding && (
+        <>
+          {/* Mobile: full-width bottom sheet */}
+          <div className="absolute bottom-0 left-0 right-0 z-20 h-[70vh] md:hidden">
+            <InfoPanel onClose={() => setShowInfo(false)} />
+          </div>
+          {/* Desktop: right sidebar */}
+          <div className="absolute top-0 right-0 z-10 hidden h-full w-96 md:block">
+            <InfoPanel onClose={() => setShowInfo(false)} />
+          </div>
+        </>
+      )}
 
       {/* Building detail panel — responsive */}
       {selectedBuilding && (

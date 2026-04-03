@@ -47,6 +47,7 @@ COMPLAINT_CATEGORY_MAP = {
 def pull_311(limit: int | None = None, days_back: int = 365):
     """Pull 311 complaints. Incremental — only fetches since last sync."""
     client = get_socrata_client()
+    client.timeout = 300
     engine = get_db_engine()
 
     since_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%dT00:00:00")

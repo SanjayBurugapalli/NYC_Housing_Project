@@ -29,6 +29,74 @@ from base import get_db_engine, clean_row_for_sql
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+# NYC Community District code → neighborhood name mapping
+CD_NAMES = {
+    # Manhattan
+    "101": "Financial District",
+    "102": "Greenwich Village/SoHo",
+    "103": "Lower East Side/Chinatown",
+    "104": "Chelsea/Clinton",
+    "105": "Midtown",
+    "106": "Upper West Side",
+    "107": "Upper East Side",
+    "108": "Upper Manhattan",
+    "109": "Morningside Heights/Hamilton Heights",
+    "110": "Central Harlem",
+    "111": "East Harlem",
+    "112": "Washington Heights/Inwood",
+    # Bronx
+    "201": "Mott Haven/Melrose",
+    "202": "Hunts Point/Longwood",
+    "203": "Morrisania/Crotona",
+    "204": "Highbridge/Concourse",
+    "205": "Fordham/University Heights",
+    "206": "Belmont/East Tremont",
+    "207": "Kingsbridge/Riverdale",
+    "208": "Throgs Neck/Pelham Bay",
+    "209": "Parkchester/Soundview",
+    "210": "Co-op City/Eastchester",
+    "211": "Morris Park/Pelham Parkway",
+    "212": "Williamsbridge/Baychester",
+    # Brooklyn
+    "301": "Greenpoint/Williamsburg",
+    "302": "Fort Greene/Brooklyn Heights",
+    "303": "Bedford-Stuyvesant",
+    "304": "Bushwick",
+    "305": "East New York",
+    "306": "Park Slope/Red Hook",
+    "307": "Sunset Park",
+    "308": "Crown Heights",
+    "309": "Crown Heights South/Prospect Lefferts",
+    "310": "Bay Ridge",
+    "311": "Bensonhurst",
+    "312": "Borough Park",
+    "313": "Coney Island",
+    "314": "Flatbush/Midwood",
+    "315": "Sheepshead Bay",
+    "316": "Brownsville",
+    "317": "East Flatbush",
+    "318": "Canarsie/Flatlands",
+    # Queens
+    "401": "Astoria/Long Island City",
+    "402": "Woodside/Sunnyside",
+    "403": "Jackson Heights",
+    "404": "Elmhurst/Corona",
+    "405": "Ridgewood/Glendale",
+    "406": "Forest Hills/Rego Park",
+    "407": "Flushing",
+    "408": "Hillcrest/Fresh Meadows",
+    "409": "Kew Gardens/Woodhaven",
+    "410": "South Ozone Park/Howard Beach",
+    "411": "Bayside/Little Neck",
+    "412": "Jamaica",
+    "413": "Queens Village",
+    "414": "The Rockaways",
+    # Staten Island
+    "501": "St. George/Stapleton",
+    "502": "South Beach/Willowbrook",
+    "503": "Tottenville/Great Kills",
+}
+
 # Scoring weights
 WEIGHTS = {
     "heat_hot_water": 0.20,
@@ -432,14 +500,27 @@ def upsert_scores(engine, scores: pd.DataFrame):
 
 def update_neighborhood_aggregates(engine):
     """Recompute neighborhood-level aggregate scores."""
+    # Build a SQL CASE expression for (CD code, borough) → name mapping
+    borough_for_cd = {
+        "1": "MANHATTAN", "2": "BRONX", "3": "BROOKLYN",
+        "4": "QUEENS", "5": "STATEN ISLAND",
+    }
+    case_parts = []
+    for cd, name in CD_NAMES.items():
+        boro = borough_for_cd[cd[0]]
+        case_parts.append(
+            f"WHEN b.neighborhood = '{cd}' AND b.borough = '{boro}' THEN '{name}'"
+        )
+    case_expr = "CASE " + " ".join(case_parts) + " ELSE CONCAT(b.neighborhood, '-', b.borough) END"
+
     with engine.begin() as conn:
         conn.execute(text("TRUNCATE neighborhoods RESTART IDENTITY"))
         conn.execute(
-            text("""
+            text(f"""
                 INSERT INTO neighborhoods (name, borough, avg_health_score, building_count,
                     total_complaints, total_violations, centroid_lat, centroid_lng, computed_at)
                 SELECT
-                    CONCAT(b.neighborhood, '-', b.borough) as name,
+                    {case_expr} as name,
                     b.borough,
                     AVG(hs.composite_score) as avg_health_score,
                     COUNT(DISTINCT b.id) as building_count,

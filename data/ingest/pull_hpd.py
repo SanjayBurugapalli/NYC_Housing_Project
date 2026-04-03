@@ -22,6 +22,7 @@ BATCH_SIZE = 50000
 def pull_hpd_violations(limit: int | None = None):
     """Pull HPD violations with Class A/B/C severity."""
     client = get_socrata_client()
+    client.timeout = 300
     engine = get_db_engine()
 
     offset = 0
@@ -117,6 +118,7 @@ def transform_hpd_violations(df: pd.DataFrame) -> pd.DataFrame:
 def pull_hpd_complaints(limit: int | None = None):
     """Pull HPD complaints."""
     client = get_socrata_client()
+    client.timeout = 300
     engine = get_db_engine()
 
     offset = 0

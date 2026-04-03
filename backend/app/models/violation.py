@@ -26,7 +26,7 @@ class Violation(Base):
     violation_type: Mapped[str | None] = mapped_column(String(100))
     severity: Mapped[str | None] = mapped_column(String(5))  # HPD: A, B, C
     order_number: Mapped[str | None] = mapped_column(String(50))
-    status: Mapped[str | None] = mapped_column(String(50))
+    status: Mapped[str | None] = mapped_column(String(255))
     status_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     description: Mapped[str | None] = mapped_column(Text)
 

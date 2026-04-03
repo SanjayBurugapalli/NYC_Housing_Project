@@ -93,12 +93,12 @@ def transform_dob_violations(df: pd.DataFrame) -> pd.DataFrame:
     df["boro"] = pd.to_numeric(df["boro"], errors="coerce").fillna(0).astype(int).astype(str)
     df["block"] = pd.to_numeric(df["block"], errors="coerce").fillna(0).astype(int).astype(str).str.zfill(5)
     df["lot"] = pd.to_numeric(df["lot"], errors="coerce").fillna(0).astype(int).astype(str).str.zfill(4)
-    df["bbl"] = df["boro"] + df["block"] + df["lot"]
+    df["bbl"] = (df["boro"] + df["block"] + df["lot"]).str[:10]
 
     # Ensure status column exists and truncate to fit DB
     if "status" not in df.columns:
         df["status"] = None
-    df["status"] = df["status"].astype(str).replace("None", None).str[:50]
+    df["status"] = df["status"].astype(str).replace("None", None).replace("nan", None).str[:255]
     if "violation_type" in df.columns:
         df["violation_type"] = df["violation_type"].astype(str).str[:100]
     if "description" not in df.columns:
