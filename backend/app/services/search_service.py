@@ -422,7 +422,11 @@ def _extract_sort(q: str, filters: dict) -> None:
     elif "most violations" in q or "by violations" in q:
         filters["sort_by"] = "violations"
     elif "complaint_types" in filters or "has_litigation" in filters:
+        # Positive match — show worst offenders first
         filters["sort_by"] = "score_asc"
+    elif "exclude_complaint_types" in filters:
+        # Exclusion only — show healthiest buildings first
+        filters["sort_by"] = "score_desc"
 
 
 def _describe_filters(filters: dict) -> str | None:
