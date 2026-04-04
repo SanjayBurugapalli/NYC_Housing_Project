@@ -11,6 +11,7 @@ import anthropic
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.sub_neighborhood_splits import SUB_NEIGHBORHOOD_SPLITS
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -117,6 +118,80 @@ NEIGHBORHOOD_ALIASES: dict[str, str] = {
     "tottenville": "503", "great kills": "503",
 }
 
+# Maps alias → (cd_code, sub_neighborhood_name). Checked before NEIGHBORHOOD_ALIASES
+# so that a search for "greenwich village" only returns Greenwich Village, not SoHo.
+SUBNBHD_ALIASES: dict[str, tuple[str, str]] = {
+    # Manhattan
+    "financial district": ("101", "Financial District"), "fidi": ("101", "Financial District"),
+    "tribeca": ("101", "Tribeca"),
+    "greenwich village": ("102", "Greenwich Village"), "the village": ("102", "Greenwich Village"),
+    "greenwich": ("102", "Greenwich Village"), "soho": ("102", "SoHo"),
+    "lower east side": ("103", "Lower East Side"), "les": ("103", "Lower East Side"),
+    "chinatown": ("103", "Chinatown"),
+    "chelsea": ("104", "Chelsea"),
+    "hells kitchen": ("104", "Hell's Kitchen"), "hell's kitchen": ("104", "Hell's Kitchen"),
+    "clinton": ("104", "Hell's Kitchen"),
+    "morningside heights": ("109", "Morningside Heights"),
+    "hamilton heights": ("109", "Hamilton Heights"),
+    "washington heights": ("112", "Washington Heights"), "inwood": ("112", "Inwood"),
+    # Bronx
+    "mott haven": ("201", "Mott Haven"), "south bronx": ("201", "Mott Haven"),
+    "melrose": ("201", "Melrose"),
+    "hunts point": ("202", "Hunts Point"), "longwood": ("202", "Longwood"),
+    "morrisania": ("203", "Morrisania"), "crotona": ("203", "Crotona"),
+    "highbridge": ("204", "Highbridge"),
+    "concourse": ("204", "Concourse"), "grand concourse": ("204", "Concourse"),
+    "fordham": ("205", "Fordham"), "university heights": ("205", "University Heights"),
+    "belmont": ("206", "Belmont"), "east tremont": ("206", "East Tremont"),
+    "little italy bronx": ("206", "Belmont"),
+    "kingsbridge": ("207", "Kingsbridge"), "riverdale": ("207", "Riverdale"),
+    "parkchester": ("209", "Parkchester"), "soundview": ("209", "Soundview"),
+    "morris park": ("211", "Morris Park"),
+    # Brooklyn
+    "greenpoint": ("301", "Greenpoint"), "williamsburg": ("301", "Williamsburg"),
+    "fort greene": ("302", "Fort Greene"),
+    "brooklyn heights": ("302", "Brooklyn Heights"), "dumbo": ("302", "Brooklyn Heights"),
+    "east new york": ("305", "East New York"), "eny": ("305", "East New York"),
+    "park slope": ("306", "Park Slope"),
+    "sunset park": ("307", "Sunset Park"), "windsor terrace": ("307", "Windsor Terrace"),
+    "prospect lefferts": ("309", "Prospect Lefferts"),
+    "prospect lefferts gardens": ("309", "Prospect Lefferts"), "plg": ("309", "Prospect Lefferts"),
+    "bay ridge": ("310", "Bay Ridge"), "dyker heights": ("310", "Dyker Heights"),
+    "bensonhurst": ("311", "Bensonhurst"), "bath beach": ("311", "Bath Beach"),
+    "borough park": ("312", "Borough Park"), "boro park": ("312", "Borough Park"),
+    "coney island": ("313", "Coney Island"), "brighton beach": ("313", "Brighton Beach"),
+    "flatbush": ("314", "Flatbush"), "ditmas park": ("314", "Flatbush"),
+    "midwood": ("314", "Midwood"),
+    "sheepshead bay": ("315", "Sheepshead Bay"),
+    "brownsville": ("316", "Brownsville"),
+    "east flatbush": ("317", "East Flatbush"),
+    "canarsie": ("318", "Canarsie"), "flatlands": ("318", "Flatlands"),
+    # Queens
+    "astoria": ("401", "Astoria"),
+    "long island city": ("401", "Long Island City"), "lic": ("401", "Long Island City"),
+    "woodside": ("402", "Woodside"), "sunnyside": ("402", "Sunnyside"),
+    "jackson heights": ("403", "Jackson Heights"),
+    "elmhurst": ("404", "Elmhurst"), "corona": ("404", "South Corona"),
+    "ridgewood": ("405", "Ridgewood"), "glendale": ("405", "Glendale"),
+    "forest hills": ("406", "Forest Hills"), "rego park": ("406", "Rego Park"),
+    "flushing": ("407", "Flushing"),
+    "fresh meadows": ("408", "Fresh Meadows"), "hillcrest": ("408", "Fresh Meadows"),
+    "woodhaven": ("409", "Woodhaven"), "kew gardens": ("409", "Woodhaven"),
+    "howard beach": ("410", "Howard Beach"),
+    "south ozone park": ("410", "Ozone Park"), "ozone park": ("410", "Ozone Park"),
+    "bayside": ("411", "Bayside"), "little neck": ("411", "Little Neck"),
+    "jamaica": ("412", "Jamaica"),
+    "queens village": ("413", "Queens Village"),
+    "rockaways": ("414", "Rockaway"), "rockaway": ("414", "Rockaway"),
+    "far rockaway": ("414", "Rockaway"),
+    # Staten Island
+    "st. george": ("501", "St. George"), "st george": ("501", "St. George"),
+    "stapleton": ("501", "Stapleton"),
+    "south beach": ("502", "South Beach"), "willowbrook": ("502", "Willowbrook"),
+}
+
+_SUBNBHD_SORTED = sorted(SUBNBHD_ALIASES.items(), key=lambda x: -len(x[0]))
+
 BOROUGH_ALIASES: dict[str, str] = {
     "staten island": "STATEN ISLAND", "si": "STATEN ISLAND",
     "the bronx": "BRONX", "bronx": "BRONX", "bx": "BRONX",
@@ -194,19 +269,59 @@ def _extract_borough(q: str, filters: dict) -> None:
 
 
 def _extract_neighborhood(q: str, filters: dict) -> None:
+    # Check precise sub-neighborhood aliases first (adds Voronoi filter)
+    for alias, (cd_code, sub_name) in _SUBNBHD_SORTED:
+        if _word_match(alias, q):
+            filters["neighborhood"] = cd_code
+            cd_splits = SUB_NEIGHBORHOOD_SPLITS.get(cd_code, [])
+            target = next((s for s in cd_splits if s["name"] == sub_name), None)
+            if target and len(cd_splits) > 1:
+                filters["sub_nbhd"] = {
+                    "lat": target["lat"],
+                    "lng": target["lng"],
+                    "siblings": [s for s in cd_splits if s["name"] != sub_name],
+                }
+            return
+    # Fall back to whole-CD aliases
     for alias, cd_code in _NEIGHBORHOOD_SORTED:
         if _word_match(alias, q):
             filters["neighborhood"] = cd_code
             return
 
 
+_NEGATION_RE = re.compile(
+    r'\b(?:without|no|not having|not any|not|free from|lacking)\b'
+)
+
 def _extract_complaint_types(q: str, filters: dict) -> None:
+    # Find negation spans: from the negation word up to 60 chars ahead
+    neg_spans = [(m.start(), m.start() + 60) for m in _NEGATION_RE.finditer(q)]
+
     found: set[str] = set()
+    excluded: set[str] = set()
+
     for keyword, complaint_type in _COMPLAINT_SORTED:
-        if keyword in q:
-            found.add(complaint_type)
+        for m in re.finditer(r'\b' + re.escape(keyword) + r'\b', q):
+            pos = m.start()
+            in_negation = any(s <= pos <= e for s, e in neg_spans)
+            if in_negation:
+                excluded.add(complaint_type)
+            else:
+                found.add(complaint_type)
+
+    # Handle "X-free" pattern (e.g. "rat-free", "pest-free")
+    for m in re.finditer(r'\b(\w+)-free\b', q):
+        ct = COMPLAINT_KEYWORDS.get(m.group(1))
+        if ct:
+            excluded.add(ct)
+
+    # Negation wins over positive match
+    found -= excluded
+
     if found:
         filters["complaint_types"] = list(found)
+    if excluded:
+        filters["exclude_complaint_types"] = list(excluded)
 
 
 def _extract_score_filters(q: str, filters: dict) -> None:
@@ -316,10 +431,22 @@ def _describe_filters(filters: dict) -> str | None:
     if "borough" in filters:
         parts.append(f"in {filters['borough'].title()}")
     if "neighborhood" in filters:
-        name = CD_NAMES.get(filters["neighborhood"], filters["neighborhood"])
+        # Use sub-neighborhood name if available, else fall back to CD name
+        if "sub_nbhd" in filters:
+            cd_splits = SUB_NEIGHBORHOOD_SPLITS.get(filters["neighborhood"], [])
+            sn = filters["sub_nbhd"]
+            target = next(
+                (s["name"] for s in cd_splits if s["lat"] == sn["lat"] and s["lng"] == sn["lng"]),
+                None,
+            )
+            name = target or CD_NAMES.get(filters["neighborhood"], filters["neighborhood"])
+        else:
+            name = CD_NAMES.get(filters["neighborhood"], filters["neighborhood"])
         parts.append(f"({name})")
     if "complaint_types" in filters:
         parts.append(f"with {', '.join(filters['complaint_types'])} issues")
+    if "exclude_complaint_types" in filters:
+        parts.append(f"without {', '.join(filters['exclude_complaint_types'])} issues")
     if "has_litigation" in filters:
         parts.append("with litigation history")
     if "min_score" in filters or "max_score" in filters:
@@ -506,6 +633,12 @@ def validate_filters(filters: dict) -> dict:
         validated["complaint_types"] = [
             ct for ct in filters["complaint_types"] if ct in valid_categories
         ]
+    if "exclude_complaint_types" in filters and isinstance(filters["exclude_complaint_types"], list):
+        validated["exclude_complaint_types"] = [
+            ct for ct in filters["exclude_complaint_types"] if ct in valid_categories
+        ]
+    if "sub_nbhd" in filters and isinstance(filters["sub_nbhd"], dict):
+        validated["sub_nbhd"] = filters["sub_nbhd"]
 
     for key in ["min_units", "max_units"]:
         if key in filters and isinstance(filters[key], int):
@@ -541,6 +674,20 @@ async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
     if "neighborhood" in filters:
         conditions.append("b.neighborhood ILIKE :neighborhood")
         params["neighborhood"] = f"%{filters['neighborhood']}%"
+
+    if "sub_nbhd" in filters:
+        # Voronoi-like filter: keep buildings closer to target centroid than any sibling
+        sn = filters["sub_nbhd"]
+        params["sub_lng"] = sn["lng"]
+        params["sub_lat"] = sn["lat"]
+        conditions.append("b.geom IS NOT NULL")
+        for i, sib in enumerate(sn["siblings"]):
+            conditions.append(
+                f"ST_Distance(b.geom::geography, ST_MakePoint(:sub_lng, :sub_lat)::geography) <= "
+                f"ST_Distance(b.geom::geography, ST_MakePoint(:sib_{i}_lng, :sib_{i}_lat)::geography)"
+            )
+            params[f"sib_{i}_lng"] = sib["lng"]
+            params[f"sib_{i}_lat"] = sib["lat"]
 
     if "min_score" in filters:
         conditions.append("hs.composite_score >= :min_score")
@@ -578,6 +725,15 @@ async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
             )
         """)
         params["complaint_types"] = filters["complaint_types"]
+
+    if filters.get("exclude_complaint_types"):
+        conditions.append("""
+            NOT EXISTS (
+                SELECT 1 FROM complaints c
+                WHERE c.bbl = b.bbl AND c.category = ANY(:exclude_complaint_types)
+            )
+        """)
+        params["exclude_complaint_types"] = filters["exclude_complaint_types"]
 
     if "has_litigation" in filters:
         if filters["has_litigation"]:

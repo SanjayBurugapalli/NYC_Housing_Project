@@ -27,15 +27,31 @@ export function Map() {
   const setMapRef = useStore((s) => s.setMapRef);
   const setBuildingCount = useStore((s) => s.setBuildingCount);
   const searchResults = useStore((s) => s.searchResults);
+  const gradeFilter = useStore((s) => s.gradeFilter);
+
+  // Cache of last-fetched raw building features (before grade filtering)
+  const rawBuildingsRef = useRef<any[]>([]);
+
+  const applyGradeFilter = useCallback((
+    m: mapboxgl.Map,
+    features: any[],
+    filter: string[]
+  ) => {
+    const source = m.getSource("buildings") as mapboxgl.GeoJSONSource | undefined;
+    if (!source) return;
+    const visible = filter.length > 0
+      ? features.filter((f) => filter.includes(f.properties.grade))
+      : features;
+    source.setData({ type: "FeatureCollection", features: visible });
+    setBuildingCount(visible.length);
+  }, [setBuildingCount]);
 
   const fetchAndRenderBuildings = useCallback(async (m: mapboxgl.Map) => {
     const zoom = m.getZoom();
     if (zoom < 13) {
-      // Clear buildings at low zoom
       const source = m.getSource("buildings") as mapboxgl.GeoJSONSource | undefined;
-      if (source) {
-        source.setData({ type: "FeatureCollection", features: [] });
-      }
+      if (source) source.setData({ type: "FeatureCollection", features: [] });
+      rawBuildingsRef.current = [];
       setBuildingCount(0);
       return;
     }
@@ -44,7 +60,6 @@ export function Map() {
     if (!bounds) return;
     const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
 
-    // Cancel previous request
     if (abortRef.current) abortRef.current.abort();
     abortRef.current = new AbortController();
 
@@ -63,10 +78,7 @@ export function Map() {
         .filter((b: any) => b.latitude != null && b.longitude != null)
         .map((b: any) => ({
           type: "Feature" as const,
-          geometry: {
-            type: "Point" as const,
-            coordinates: [b.longitude, b.latitude],
-          },
+          geometry: { type: "Point" as const, coordinates: [b.longitude, b.latitude] },
           properties: {
             bbl: b.bbl,
             health_score: b.health_score ?? 0,
@@ -76,12 +88,12 @@ export function Map() {
           },
         }));
 
-      source.setData({ type: "FeatureCollection", features });
-      setBuildingCount(features.length);
+      rawBuildingsRef.current = features;
+      applyGradeFilter(m, features, gradeFilter);
     } catch (e: any) {
       if (e.name !== "AbortError") console.error("Failed to fetch buildings:", e);
     }
-  }, [setBuildingCount]);
+  }, [setBuildingCount, gradeFilter, applyGradeFilter]);
 
   const loadNeighborhoods = useCallback(async (m: mapboxgl.Map) => {
     try {
@@ -439,6 +451,15 @@ export function Map() {
     };
   }, [setViewport, selectBuilding, fetchAndRenderBuildings, setMapRef, loadNeighborhoods]);
 
+  // Re-filter buildings on map when grade filter changes
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !m.isStyleLoaded()) return;
+    if (rawBuildingsRef.current.length > 0) {
+      applyGradeFilter(m, rawBuildingsRef.current, gradeFilter);
+    }
+  }, [gradeFilter, applyGradeFilter]);
+
   // Update search results on map when they change
   useEffect(() => {
     const m = map.current;
@@ -454,6 +475,7 @@ export function Map() {
 
     const features = searchResults
       .filter((b) => b.latitude != null && b.longitude != null)
+      .filter((b) => gradeFilter.length === 0 || gradeFilter.includes(b.grade ?? ""))
       .map((b) => ({
         type: "Feature" as const,
         geometry: {
@@ -483,7 +505,7 @@ export function Map() {
         duration: 1500,
       });
     }
-  }, [searchResults]);
+  }, [searchResults, gradeFilter]);
 
   return <div ref={mapContainer} className="h-full w-full" />;
 }

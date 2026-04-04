@@ -25,9 +25,14 @@ interface SearchResultsPanelProps {
 
 export function SearchResultsPanel({ clarification }: SearchResultsPanelProps) {
   const searchResults = useStore((s) => s.searchResults);
+  const gradeFilter = useStore((s) => s.gradeFilter);
   const selectBuilding = useStore((s) => s.selectBuilding);
   const clearSearch = useStore((s) => s.clearSearch);
   const mapRef = useStore((s) => s.mapRef);
+
+  const visibleResults = gradeFilter.length > 0
+    ? searchResults.filter((b) => gradeFilter.includes(b.grade ?? ""))
+    : searchResults;
 
   const handleSelect = (building: BuildingSummary) => {
     selectBuilding(building.bbl);
@@ -47,7 +52,7 @@ export function SearchResultsPanel({ clarification }: SearchResultsPanelProps) {
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-700 bg-gray-800 px-4 py-3">
         <div>
           <h2 className="text-lg font-semibold">Search Results</h2>
-          <p className="text-xs text-gray-400">{searchResults.length} building{searchResults.length !== 1 ? "s" : ""}</p>
+          <p className="text-xs text-gray-400">{visibleResults.length} building{visibleResults.length !== 1 ? "s" : ""}{gradeFilter.length > 0 ? ` (filtered)` : ""}</p>
         </div>
         <button
           onClick={clearSearch}
@@ -68,7 +73,7 @@ export function SearchResultsPanel({ clarification }: SearchResultsPanelProps) {
 
       {/* Results list */}
       <div className="flex-1 overflow-y-auto">
-        {searchResults.map((b) => (
+        {visibleResults.map((b) => (
           <button
             key={b.bbl}
             type="button"

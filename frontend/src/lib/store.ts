@@ -51,6 +51,11 @@ interface AppState {
   setSearchClarification: (clarification: string | null) => void;
   clearSearch: () => void;
 
+  // Grade filter (empty = show all)
+  gradeFilter: string[];
+  toggleGrade: (grade: string) => void;
+  clearGradeFilter: () => void;
+
   // Custom scoring weights
   customWeights: CategoryWeights;
   useCustomWeights: boolean;
@@ -90,6 +95,16 @@ export const useStore = create<AppState>((set) => ({
   setSearchClarification: (clarification) => set({ searchClarification: clarification }),
   clearSearch: () =>
     set({ searchQuery: "", searchResults: [], isSearching: false, searchError: null, searchClarification: null }),
+
+  // Grade filter
+  gradeFilter: [],
+  toggleGrade: (grade) =>
+    set((state) => ({
+      gradeFilter: state.gradeFilter.includes(grade)
+        ? state.gradeFilter.filter((g) => g !== grade)
+        : [...state.gradeFilter, grade],
+    })),
+  clearGradeFilter: () => set({ gradeFilter: [] }),
 
   // Custom scoring weights
   customWeights: { ...DEFAULT_WEIGHTS },

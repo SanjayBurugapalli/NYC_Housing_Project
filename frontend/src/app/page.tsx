@@ -6,7 +6,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { BuildingPanel } from "@/components/BuildingPanel";
 import { InfoPanel } from "@/components/InfoPanel";
 import { SearchResultsPanel } from "@/components/SearchResultsPanel";
-import { Legend } from "@/components/Legend";
+import { GradeFilter } from "@/components/GradeFilter";
 import { useStore } from "@/lib/store";
 
 const Map = dynamic(() => import("@/components/Map").then((m) => m.Map), {
@@ -48,7 +48,10 @@ export default function Home() {
         ) : null}
       </div>
 
-      <Legend />
+      {/* Grade filter (doubles as legend) */}
+      <div className="absolute bottom-6 left-4 z-10">
+        <GradeFilter />
+      </div>
 
       {/* Info button */}
       <button
