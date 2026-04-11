@@ -84,6 +84,7 @@ export interface RodentInspectionRecord {
 
 export interface BuildingDetail extends BuildingSummary {
   owner_name: string | null;
+  sub_neighborhood: string | null;
   score_breakdown: ScoreBreakdown;
   complaints: ComplaintRecord[];
   violations: ViolationRecord[];

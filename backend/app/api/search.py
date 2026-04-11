@@ -227,6 +227,8 @@ async def search_buildings(
             total=result["total"],
             query=result["query"],
             clarification=result.get("clarification"),
+            confidence=result.get("confidence"),
+            needs_fallback=result.get("needs_fallback", False),
         )
     except Exception:
         return SearchResponse(

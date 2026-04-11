@@ -96,6 +96,7 @@ class RodentInspectionResponse(BaseModel):
 
 class BuildingDetailResponse(BuildingSummaryResponse):
     owner_name: str | None = None
+    sub_neighborhood: str | None = None
     score_breakdown: ScoreBreakdownResponse | None = None
     complaints: list[ComplaintResponse] = []
     violations: list[ViolationResponse] = []
@@ -136,3 +137,5 @@ class SearchResponse(BaseModel):
     total: int
     query: str
     clarification: str | None = None
+    confidence: float | None = None
+    needs_fallback: bool = False

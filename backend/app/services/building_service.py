@@ -4,6 +4,39 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.neighborhood_names import get_neighborhood_name
+from app.api.sub_neighborhood_splits import SUB_NEIGHBORHOOD_SPLITS
+
+
+_BOROUGH_CD_PREFIX: dict[str, str] = {
+    "MANHATTAN": "1", "BRONX": "2", "BROOKLYN": "3", "QUEENS": "4", "STATEN ISLAND": "5",
+}
+
+
+def _resolve_sub_neighborhood(cd_code: str, lat: float | None, lng: float | None, borough: str = "") -> str | None:
+    """Return the nearest sub-neighborhood name for a building using its coordinates.
+
+    Uses a borough-wide nearest-centroid search (ignoring the building's assigned CD)
+    so that buildings near CD boundaries resolve to the geographically correct name.
+    Falls back to within-CD lookup if borough is unknown.
+    """
+    if lat is None or lng is None:
+        return None
+
+    prefix = _BOROUGH_CD_PREFIX.get(borough.upper(), "")
+    if prefix:
+        # Search all sub-neighborhoods in this borough
+        candidates = [
+            s
+            for cd, splits in SUB_NEIGHBORHOOD_SPLITS.items()
+            if cd.startswith(prefix)
+            for s in splits
+        ]
+    else:
+        candidates = SUB_NEIGHBORHOOD_SPLITS.get(cd_code, [])
+
+    if not candidates:
+        return None
+    return min(candidates, key=lambda s: (s["lat"] - lat) ** 2 + (s["lng"] - lng) ** 2)["name"]
 
 GRADE_MAP = {100: "A", 80: "B", 60: "C", 40: "D", 20: "F"}
 
@@ -270,12 +303,18 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
     )
     dob_count = dob_count_result.scalar() or 0
 
+    cd_code = (b.get("neighborhood") or "").split("-")[0]
+    sub_neighborhood = _resolve_sub_neighborhood(
+        cd_code, b.get("latitude"), b.get("longitude"), b.get("borough") or ""
+    )
+
     return {
         "bbl": b["bbl"],
         "bin": b["bin"],
         "address": b["address"],
         "borough": b["borough"],
         "neighborhood": get_neighborhood_name(b["neighborhood"] or "", b["borough"] or "") if b.get("neighborhood") else b["neighborhood"],
+        "sub_neighborhood": sub_neighborhood,
         "latitude": b["latitude"],
         "longitude": b["longitude"],
         "residential_units": b["residential_units"] or 0,
@@ -295,7 +334,9 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
             "hpd_severity_count": sum(hpd_counts.values()),
             "noise": b.get("noise_score") or 100,
             "noise_count": category_counts.get("noise", 0),
-            "litigation": b.get("litigation_score") or 100,
+            # If no litigations in the last 5 years, show a perfect score regardless
+            # of the stored score (which may reflect older cases outside the display window).
+            "litigation": 100 if litigation_count == 0 else (b.get("litigation_score") or 100),
             "litigation_count": litigation_count,
             "composite": b.get("composite_score") or 0,
         },

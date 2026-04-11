@@ -1,18 +1,26 @@
 """Search for NYC residential buildings.
 
-Combines keyword parsing (fast, no API needed) with Claude API fallback
-for complex natural language queries.
+Deterministic rule-based natural language parser — no LLM API required.
+
+Pipeline:
+    normalize(query)
+    → extract_entities (borough, neighborhood, complaints, filters)
+    → match_concepts (noise, pest, heat, structural, hpd, litigation)
+    → detect_global_intent (best / worst)
+    → build_sort → list[SortClause]
+    → compute_confidence → float
+    → execute_search (SQL)
 """
 
 import logging
 import re
+from dataclasses import dataclass
+from typing import Any, TypedDict
 
-import anthropic
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.sub_neighborhood_splits import SUB_NEIGHBORHOOD_SPLITS
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +125,7 @@ NEIGHBORHOOD_ALIASES: dict[str, str] = {
     "south beach": "502", "willowbrook": "502",
     "tottenville": "503", "great kills": "503",
 }
+
 
 # Maps alias → (cd_code, sub_neighborhood_name). Checked before NEIGHBORHOOD_ALIASES
 # so that a search for "greenwich village" only returns Greenwich Village, not SoHo.
@@ -302,15 +311,294 @@ VALID_BOROUGHS = {"MANHATTAN", "BRONX", "BROOKLYN", "QUEENS", "STATEN ISLAND"}
 MAX_RESULTS = 100
 
 # ---------------------------------------------------------------------------
+# Concept definitions
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ConceptDef:
+    """Maps a health concern to a health_scores column and per-synonym sort directions.
+
+    Higher score = healthier building. So synonyms that mean "bad" use ASC
+    (show worst/lowest score first) and synonyms meaning "good" use DESC.
+    """
+    column: str               # qualified column name, e.g. "hs.noise_score"
+    synonyms: dict[str, str]  # synonym → "ASC" or "DESC"
+
+
+class SortClause(TypedDict):
+    column: str
+    order: str  # "ASC" or "DESC"
+
+
+CONCEPTS: dict[str, ConceptDef] = {
+    "noise": ConceptDef(
+        column="hs.noise_score",
+        synonyms={
+            "noise": "ASC",   # buildings with noise issues → low score first
+            "noisy": "ASC",
+            "loud": "ASC",
+            "quiet": "DESC",  # want quiet → high noise_score → DESC
+        },
+    ),
+    "pest": ConceptDef(
+        column="hs.pest_rodent_score",
+        synonyms={
+            "rats": "ASC",
+            "rat": "ASC",
+            "rodents": "ASC",
+            "rodent": "ASC",
+            "mice": "ASC",
+            "mouse": "ASC",
+            "pest": "ASC",
+            "pests": "ASC",
+            "roach": "ASC",
+            "roaches": "ASC",
+            "cockroach": "ASC",
+            "cockroaches": "ASC",
+            "bed bug": "ASC",
+            "bed bugs": "ASC",
+            "bedbug": "ASC",
+            "bedbugs": "ASC",
+            "vermin": "ASC",
+            "infestation": "ASC",
+        },
+    ),
+    "heat": ConceptDef(
+        column="hs.heat_hot_water_score",
+        synonyms={
+            "heat": "ASC",
+            "heating": "ASC",
+            "hot water": "ASC",
+            "no heat": "ASC",
+            "no hot water": "ASC",
+            "boiler": "ASC",
+        },
+    ),
+    "structural": ConceptDef(
+        column="hs.structural_safety_score",
+        synonyms={
+            "structural": "ASC",
+            "collapse": "ASC",
+            "elevator": "ASC",
+            "fire escape": "ASC",
+            "foundation": "ASC",
+            "building code": "ASC",
+            "code violation": "ASC",
+            "safe": "DESC",
+            "unsafe": "ASC",
+        },
+    ),
+    "hpd": ConceptDef(
+        column="hs.hpd_severity_score",
+        synonyms={
+            "hpd": "ASC",
+            "violation": "ASC",
+            "violations": "ASC",
+            "class c": "ASC",
+            "class b": "ASC",
+            "hazardous": "ASC",
+        },
+    ),
+    "litigation": ConceptDef(
+        column="hs.litigation_score",
+        synonyms={
+            "lawsuit": "ASC",
+            "lawsuits": "ASC",
+            "litigation": "ASC",
+            "litigations": "ASC",
+            "sued": "ASC",
+            "legal action": "ASC",
+        },
+    ),
+}
+
+# All (synonym, concept_name, order) triples, sorted longest-first so multi-word
+# phrases are matched before shorter individual words.
+_CONCEPT_SYNONYMS: list[tuple[str, str, str]] = sorted(
+    [
+        (syn, name, order)
+        for name, concept in CONCEPTS.items()
+        for syn, order in concept.synonyms.items()
+    ],
+    key=lambda x: -len(x[0]),
+)
+
+# Phrase-level overrides checked before individual synonym matching.
+# (phrase, concept_name | None, order)  — None concept → composite_score
+PHRASE_OVERRIDES: list[tuple[str, str | None, str]] = sorted([
+    ("no heat",         "heat",      "ASC"),
+    ("not noisy",       "noise",     "DESC"),
+    ("low noise",       "noise",     "DESC"),
+    ("high noise",      "noise",     "ASC"),
+    ("rat free",        "pest",      "DESC"),
+    ("rat-free",        "pest",      "DESC"),
+    ("pest free",       "pest",      "DESC"),
+    ("pest-free",       "pest",      "DESC"),
+    ("low rodent",      "pest",      "DESC"),
+    ("high rodent",     "pest",      "ASC"),
+    ("low complaints",  None,        "DESC"),
+    ("high complaints", None,        "ASC"),
+], key=lambda x: -len(x[0]))
+
+# Global "good" / "bad" intent modifiers
+_GLOBAL_GOOD = frozenset({
+    "best", "healthiest", "safest", "top rated", "highly rated",
+    "well maintained", "highest score", "highest rated", "a grade", "grade a",
+    "excellent", "good", "healthy",
+})
+_GLOBAL_BAD = frozenset({
+    "worst", "unhealthiest", "most dangerous", "lowest rated",
+    "lowest score", "f grade", "grade f", "terrible", "dangerous",
+    "unhealthy", "bad", "failing",
+})
+
+# Whitelist of columns permitted in ORDER BY (prevents injection)
+_ALLOWED_SORT_COLUMNS = frozenset({
+    "hs.noise_score",
+    "hs.pest_rodent_score",
+    "hs.heat_hot_water_score",
+    "hs.structural_safety_score",
+    "hs.hpd_severity_score",
+    "hs.litigation_score",
+    "hs.composite_score",
+    "hs.total_complaints",
+    "hs.total_violations",
+})
+
+# ---------------------------------------------------------------------------
+# Normalization
+# ---------------------------------------------------------------------------
+
+
+def normalize(query: str) -> str:
+    """Lowercase, collapse whitespace, strip punctuation (keep hyphens/apostrophes)."""
+    q = query.lower().strip()
+    q = re.sub(r"[^\w\s\-']", " ", q)
+    q = re.sub(r"\s+", " ", q).strip()
+    return q
+
+
+# ---------------------------------------------------------------------------
+# Concept pipeline
+# ---------------------------------------------------------------------------
+
+
+def match_concepts(q: str) -> list[SortClause]:
+    """Identify health-score concepts mentioned in the query.
+
+    Checks PHRASE_OVERRIDES first (longest match wins), then individual
+    synonyms. Each matched column appears at most once (first match wins).
+
+    Negation context (without/no/not/free from before a synonym within 60 chars)
+    flips the sort direction — e.g. "without rats" → DESC (want good pest score).
+    """
+    matched_columns: set[str] = set()
+    result: list[SortClause] = []
+
+    # Pre-compute negation spans: (start, start+60) for each negation word found
+    neg_re = re.compile(r"\b(?:without|no\s+|not having|not any|not|free from|lacking)\b")
+    neg_spans = [(m.start(), m.start() + 60) for m in neg_re.finditer(q)]
+
+    def _in_negation(pos: int) -> bool:
+        return any(s <= pos <= e for s, e in neg_spans)
+
+    def _flip(order: str) -> str:
+        return "ASC" if order == "DESC" else "DESC"
+
+    # Phase 1: phrase overrides (checked longest-first — no negation flip for phrases
+    # since phrases like "not noisy" are already encoded with the correct direction)
+    for phrase, concept_name, order in PHRASE_OVERRIDES:
+        m = re.search(r"\b" + re.escape(phrase) + r"\b", q)
+        if m:
+            col = CONCEPTS[concept_name].column if concept_name else "hs.composite_score"
+            if col not in matched_columns:
+                matched_columns.add(col)
+                result.append({"column": col, "order": order})
+
+    # Phase 2: individual synonyms (longest synonym first, negation-aware)
+    for syn, concept_name, order in _CONCEPT_SYNONYMS:
+        m = re.search(r"\b" + re.escape(syn) + r"\b", q)
+        if m:
+            col = CONCEPTS[concept_name].column
+            if col not in matched_columns:
+                matched_columns.add(col)
+                effective_order = _flip(order) if _in_negation(m.start()) else order
+                result.append({"column": col, "order": effective_order})
+
+    return result
+
+
+def detect_global_intent(q: str) -> str | None:
+    """Detect "best"/"worst" global intent modifiers (word-boundary matched).
+
+    Returns "best", "worst", or None.
+    """
+    for kw in sorted(_GLOBAL_GOOD, key=len, reverse=True):
+        if re.search(r"\b" + re.escape(kw) + r"\b", q):
+            return "best"
+    for kw in sorted(_GLOBAL_BAD, key=len, reverse=True):
+        if re.search(r"\b" + re.escape(kw) + r"\b", q):
+            return "worst"
+    return None
+
+
+def build_sort(concepts: list[SortClause], global_intent: str | None) -> list[SortClause]:
+    """Produce the final ordered sort list.
+
+    - No concepts matched + no intent  → composite_score DESC (default)
+    - No concepts matched + "worst"    → composite_score ASC
+    - Concepts matched + global intent → override all concept directions
+    - Concepts matched, no global      → use per-concept directions
+    """
+    if not concepts:
+        order = "ASC" if global_intent == "worst" else "DESC"
+        return [{"column": "hs.composite_score", "order": order}]
+
+    if global_intent in ("best", "worst"):
+        direction = "DESC" if global_intent == "best" else "ASC"
+        return [{"column": c["column"], "order": direction} for c in concepts]
+
+    return list(concepts)
+
+
+def compute_confidence(filters: dict, concepts: list[SortClause], global_intent: str | None) -> float:
+    """Estimate how well the query was understood (0–1).
+
+    +0.4  borough detected
+    +0.3  ≥1 concept matched
+    +0.2  explicit intent detected (global or score range filter)
+    +0.1  ≥2 concepts matched
+    """
+    score = 0.0
+    if "borough" in filters:
+        score += 0.4
+    if concepts:
+        score += 0.3
+        if len(concepts) >= 2:
+            score += 0.1
+    if global_intent is not None or any(k in filters for k in ("min_score", "max_score")):
+        score += 0.2
+    return min(1.0, score)
+
+
+# ---------------------------------------------------------------------------
 # Query parser
 # ---------------------------------------------------------------------------
 
 
 def parse_search_query(query: str) -> dict:
-    """Parse a natural language search query into structured filters."""
-    filters: dict = {}
-    q = query.lower().strip()
+    """Parse a natural language search query into structured filters.
 
+    Returns a dict with all WHERE filter keys plus:
+      sort        : list[SortClause] — ordered sort columns for ORDER BY
+      confidence  : float — 0–1 estimate of parse quality
+      needs_fallback : bool — True if query is likely too vague for useful results
+    """
+    q = normalize(query)
+    filters: dict = {}
+
+    # Entity / filter extraction (order matters: entity extraction before stopword logic)
     _extract_borough(q, filters)
     _extract_neighborhood(q, filters)
     _extract_complaint_types(q, filters)
@@ -321,14 +609,36 @@ def parse_search_query(query: str) -> dict:
     _extract_building_class(q, filters)
     _extract_owner(q, filters)
     _extract_limit(q, filters)
-    _extract_sort(q, filters)
+
+    # Concept pipeline determines sort and contributes to confidence
+    concepts = match_concepts(q)
+    global_intent = detect_global_intent(q)
+
+    # Special-case: explicit sort-by-count phrases override concept sort
+    if "most complaints" in q or "by complaints" in q:
+        sort_clauses: list[SortClause] = [{"column": "hs.total_complaints", "order": "DESC"}]
+    elif "most violations" in q or "by violations" in q:
+        sort_clauses = [{"column": "hs.total_violations", "order": "DESC"}]
+    else:
+        sort_clauses = build_sort(concepts, global_intent)
+
+    confidence = compute_confidence(filters, concepts, global_intent)
+
+    filters["sort"] = sort_clauses
+    filters["confidence"] = confidence
+    # needs_fallback: no entity filters AND confidence < 0.4
+    entity_filter_keys = {"borough", "neighborhood", "complaint_types", "min_score", "max_score",
+                          "has_litigation", "min_units", "max_units", "min_year_built",
+                          "max_year_built", "building_classes", "owner_name"}
+    has_entity_filters = bool(entity_filter_keys & filters.keys())
+    filters["needs_fallback"] = not has_entity_filters and confidence < 0.4
 
     return filters
 
 
 def _word_match(needle: str, haystack: str) -> bool:
     """Check if needle appears as a whole word/phrase in haystack."""
-    return bool(re.search(r'\b' + re.escape(needle) + r'\b', haystack))
+    return bool(re.search(r"\b" + re.escape(needle) + r"\b", haystack))
 
 
 def _extract_borough(q: str, filters: dict) -> None:
@@ -360,8 +670,9 @@ def _extract_neighborhood(q: str, filters: dict) -> None:
 
 
 _NEGATION_RE = re.compile(
-    r'\b(?:without|no|not having|not any|not|free from|lacking)\b'
+    r"\b(?:without|no|not having|not any|not|free from|lacking)\b"
 )
+
 
 def _extract_complaint_types(q: str, filters: dict) -> None:
     # Find negation spans: from the negation word up to 60 chars ahead
@@ -371,7 +682,7 @@ def _extract_complaint_types(q: str, filters: dict) -> None:
     excluded: set[str] = set()
 
     for keyword, complaint_type in _COMPLAINT_SORTED:
-        for m in re.finditer(r'\b' + re.escape(keyword) + r'\b', q):
+        for m in re.finditer(r"\b" + re.escape(keyword) + r"\b", q):
             pos = m.start()
             in_negation = any(s <= pos <= e for s, e in neg_spans)
             if in_negation:
@@ -380,7 +691,7 @@ def _extract_complaint_types(q: str, filters: dict) -> None:
                 found.add(complaint_type)
 
     # Handle "X-free" pattern (e.g. "rat-free", "pest-free")
-    for m in re.finditer(r'\b(\w+)-free\b', q):
+    for m in re.finditer(r"\b(\w+)-free\b", q):
         ct = COMPLAINT_KEYWORDS.get(m.group(1))
         if ct:
             excluded.add(ct)
@@ -395,6 +706,7 @@ def _extract_complaint_types(q: str, filters: dict) -> None:
 
 
 def _extract_score_filters(q: str, filters: dict) -> None:
+    """Set min/max composite score ranges. Sort direction is handled by build_sort."""
     bad = {"worst", "unhealthy", "unhealthiest", "bad", "terrible", "dangerous",
            "failing", "lowest score", "lowest rated", "f grade", "grade f"}
     good = {"best", "healthy", "healthiest", "good", "excellent", "top rated",
@@ -404,12 +716,10 @@ def _extract_score_filters(q: str, filters: dict) -> None:
     for kw in sorted(bad, key=len, reverse=True):
         if kw in q:
             filters["max_score"] = 50
-            filters.setdefault("sort_by", "score_asc")
             return
     for kw in sorted(good, key=len, reverse=True):
         if kw in q:
             filters["min_score"] = 80
-            filters.setdefault("sort_by", "score_desc")
             return
     for kw in sorted(mid, key=len, reverse=True):
         if kw in q:
@@ -433,73 +743,74 @@ def _extract_size_filters(q: str, filters: dict) -> None:
         filters["max_units"] = 10
         return
 
-    m = re.search(r'\b(?:more than|over|at least|>=?)\s*(\d+)\s*units?\b', q)
+    m = re.search(r"\b(?:more than|over|at least|>=?)\s*(\d+)\s*units?\b", q)
     if m:
         filters["min_units"] = int(m.group(1))
         return
-    m = re.search(r'\b(\d+)\+\s*units?\b', q)
+    m = re.search(r"\b(\d+)\+\s*units?\b", q)
     if m:
         filters["min_units"] = int(m.group(1))
         return
-    m = re.search(r'\b(?:less than|under|fewer than|<=?)\s*(\d+)\s*units?\b', q)
+    m = re.search(r"\b(?:less than|under|fewer than|<=?)\s*(\d+)\s*units?\b", q)
     if m:
         filters["max_units"] = int(m.group(1))
         return
 
 
 def _extract_year_filters(q: str, filters: dict) -> None:
-    if re.search(r'\bpre[\s-]?war\b', q):
+    if re.search(r"\bpre[\s-]?war\b", q):
         filters["max_year_built"] = 1945
         return
-    if re.search(r'\bpost[\s-]?war\b', q):
+    if re.search(r"\bpost[\s-]?war\b", q):
         filters["min_year_built"] = 1946
         return
 
-    m = re.search(r'\b(?:built\s+)?before\s+(\d{4})\b', q)
+    m = re.search(r"\b(?:built\s+)?before\s+(\d{4})\b", q)
     if m:
         filters["max_year_built"] = int(m.group(1))
         return
-    m = re.search(r'\bpre[\s-]?(\d{4})\b', q)
+    m = re.search(r"\bpre[\s-]?(\d{4})\b", q)
     if m:
         filters["max_year_built"] = int(m.group(1))
         return
 
-    m = re.search(r'\b(?:built\s+)?after\s+(\d{4})\b', q)
+    m = re.search(r"\b(?:built\s+)?after\s+(\d{4})\b", q)
     if m:
         filters["min_year_built"] = int(m.group(1))
         return
 
-    m = re.search(r'\b(?:from|in)\s+(?:the\s+)?(\d{4})s\b', q)
+    m = re.search(r"\b(?:from|in)\s+(?:the\s+)?(\d{4})s\b", q)
     if m:
         decade = int(m.group(1))
         filters["min_year_built"] = decade
         filters["max_year_built"] = decade + 9
         return
 
-    if re.search(r'\b(?:new(?:ly)?\s+(?:construction|built)|recent\s+construction)\b', q):
+    if re.search(r"\b(?:new(?:ly)?\s+(?:construction|built)|recent\s+construction)\b", q):
         filters["min_year_built"] = 2010
         return
-    if re.search(r'\bold\s+building', q):
+    if re.search(r"\bold\s+building", q):
         filters["max_year_built"] = 1950
         return
 
 
 _OWNER_RE = re.compile(
-    r'\b(?:owned by|owner|landlord|managed by|property of)\s+(.{2,50}?)(?=\s+(?:in|at|with|that|has|have|near|and|or)\b|\s*$)'
+    r"\b(?:owned by|owner|landlord|managed by|property of)\s+(.{2,50}?)(?=\s+(?:in|at|with|that|has|have|near|and|or)\b|\s*$)"
 )
 
 
 def _extract_limit(q: str, filters: dict) -> None:
     # Only extract if there's a clear "N buildings" / "top N" / "best N" intent
     m = re.search(
-        r'\b(?:(?:top|best|worst|bottom)\s+(\d+)|(\d+)\s+(?:best|worst|top|bottom)|'
-        r'show\s+(?:me\s+)?(\d+)|find\s+(?:me\s+)?(\d+)|give\s+(?:me\s+)?(\d+))\b',
-        q
+        r"\b(?:(?:top|best|worst|bottom)\s+(\d+)|(\d+)\s+(?:best|worst|top|bottom)|"
+        r"show\s+(?:me\s+)?(\d+)|find\s+(?:me\s+)?(\d+)|give\s+(?:me\s+)?(\d+))\b",
+        q,
     )
     if m:
         n = next(int(g) for g in m.groups() if g is not None)
         if 1 <= n <= MAX_RESULTS:
             filters["limit"] = n
+
 
 def _extract_building_class(q: str, filters: dict) -> None:
     """Match building class keywords and set building_classes filter.
@@ -508,7 +819,7 @@ def _extract_building_class(q: str, filters: dict) -> None:
     Multi-char codes (e.g. "A9") are exact matches.
     """
     # Direct code mention: "class A9", "type C", "building class D"
-    m = re.search(r'\b(?:building\s+)?(?:class|type|code)\s+([A-Za-z][A-Za-z0-9]?)\b', q)
+    m = re.search(r"\b(?:building\s+)?(?:class|type|code)\s+([A-Za-z][A-Za-z0-9]?)\b", q)
     if m:
         filters["building_classes"] = [m.group(1).upper()]
         return
@@ -527,15 +838,9 @@ def _extract_owner(q: str, filters: dict) -> None:
             filters["owner_name"] = name
 
 
-def _extract_sort(q: str, filters: dict) -> None:
-    if "sort_by" in filters:
-        return
-    if "most complaints" in q or "by complaints" in q:
-        filters["sort_by"] = "complaints"
-    elif "most violations" in q or "by violations" in q:
-        filters["sort_by"] = "violations"
-    else:
-        filters["sort_by"] = "score_desc"
+# ---------------------------------------------------------------------------
+# Filter description (clarification text shown to users)
+# ---------------------------------------------------------------------------
 
 
 def _describe_filters(filters: dict) -> str | None:
@@ -544,7 +849,6 @@ def _describe_filters(filters: dict) -> str | None:
     if "borough" in filters:
         parts.append(f"in {filters['borough'].title()}")
     if "neighborhood" in filters:
-        # Use sub-neighborhood name if available, else fall back to CD name
         if "sub_nbhd" in filters:
             cd_splits = SUB_NEIGHBORHOOD_SPLITS.get(filters["neighborhood"], [])
             sn = filters["sub_nbhd"]
@@ -591,164 +895,8 @@ def _describe_filters(filters: dict) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Search entry point + query execution (unchanged from original)
+# Filter validation
 # ---------------------------------------------------------------------------
-
-
-async def search_buildings_ai(
-    db: AsyncSession, query: str, extra_filters: dict | None = None
-) -> dict:
-    """Translate natural language into a structured search.
-
-    Strategy: try keyword parsing first (fast). If no filters extracted,
-    fall through to Claude API for complex queries.
-    """
-    # 1. Try keyword parsing
-    filters = parse_search_query(query)
-    if extra_filters:
-        filters.update(extra_filters)
-
-    if filters:
-        logger.info(f"Keyword parsed '{query}' -> {filters}")
-        filters = validate_filters(filters)
-        results = await execute_search(db, filters)
-        return {
-            "results": results,
-            "total": len(results),
-            "query": query,
-            "clarification": _describe_filters(filters),
-        }
-
-    # 2. Fall through to Claude API
-    logger.info(f"No keyword match for '{query}', trying Claude API")
-    return await _claude_search(db, query, extra_filters=extra_filters)
-
-
-async def _claude_search(db: AsyncSession, query: str, extra_filters: dict | None = None) -> dict:
-    """Use Claude API tool-use to translate query into structured filters."""
-    if not settings.anthropic_api_key:
-        return {
-            "results": [],
-            "total": 0,
-            "query": query,
-            "clarification": (
-                "Could not understand the search query. "
-                "Try keywords like borough names, neighborhood names, "
-                "'rat', 'heat', 'noise', 'worst', 'best', 'pre-war', etc."
-            ),
-        }
-
-    try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-
-        tool = {
-            "name": "search_buildings",
-            "description": (
-                "Search NYC residential buildings by filters. "
-                "Returns buildings matching criteria with health scores."
-            ),
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "borough": {
-                        "type": "string",
-                        "enum": ["MANHATTAN", "BRONX", "BROOKLYN", "QUEENS", "STATEN ISLAND"],
-                    },
-                    "neighborhood": {
-                        "type": "string",
-                        "description": "Community district code (e.g. '110' for Central Harlem)",
-                    },
-                    "min_score": {"type": "number", "minimum": 0, "maximum": 100},
-                    "max_score": {"type": "number", "minimum": 0, "maximum": 100},
-                    "complaint_types": {
-                        "type": "array",
-                        "items": {"type": "string", "enum": ["heat", "pest", "noise", "structural"]},
-                    },
-                    "min_units": {"type": "integer", "minimum": 1},
-                    "max_units": {"type": "integer"},
-                    "min_year_built": {"type": "integer"},
-                    "max_year_built": {"type": "integer"},
-                    "has_litigation": {"type": "boolean"},
-                    "owner_name": {
-                        "type": "string",
-                        "description": "Filter by building owner name (partial match)",
-                    },
-                    "building_classes": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Filter by NYC building class codes. Single letters (e.g. 'A') match all codes with that prefix. Multi-char (e.g. 'A9') are exact.",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Number of results to return (1-100). Use when user asks for 'top N' or 'worst N'.",
-                        "minimum": 1,
-                        "maximum": 100,
-                    },
-                    "sort_by": {
-                        "type": "string",
-                        "enum": ["score_asc", "score_desc", "complaints", "violations"],
-                    },
-                },
-            },
-        }
-
-        neighborhood_context = ", ".join(f"{k}={v}" for k, v in list(CD_NAMES.items())[:20])
-
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=512,
-            system=(
-                "Translate NYC building search queries into structured filters. "
-                "Use the search_buildings tool. "
-                f"Neighborhood codes: {neighborhood_context}... "
-                "For 'worst'/'unhealthy', use low max_score. "
-                "For 'best'/'healthy', use high min_score. "
-                "Always sort by score_asc for 'worst' queries."
-            ),
-            messages=[{"role": "user", "content": query}],
-            tools=[tool],
-        )
-
-        filters = {}
-        clarification = None
-        for block in response.content:
-            if block.type == "tool_use" and block.name == "search_buildings":
-                filters = block.input
-            elif block.type == "text" and block.text:
-                clarification = block.text
-
-        if not filters:
-            return {
-                "results": [],
-                "total": 0,
-                "query": query,
-                "clarification": clarification or "Could not understand the search. Try rephrasing.",
-            }
-
-        if extra_filters:
-            filters.update(extra_filters)
-        filters = validate_filters(filters)
-        results = await execute_search(db, filters)
-
-        return {
-            "results": results,
-            "total": len(results),
-            "query": query,
-            "clarification": clarification or _describe_filters(filters),
-        }
-
-    except Exception as e:
-        logger.error(f"Claude API search failed: {e}")
-        return {
-            "results": [],
-            "total": 0,
-            "query": query,
-            "clarification": (
-                "Could not understand the search query. "
-                "Try keywords like borough names, neighborhood names, "
-                "'rat', 'heat', 'noise', 'worst', 'best', 'pre-war', etc."
-            ),
-        }
 
 
 def validate_filters(filters: dict) -> dict:
@@ -791,7 +939,7 @@ def validate_filters(filters: dict) -> dict:
     if "building_classes" in filters and isinstance(filters["building_classes"], list):
         validated["building_classes"] = [
             c[:10] for c in filters["building_classes"]
-            if isinstance(c, str) and re.match(r'^[A-Z][A-Z0-9]?$', c)
+            if isinstance(c, str) and re.match(r"^[A-Z][A-Z0-9]?$", c)
         ]
 
     if "has_litigation" in filters and isinstance(filters["has_litigation"], bool):
@@ -806,12 +954,28 @@ def validate_filters(filters: dict) -> dict:
     if filters.get("apartments_only"):
         validated["apartments_only"] = True
 
-    if "sort_by" in filters and filters["sort_by"] in {
-        "score_asc", "score_desc", "complaints", "violations"
-    }:
-        validated["sort_by"] = filters["sort_by"]
+    # Pass through sort list after whitelisting columns
+    if "sort" in filters and isinstance(filters["sort"], list):
+        safe_sort = [
+            sc for sc in filters["sort"]
+            if isinstance(sc, dict)
+            and sc.get("column") in _ALLOWED_SORT_COLUMNS
+            and sc.get("order") in ("ASC", "DESC")
+        ]
+        validated["sort"] = safe_sort or [{"column": "hs.composite_score", "order": "DESC"}]
+
+    # Pass through confidence / needs_fallback metadata
+    if "confidence" in filters:
+        validated["confidence"] = filters["confidence"]
+    if "needs_fallback" in filters:
+        validated["needs_fallback"] = filters["needs_fallback"]
 
     return validated
+
+
+# ---------------------------------------------------------------------------
+# SQL execution
+# ---------------------------------------------------------------------------
 
 
 async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
@@ -915,14 +1079,14 @@ async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
             " OR b.building_class IN ('R1','R2','R4','R6','RR'))"
         )
 
-    # Build sort clause
-    sort_map = {
-        "score_asc": "hs.composite_score ASC NULLS LAST",
-        "score_desc": "hs.composite_score DESC NULLS LAST",
-        "complaints": "hs.total_complaints DESC NULLS LAST",
-        "violations": "hs.total_violations DESC NULLS LAST",
-    }
-    order_by = sort_map.get(filters.get("sort_by", ""), "hs.composite_score DESC NULLS LAST")
+    # Build ORDER BY from sort list (validated columns only)
+    sort_list: list[SortClause] = filters.get("sort", [])
+    if sort_list:
+        order_by = ", ".join(
+            f"{sc['column']} {sc['order']} NULLS LAST" for sc in sort_list
+        )
+    else:
+        order_by = "hs.composite_score DESC NULLS LAST"
 
     where_clause = " AND ".join(conditions) if conditions else "TRUE"
 
@@ -941,3 +1105,50 @@ async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
 
     result = await db.execute(query, params)
     return [dict(row._mapping) for row in result]
+
+
+# ---------------------------------------------------------------------------
+# Search entry point
+# ---------------------------------------------------------------------------
+
+
+async def search_buildings_ai(
+    db: AsyncSession, query: str, extra_filters: dict | None = None
+) -> dict:
+    """Translate natural language into a structured search using the deterministic pipeline.
+
+    Always uses rule-based parsing — no LLM API calls.
+    Returns results dict including confidence and needs_fallback metadata.
+    """
+    filters = parse_search_query(query)
+    if extra_filters:
+        filters.update(extra_filters)
+
+    confidence = filters.get("confidence", 0.0)
+    needs_fallback = filters.get("needs_fallback", False)
+
+    logger.info(
+        "Parsed '%s' → confidence=%.2f needs_fallback=%s filters=%s",
+        query, confidence, needs_fallback, {k: v for k, v in filters.items()
+                                             if k not in ("sort", "confidence", "needs_fallback")},
+    )
+
+    filters = validate_filters(filters)
+    results = await execute_search(db, filters)
+
+    clarification = _describe_filters(filters)
+    if not results and needs_fallback:
+        clarification = (
+            "Could not find buildings matching that description. "
+            "Try keywords like borough names, neighborhood names, "
+            "'rats', 'heat', 'noise', 'worst', 'best', 'pre-war', etc."
+        )
+
+    return {
+        "results": results,
+        "total": len(results),
+        "query": query,
+        "clarification": clarification,
+        "confidence": confidence,
+        "needs_fallback": needs_fallback,
+    }

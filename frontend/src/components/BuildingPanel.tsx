@@ -8,11 +8,27 @@ import { useStore } from "@/lib/store";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { getBuildingClassLabel } from "@/lib/buildingClasses";
 
-function buildStreetEasyUrl(address: string, borough: string): string {
-  // StreetEasy building URLs use specific area names:
-  //   Manhattan → "new_york", Staten Island → "staten_island",
-  //   Brooklyn/Bronx → lowercase as-is.
-  //   Queens uses neighborhood names we can't predict, so fall back to search.
+function addressToSlug(address: string, queensStyle: boolean): string {
+  // Split house number from street name at the first space
+  const spaceIdx = address.indexOf(" ");
+  const houseNum = spaceIdx >= 0 ? address.slice(0, spaceIdx) : address;
+  const streetPart = spaceIdx >= 0 ? address.slice(spaceIdx + 1) : "";
+
+  // Queens house numbers like "10-51" use underscores in StreetEasy URLs
+  const houseSlug = queensStyle
+    ? houseNum.toLowerCase().replace(/-/g, "_").replace(/[^a-z0-9_]/g, "")
+    : houseNum.toLowerCase().replace(/[^a-z0-9-]/g, "");
+
+  const streetSlug = streetPart
+    .toLowerCase()
+    .replace(/(\d+)(?:st|nd|rd|th)\b/g, "$1") // strip ordinal suffixes
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, "-");
+
+  return streetPart ? `${houseSlug}-${streetSlug}` : houseSlug;
+}
+
+function buildStreetEasyUrl(address: string, borough: string, subNeighborhood?: string | null): string {
   const boroughMap: Record<string, string> = {
     MANHATTAN: "new_york",
     BROOKLYN: "brooklyn",
@@ -20,18 +36,29 @@ function buildStreetEasyUrl(address: string, borough: string): string {
     "STATEN ISLAND": "staten_island",
   };
 
-  const area = boroughMap[borough.toUpperCase()];
-  if (area) {
-    const slug = `${address}-${area}`
+  const isQueens = borough.toUpperCase() === "QUEENS";
+
+  if (isQueens) {
+    if (!subNeighborhood) {
+      // No sub-neighborhood resolved — fall back to search
+      const query = encodeURIComponent(`${address}, Queens, NY`);
+      return `https://streeteasy.com/search?query=${query}`;
+    }
+    // e.g. "Long Island City" → "long_island_city"
+    const neighborhoodSlug = subNeighborhood
       .toLowerCase()
-      // Strip ordinal suffixes (19th→19, 1st→1, 2nd→2, 3rd→3)
-      .replace(/(\d+)(?:st|nd|rd|th)\b/g, "$1")
-      .replace(/[^a-z0-9_\s-]/g, "")
-      .replace(/\s+/g, "-");
-    return `https://streeteasy.com/building/${slug}`;
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/_+$/g, "");
+    const addressSlug = addressToSlug(address, true);
+    return `https://streeteasy.com/building/${addressSlug}-${neighborhoodSlug}`;
   }
 
-  // Queens: StreetEasy uses neighborhood names, so link to search
+  const area = boroughMap[borough.toUpperCase()];
+  if (area) {
+    const addressSlug = addressToSlug(address, false);
+    return `https://streeteasy.com/building/${addressSlug}-${area}`;
+  }
+
   const query = encodeURIComponent(`${address}, ${borough}, NY`);
   return `https://streeteasy.com/search?query=${query}`;
 }
@@ -141,7 +168,7 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
               </div>
               {/* StreetEasy link */}
               <a
-                href={buildStreetEasyUrl(data.address, data.borough)}
+                href={buildStreetEasyUrl(data.address, data.borough, data.sub_neighborhood)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-2 inline-flex items-center gap-1 rounded bg-gray-700 px-2.5 py-1 text-xs font-medium text-blue-400 hover:bg-gray-600 hover:text-blue-300 transition-colors"
