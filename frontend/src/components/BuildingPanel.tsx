@@ -8,6 +8,14 @@ import { useStore } from "@/lib/store";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { getBuildingClassLabel } from "@/lib/buildingClasses";
 
+// StreetEasy uses full street-suffix names in building URLs (e.g. "avenue" not "ave").
+// PLUTO data may store abbreviated forms, so expand the trailing suffix to match.
+const STREET_SUFFIX_EXPANSIONS: Record<string, string> = {
+  ave: "avenue", blvd: "boulevard", st: "street", dr: "drive",
+  rd: "road", ln: "lane", ct: "court", pl: "place", ter: "terrace",
+  pkwy: "parkway", pky: "parkway", hwy: "highway", cir: "circle",
+};
+
 function addressToSlug(address: string, queensStyle: boolean): string {
   // Split house number from street name at the first space
   const spaceIdx = address.indexOf(" ");
@@ -19,9 +27,21 @@ function addressToSlug(address: string, queensStyle: boolean): string {
     ? houseNum.toLowerCase().replace(/-/g, "_").replace(/[^a-z0-9_]/g, "")
     : houseNum.toLowerCase().replace(/[^a-z0-9-]/g, "");
 
-  const streetSlug = streetPart
+  let street = streetPart
     .toLowerCase()
-    .replace(/(\d+)(?:st|nd|rd|th)\b/g, "$1") // strip ordinal suffixes
+    .replace(/(\d+)(?:st|nd|rd|th)\b/g, "$1"); // strip ordinal suffixes
+
+  // Expand abbreviated suffix (last word only, to avoid "ST" → "STREET" in "ST NICHOLAS")
+  const words = street.trim().split(/\s+/);
+  if (words.length > 0) {
+    const last = words[words.length - 1];
+    if (STREET_SUFFIX_EXPANSIONS[last]) {
+      words[words.length - 1] = STREET_SUFFIX_EXPANSIONS[last];
+    }
+    street = words.join(" ");
+  }
+
+  const streetSlug = street
     .replace(/[^a-z0-9\s]/g, "")
     .replace(/\s+/g, "-");
 
