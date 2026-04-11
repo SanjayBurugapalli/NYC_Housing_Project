@@ -6,6 +6,7 @@ import { fetchBuildingDetail } from "@/lib/api";
 import type { ViolationRecord, ComplaintRecord } from "@/types/building";
 import { useStore } from "@/lib/store";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
+import { getBuildingClassLabel } from "@/lib/buildingClasses";
 
 function buildStreetEasyUrl(address: string, borough: string): string {
   // StreetEasy building URLs use specific area names:
@@ -46,6 +47,7 @@ function gradeColor(grade: string): string {
 export function BuildingPanel({ bbl }: { bbl: string }) {
   const selectBuilding = useStore((s) => s.selectBuilding);
   const hasSearchResults = useStore((s) => s.searchResults.length > 0);
+  const mapRef = useStore((s) => s.mapRef);
 
   // Escape key to close panel
   useEffect(() => {
@@ -78,6 +80,16 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
               aria-label="Back to search results"
             >
               ← Results
+            </button>
+          )}
+          {data?.latitude != null && data?.longitude != null && (
+            <button
+              onClick={() => mapRef?.flyTo({ center: [data.longitude!, data.latitude!], zoom: Math.max(mapRef.getZoom(), 16), duration: 800 })}
+              className="rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-white focus:outline-none"
+              aria-label="Center map on building"
+              title="Center on map"
+            >
+              ◎
             </button>
           )}
           <button
@@ -148,9 +160,9 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
                 <p className="text-gray-400">Year Built</p>
                 <p className="font-medium">{data.year_built}</p>
               </div>
-              <div className="rounded bg-gray-700/50 p-2">
+              <div className="rounded bg-gray-700/50 p-2 col-span-2">
                 <p className="text-gray-400">Class</p>
-                <p className="font-medium">{data.building_class}</p>
+                <p className="font-medium text-xs leading-snug">{getBuildingClassLabel(data.building_class)}</p>
               </div>
               <div className="rounded bg-gray-700/50 p-2">
                 <p className="text-gray-400">Litigations</p>

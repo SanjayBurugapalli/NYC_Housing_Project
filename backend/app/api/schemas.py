@@ -128,6 +128,7 @@ class NeighborhoodListResponse(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=500)
+    apartments_only: bool = False
 
 
 class SearchResponse(BaseModel):

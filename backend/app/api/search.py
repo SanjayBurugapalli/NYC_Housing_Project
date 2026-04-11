@@ -27,11 +27,83 @@ BBL_PATTERN = re.compile(r"^\d{10}$")
 
 MAX_RESULTS = 100
 
+# Direction word ↔ abbreviation mappings (applied with \b word boundaries)
+_DIR_CONTRACT = [("EAST", "E"), ("WEST", "W"), ("NORTH", "N"), ("SOUTH", "S")]
+_DIR_EXPAND   = [("E", "EAST"), ("W", "WEST"), ("N", "NORTH"), ("S", "SOUTH")]
 
-async def search_by_address(db: AsyncSession, query: str) -> list[dict]:
-    """Search buildings by address substring match."""
+# Street suffix ↔ abbreviation mappings
+_SFX_CONTRACT = [
+    ("STREET", "ST"), ("AVENUE", "AVE"), ("BOULEVARD", "BLVD"),
+    ("DRIVE", "DR"), ("ROAD", "RD"), ("PLACE", "PL"),
+    ("COURT", "CT"), ("LANE", "LN"), ("TERRACE", "TER"), ("PARKWAY", "PKWY"),
+]
+_SFX_EXPAND = [(b, a) for a, b in _SFX_CONTRACT]
+
+
+def _apply_map(s: str, mapping: list[tuple[str, str]]) -> str:
+    for src, dst in mapping:
+        s = re.sub(r"\b" + re.escape(src) + r"\b", dst, s)
+    return s
+
+
+def _address_variants(raw: str) -> list[str]:
+    """Return up to 5 normalized address variants for LIKE matching.
+
+    Handles:
+    - Extra/multiple spaces
+    - Ordinal suffixes (42ND → 42, 1ST → 1)
+    - Direction words ↔ abbreviations (EAST ↔ E, WEST ↔ W …)
+    - Street suffix words ↔ abbreviations (STREET ↔ ST, AVENUE ↔ AVE …)
+
+    The DB is inconsistent (some entries have EAST, some E; some STREET, some ST),
+    so we try multiple variants and OR them in the query.
+    """
+    # Base: collapse whitespace, uppercase
+    q = re.sub(r"\s+", " ", raw).strip().upper()
+    # Without ordinal suffixes (42ND → 42, but NOT when the number is a standalone "1ST AVE")
+    q_no_ord = re.sub(r"\b(\d+)(ST|ND|RD|TH)\b", r"\1", q)
+
+    seen: set[str] = set()
+    result: list[str] = []
+
+    def add(v: str) -> None:
+        if v not in seen:
+            seen.add(v)
+            result.append(v)
+
+    for base in [q, q_no_ord]:
+        add(base)
+        # Contract: EAST→E, STREET→ST
+        contracted = _apply_map(_apply_map(base, _DIR_CONTRACT), _SFX_CONTRACT)
+        add(contracted)
+        # Expand directions only: E→EAST (safe; avoids false suffix expansions)
+        expanded_dir = _apply_map(base, _DIR_EXPAND)
+        add(expanded_dir)
+
+    return result[:5]  # cap to keep query complexity low
+
+
+# Building class prefixes/codes considered "apartments"
+APARTMENT_CLASS_CONDITIONS = """
+    (
+        b.building_class LIKE 'C%'
+        OR b.building_class LIKE 'D%'
+        OR b.building_class IN ('R1','R2','R4','R6','RR')
+    )
+"""
+
+async def search_by_address(db: AsyncSession, query: str, apartments_only: bool = False) -> list[dict]:
+    """Search buildings by address substring match, trying multiple normalized variants."""
+    apt_clause = f"AND {APARTMENT_CLASS_CONDITIONS}" if apartments_only else ""
+    variants = _address_variants(query)
+
+    # Build OR'd LIKE conditions for each variant
+    like_clauses = " OR ".join(f"UPPER(b.address) LIKE :p{i}" for i in range(len(variants)))
+    params: dict = {f"p{i}": f"%{v}%" for i, v in enumerate(variants)}
+    params["limit"] = MAX_RESULTS
+
     result = await db.execute(
-        text("""
+        text(f"""
             SELECT
                 b.bbl, b.bin, b.address, b.borough, b.neighborhood,
                 COALESCE(hs.composite_score, 0) as health_score,
@@ -39,11 +111,11 @@ async def search_by_address(db: AsyncSession, query: str) -> list[dict]:
                 b.residential_units, b.year_built, b.building_class
             FROM buildings b
             LEFT JOIN health_scores hs ON hs.building_id = b.id
-            WHERE UPPER(b.address) LIKE :pattern
-            ORDER BY hs.composite_score ASC NULLS LAST
+            WHERE ({like_clauses}) {apt_clause}
+            ORDER BY hs.composite_score DESC NULLS LAST
             LIMIT :limit
         """),
-        {"pattern": f"%{query.upper()}%", "limit": MAX_RESULTS},
+        params,
     )
     return [_sanitize_row(dict(row._mapping)) for row in result]
 
@@ -67,10 +139,15 @@ async def search_by_bbl(db: AsyncSession, bbl: str) -> list[dict]:
 
 
 def looks_like_address(query: str) -> bool:
-    """Heuristic: query is an address if it contains a number followed by words."""
+    """Heuristic: query looks like a specific building address (not a natural-language search)."""
     q = query.strip()
-    # Matches patterns like "123 main st", "45-67 broadway", "111 east 37 street"
-    return bool(re.match(r"^\d+[\-\d]*\s+\w", q))
+    # Standard: starts with house number — "123 Main St", "45-67 Broadway"
+    if re.match(r"^\d+[\-\d]*\s+\w", q):
+        return True
+    # Directional prefix: "W 42nd St", "E 18 St", "N 8th Street"
+    if re.match(r"^[EWNS]\s+\d", q, re.IGNORECASE):
+        return True
+    return False
 
 
 @router.post("/search", response_model=SearchResponse)
@@ -97,9 +174,11 @@ async def search_buildings(
             query=query,
         )
 
+    apartments_only = request.apartments_only
+
     # Address search (if it looks like an address)
     if looks_like_address(query):
-        results = await search_by_address(db, query)
+        results = await search_by_address(db, query, apartments_only)
         buildings = [
             BuildingSummaryResponse(
                 **b,
@@ -115,7 +194,7 @@ async def search_buildings(
         )
 
     # Try address search as fallback for any query
-    results = await search_by_address(db, query)
+    results = await search_by_address(db, query, apartments_only)
     if results:
         buildings = [
             BuildingSummaryResponse(
@@ -134,7 +213,8 @@ async def search_buildings(
     # No address matches — try AI search for natural language queries
     try:
         from app.services.search_service import search_buildings_ai
-        result = await search_buildings_ai(db, query)
+        extra_filters = {"apartments_only": True} if apartments_only else {}
+        result = await search_buildings_ai(db, query, extra_filters=extra_filters)
         buildings = [
             BuildingSummaryResponse(
                 **_sanitize_row(b),

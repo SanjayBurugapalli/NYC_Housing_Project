@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { SearchBar } from "@/components/SearchBar";
 import { BuildingPanel } from "@/components/BuildingPanel";
@@ -21,7 +21,16 @@ export default function Home() {
   const searchResults = useStore((s) => s.searchResults);
   const searchClarification = useStore((s) => s.searchClarification);
   const [showInfo, setShowInfo] = useState(false);
+  // Which panel was opened most recently — determines priority when both are open
+  const [lastOpened, setLastOpened] = useState<"building" | "info">("building");
 
+  // When a building is selected, it takes priority over info
+  useEffect(() => {
+    if (selectedBuilding) setLastOpened("building");
+  }, [selectedBuilding]);
+
+  const showBuildingPanel = !!selectedBuilding && (!showInfo || lastOpened === "building");
+  const showInfoPanel = showInfo && (!selectedBuilding || lastOpened === "info");
   const showSearchResults = searchResults.length > 0 && !selectedBuilding && !showInfo;
 
   return (
@@ -49,14 +58,14 @@ export default function Home() {
       </div>
 
       {/* Grade filter (doubles as legend) */}
-      <div className="absolute bottom-6 left-4 z-10">
+      <div className="absolute bottom-6 left-4 z-20 pointer-events-auto">
         <GradeFilter />
       </div>
 
       {/* Info button */}
       <button
-        onClick={() => setShowInfo(true)}
-        className="absolute bottom-6 right-4 z-10 flex items-center gap-1.5 rounded-lg border border-gray-600 bg-gray-800/95 px-3 py-2 text-sm font-semibold text-blue-400 backdrop-blur-sm hover:bg-gray-700 hover:text-white transition-colors shadow-lg"
+        onClick={() => { setShowInfo(true); setLastOpened("info"); }}
+        className="absolute bottom-6 right-4 z-20 flex items-center gap-1.5 rounded-lg border border-gray-600 bg-gray-800/95 px-3 py-2 text-sm font-semibold text-blue-400 backdrop-blur-sm hover:bg-gray-700 hover:text-white transition-colors shadow-lg"
         aria-label="About this project"
       >
         <span className="text-base leading-none">?</span>
@@ -64,7 +73,7 @@ export default function Home() {
       </button>
 
       {/* Info panel */}
-      {showInfo && !selectedBuilding && (
+      {showInfoPanel && (
         <>
           {/* Mobile: full-width bottom sheet */}
           <div className="absolute bottom-0 left-0 right-0 z-20 h-[70vh] md:hidden">
@@ -92,7 +101,7 @@ export default function Home() {
       )}
 
       {/* Building detail panel — responsive */}
-      {selectedBuilding && (
+      {showBuildingPanel && (
         <>
           {/* Mobile: full-width bottom sheet */}
           <div className="absolute bottom-0 left-0 right-0 z-20 h-[70vh] md:hidden">

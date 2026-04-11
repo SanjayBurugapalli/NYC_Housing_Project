@@ -28,9 +28,13 @@ export function Map() {
   const setBuildingCount = useStore((s) => s.setBuildingCount);
   const searchResults = useStore((s) => s.searchResults);
   const gradeFilter = useStore((s) => s.gradeFilter);
+  const selectedBbl = useStore((s) => s.selectedBbl);
 
   // Cache of last-fetched raw building features (before grade filtering)
   const rawBuildingsRef = useRef<any[]>([]);
+  // Ref so fetchAndRenderBuildings doesn't need gradeFilter as a dep (avoids map teardown on filter change)
+  const gradeFilterRef = useRef(gradeFilter);
+  useEffect(() => { gradeFilterRef.current = gradeFilter; }, [gradeFilter]);
 
   const applyGradeFilter = useCallback((
     m: mapboxgl.Map,
@@ -43,7 +47,7 @@ export function Map() {
       ? features.filter((f) => filter.includes(f.properties.grade))
       : features;
     source.setData({ type: "FeatureCollection", features: visible });
-    setBuildingCount(visible.length);
+    setBuildingCount(features.length); // always show total, not filtered count
   }, [setBuildingCount]);
 
   const fetchAndRenderBuildings = useCallback(async (m: mapboxgl.Map) => {
@@ -89,11 +93,11 @@ export function Map() {
         }));
 
       rawBuildingsRef.current = features;
-      applyGradeFilter(m, features, gradeFilter);
+      applyGradeFilter(m, features, gradeFilterRef.current);
     } catch (e: any) {
       if (e.name !== "AbortError") console.error("Failed to fetch buildings:", e);
     }
-  }, [setBuildingCount, gradeFilter, applyGradeFilter]);
+  }, [setBuildingCount, applyGradeFilter]); // gradeFilter removed — use ref instead
 
   const loadNeighborhoods = useCallback(async (m: mapboxgl.Map) => {
     try {
@@ -355,6 +359,31 @@ export function Map() {
         },
       });
 
+      // --- Selected building highlight ring ---
+      m.addSource("selected-building", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      m.addLayer({
+        id: "selected-building-ring",
+        type: "circle",
+        source: "selected-building",
+        paint: {
+          "circle-radius": [
+            "interpolate", ["linear"], ["zoom"],
+            10, 8,
+            14, 14,
+            16, 18,
+          ],
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-opacity": 1,
+          "circle-stroke-width": 2.5,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-opacity": 0.95,
+        },
+      });
+
       // --- Search results highlight layer ---
       m.addSource("search-results", {
         type: "geojson",
@@ -460,6 +489,38 @@ export function Map() {
     }
   }, [gradeFilter, applyGradeFilter]);
 
+  // Highlight selected building with a white ring
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !m.isStyleLoaded()) return;
+    const source = m.getSource("selected-building") as mapboxgl.GeoJSONSource | undefined;
+    if (!source) return;
+
+    if (!selectedBbl) {
+      source.setData({ type: "FeatureCollection", features: [] });
+      return;
+    }
+
+    // Look up coordinates from visible buildings or search results
+    let coords: [number, number] | null = null;
+    const inRaw = rawBuildingsRef.current.find((f) => f.properties.bbl === selectedBbl);
+    if (inRaw) {
+      coords = inRaw.geometry.coordinates as [number, number];
+    } else {
+      const inSearch = searchResults.find((b) => b.bbl === selectedBbl);
+      if (inSearch && inSearch.longitude != null && inSearch.latitude != null) {
+        coords = [inSearch.longitude, inSearch.latitude];
+      }
+    }
+
+    source.setData({
+      type: "FeatureCollection",
+      features: coords
+        ? [{ type: "Feature", geometry: { type: "Point", coordinates: coords }, properties: {} }]
+        : [],
+    });
+  }, [selectedBbl, searchResults]);
+
   // Update search results on map when they change
   useEffect(() => {
     const m = map.current;
@@ -507,5 +568,5 @@ export function Map() {
     }
   }, [searchResults, gradeFilter]);
 
-  return <div ref={mapContainer} className="h-full w-full" />;
+  return <div ref={mapContainer} className="absolute inset-0 z-0" />;
 }

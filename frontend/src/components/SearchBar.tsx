@@ -6,6 +6,7 @@ import { searchBuildings } from "@/lib/api";
 
 export function SearchBar() {
   const [input, setInput] = useState("");
+  const [apartmentsOnly, setApartmentsOnly] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const {
     setSearchQuery,
@@ -13,6 +14,7 @@ export function SearchBar() {
     setIsSearching,
     setSearchError,
     setSearchClarification,
+    selectBuilding,
     isSearching,
     searchError,
     searchClarification,
@@ -36,12 +38,18 @@ export function SearchBar() {
     setSearchError(null);
 
     try {
-      const result = await searchBuildings(query);
-      setSearchResults(result.results);
+      const result = await searchBuildings(query, apartmentsOnly);
       if (result.results.length === 0) {
+        setSearchResults([]);
         setSearchError(result.clarification || "No buildings found matching your search.");
         setSearchClarification(null);
+      } else if (result.results.length === 1) {
+        // Single match — open the building directly
+        setSearchResults(result.results);
+        setSearchClarification(null);
+        selectBuilding(result.results[0].bbl);
       } else {
+        setSearchResults(result.results);
         setSearchClarification(result.clarification || null);
       }
     } catch {
@@ -95,6 +103,23 @@ export function SearchBar() {
           </button>
         </div>
       </form>
+
+      {/* Apartments only checkbox */}
+      <div className="mt-1.5 flex items-center gap-2 px-1">
+        <input
+          id="apartments-only"
+          type="checkbox"
+          checked={apartmentsOnly}
+          onChange={(e) => setApartmentsOnly(e.target.checked)}
+          className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 accent-blue-500 cursor-pointer"
+        />
+        <label
+          htmlFor="apartments-only"
+          className="text-xs text-gray-400 cursor-pointer select-none hover:text-gray-200"
+        >
+          Only show apartments
+        </label>
+      </div>
 
       {/* Error / no results toast */}
       {searchError && (

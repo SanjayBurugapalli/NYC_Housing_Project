@@ -179,19 +179,24 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         for row in violations_result
     ]
 
-    # Litigation count
+    # Litigation count (last 5 years only, matching score computation)
     lit_result = await db.execute(
-        text("SELECT COUNT(*) as cnt FROM litigations WHERE bbl = :bbl"),
+        text("""
+            SELECT COUNT(*) as cnt FROM litigations
+            WHERE bbl = :bbl
+              AND (case_open_date IS NULL OR case_open_date >= NOW() - INTERVAL '5 years')
+        """),
         {"bbl": bbl},
     )
     litigation_count = lit_result.scalar() or 0
 
-    # Recent litigations (last 20)
+    # Recent litigations (last 5 years, up to 20)
     litigations_result = await db.execute(
         text("""
             SELECT external_id, case_type, case_status, case_open_date, case_judgment, respondent
             FROM litigations
             WHERE bbl = :bbl
+              AND (case_open_date IS NULL OR case_open_date >= NOW() - INTERVAL '5 years')
             ORDER BY case_open_date DESC NULLS LAST
             LIMIT 20
         """),

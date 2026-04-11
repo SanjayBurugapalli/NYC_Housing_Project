@@ -231,6 +231,73 @@ _COMPLAINT_SORTED = sorted(COMPLAINT_KEYWORDS.items(), key=lambda x: -len(x[0]))
 
 LITIGATION_KEYWORDS = {"lawsuit", "lawsuits", "litigation", "litigations", "sued", "legal action"}
 
+# Maps keyword/phrase → list of building class codes (prefix = all codes starting with letter)
+BUILDING_CLASS_KEYWORDS: list[tuple[str, list[str]]] = sorted([
+    # One family
+    ("one family", ["A"]), ("single family", ["A"]), ("1 family", ["A"]),
+    ("cape cod", ["A0"]),
+    ("mansion", ["A7"]), ("townhouse", ["A7"]), ("town house", ["A7"]),
+    ("bungalow", ["A8"]),
+    # Two family
+    ("two family", ["B"]), ("duplex", ["B"]), ("2 family", ["B"]),
+    # Walk-up apartments
+    ("walk up", ["C"]), ("walkup", ["C"]), ("walk-up", ["C"]),
+    ("tenement", ["C4"]), ("old law tenement", ["C4"]),
+    ("rooming house", ["C5"]),
+    ("garden apartment", ["C9"]), ("garden apartments", ["C9"]),
+    # Elevator apartments
+    ("elevator apartment", ["D"]), ("elevator building", ["D"]),
+    ("high rise apartment", ["D"]), ("highrise apartment", ["D"]),
+    ("luxury apartment", ["D8"]), ("luxury condo", ["D8", "R4"]),
+    ("artist in residence", ["D2"]), ("artists in residence", ["D2"]),
+    # Condominiums
+    ("condo", ["R"]), ("condominium", ["R"]),
+    ("condo rental", ["RR"]),
+    # Co-ops / cooperatives
+    ("co-op", ["C6", "C8", "D0", "D4", "DC", "CC", "R9"]),
+    ("coop", ["C6", "C8", "D0", "D4", "DC", "CC", "R9"]),
+    ("cooperative", ["C6", "C8", "D0", "D4", "DC", "CC", "R9"]),
+    # Mixed use
+    ("mixed use", ["S"]), ("mixed-use", ["S"]),
+    # Hotels
+    ("hotel", ["H"]), ("motel", ["H4"]),
+    ("boutique hotel", ["HB"]),
+    ("hostel", ["HH"]),
+    ("dormitory", ["H8"]), ("dorm", ["H8"]),
+    ("sro", ["HR"]),
+    # Warehouses
+    ("warehouse", ["E"]), ("self storage", ["E7"]), ("self-storage", ["E7"]),
+    # Factories / industrial
+    ("factory", ["F"]), ("industrial", ["F"]), ("manufacturing", ["F"]),
+    # Offices
+    ("office building", ["O"]), ("office", ["O"]),
+    # Retail / stores
+    ("retail", ["K"]), ("store building", ["K"]),
+    ("shopping center", ["K6"]), ("department store", ["K3"]),
+    ("restaurant", ["K5"]), ("food establishment", ["K5"]),
+    # Lofts
+    ("loft", ["L"]),
+    # Garages / parking
+    ("garage", ["G"]), ("parking garage", ["G1"]),
+    ("parking lot", ["G6", "G7"]),
+    ("gas station", ["G3", "G4", "G5"]),
+    # Religious
+    ("church", ["M1"]), ("synagogue", ["M1"]), ("chapel", ["M1"]),
+    ("religious", ["M"]),
+    # Schools / education
+    ("school", ["W"]), ("educational", ["W"]), ("university", ["W5", "W6"]),
+    ("college", ["W5", "W6"]),
+    # Hospitals / health
+    ("hospital", ["I1"]), ("nursing home", ["I6"]),
+    ("clinic", ["I5"]), ("health center", ["I5"]),
+    # Government
+    ("government", ["Y"]),
+    ("fire department", ["Y1"]), ("fire station", ["Y1"]),
+    ("police", ["Y2"]),
+    # Vacant
+    ("vacant", ["V"]), ("vacant land", ["V"]),
+], key=lambda x: -len(x[0]))
+
 VALID_BOROUGHS = {"MANHATTAN", "BRONX", "BROOKLYN", "QUEENS", "STATEN ISLAND"}
 MAX_RESULTS = 100
 
@@ -251,6 +318,9 @@ def parse_search_query(query: str) -> dict:
     _extract_litigation(q, filters)
     _extract_size_filters(q, filters)
     _extract_year_filters(q, filters)
+    _extract_building_class(q, filters)
+    _extract_owner(q, filters)
+    _extract_limit(q, filters)
     _extract_sort(q, filters)
 
     return filters
@@ -414,6 +484,49 @@ def _extract_year_filters(q: str, filters: dict) -> None:
         return
 
 
+_OWNER_RE = re.compile(
+    r'\b(?:owned by|owner|landlord|managed by|property of)\s+(.{2,50}?)(?=\s+(?:in|at|with|that|has|have|near|and|or)\b|\s*$)'
+)
+
+
+def _extract_limit(q: str, filters: dict) -> None:
+    # Only extract if there's a clear "N buildings" / "top N" / "best N" intent
+    m = re.search(
+        r'\b(?:(?:top|best|worst|bottom)\s+(\d+)|(\d+)\s+(?:best|worst|top|bottom)|'
+        r'show\s+(?:me\s+)?(\d+)|find\s+(?:me\s+)?(\d+)|give\s+(?:me\s+)?(\d+))\b',
+        q
+    )
+    if m:
+        n = next(int(g) for g in m.groups() if g is not None)
+        if 1 <= n <= MAX_RESULTS:
+            filters["limit"] = n
+
+def _extract_building_class(q: str, filters: dict) -> None:
+    """Match building class keywords and set building_classes filter.
+
+    Single-letter codes (e.g. "A") are treated as prefix matches (A%) in execute_search.
+    Multi-char codes (e.g. "A9") are exact matches.
+    """
+    # Direct code mention: "class A9", "type C", "building class D"
+    m = re.search(r'\b(?:building\s+)?(?:class|type|code)\s+([A-Za-z][A-Za-z0-9]?)\b', q)
+    if m:
+        filters["building_classes"] = [m.group(1).upper()]
+        return
+
+    for keyword, codes in BUILDING_CLASS_KEYWORDS:
+        if keyword in q:
+            filters["building_classes"] = codes
+            return
+
+
+def _extract_owner(q: str, filters: dict) -> None:
+    m = _OWNER_RE.search(q)
+    if m:
+        name = m.group(1).strip().rstrip(".,")
+        if name:
+            filters["owner_name"] = name
+
+
 def _extract_sort(q: str, filters: dict) -> None:
     if "sort_by" in filters:
         return
@@ -421,11 +534,7 @@ def _extract_sort(q: str, filters: dict) -> None:
         filters["sort_by"] = "complaints"
     elif "most violations" in q or "by violations" in q:
         filters["sort_by"] = "violations"
-    elif "complaint_types" in filters or "has_litigation" in filters:
-        # Positive match — show worst offenders first
-        filters["sort_by"] = "score_asc"
-    elif "exclude_complaint_types" in filters:
-        # Exclusion only — show healthiest buildings first
+    else:
         filters["sort_by"] = "score_desc"
 
 
@@ -453,6 +562,10 @@ def _describe_filters(filters: dict) -> str | None:
         parts.append(f"without {', '.join(filters['exclude_complaint_types'])} issues")
     if "has_litigation" in filters:
         parts.append("with litigation history")
+    if "building_classes" in filters:
+        parts.append(f"building class {'/'.join(filters['building_classes'])}")
+    if "owner_name" in filters:
+        parts.append(f"owned by '{filters['owner_name']}'")
     if "min_score" in filters or "max_score" in filters:
         lo = filters.get("min_score", 0)
         hi = filters.get("max_score", 100)
@@ -473,7 +586,8 @@ def _describe_filters(filters: dict) -> str | None:
             parts.append(f"up to {filters['max_units']} units")
     if not parts:
         return None
-    return "Showing buildings " + " ".join(parts) + "."
+    prefix = f"Top {filters['limit']} buildings" if "limit" in filters else "Showing buildings"
+    return prefix + " " + " ".join(parts) + "."
 
 
 # ---------------------------------------------------------------------------
@@ -482,7 +596,7 @@ def _describe_filters(filters: dict) -> str | None:
 
 
 async def search_buildings_ai(
-    db: AsyncSession, query: str
+    db: AsyncSession, query: str, extra_filters: dict | None = None
 ) -> dict:
     """Translate natural language into a structured search.
 
@@ -491,6 +605,8 @@ async def search_buildings_ai(
     """
     # 1. Try keyword parsing
     filters = parse_search_query(query)
+    if extra_filters:
+        filters.update(extra_filters)
 
     if filters:
         logger.info(f"Keyword parsed '{query}' -> {filters}")
@@ -505,10 +621,10 @@ async def search_buildings_ai(
 
     # 2. Fall through to Claude API
     logger.info(f"No keyword match for '{query}', trying Claude API")
-    return await _claude_search(db, query)
+    return await _claude_search(db, query, extra_filters=extra_filters)
 
 
-async def _claude_search(db: AsyncSession, query: str) -> dict:
+async def _claude_search(db: AsyncSession, query: str, extra_filters: dict | None = None) -> dict:
     """Use Claude API tool-use to translate query into structured filters."""
     if not settings.anthropic_api_key:
         return {
@@ -553,6 +669,21 @@ async def _claude_search(db: AsyncSession, query: str) -> dict:
                     "min_year_built": {"type": "integer"},
                     "max_year_built": {"type": "integer"},
                     "has_litigation": {"type": "boolean"},
+                    "owner_name": {
+                        "type": "string",
+                        "description": "Filter by building owner name (partial match)",
+                    },
+                    "building_classes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter by NYC building class codes. Single letters (e.g. 'A') match all codes with that prefix. Multi-char (e.g. 'A9') are exact.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Number of results to return (1-100). Use when user asks for 'top N' or 'worst N'.",
+                        "minimum": 1,
+                        "maximum": 100,
+                    },
                     "sort_by": {
                         "type": "string",
                         "enum": ["score_asc", "score_desc", "complaints", "violations"],
@@ -594,6 +725,8 @@ async def _claude_search(db: AsyncSession, query: str) -> dict:
                 "clarification": clarification or "Could not understand the search. Try rephrasing.",
             }
 
+        if extra_filters:
+            filters.update(extra_filters)
         filters = validate_filters(filters)
         results = await execute_search(db, filters)
 
@@ -655,8 +788,23 @@ def validate_filters(filters: dict) -> dict:
     if "building_class" in filters and isinstance(filters["building_class"], str):
         validated["building_class"] = filters["building_class"][:10]
 
+    if "building_classes" in filters and isinstance(filters["building_classes"], list):
+        validated["building_classes"] = [
+            c[:10] for c in filters["building_classes"]
+            if isinstance(c, str) and re.match(r'^[A-Z][A-Z0-9]?$', c)
+        ]
+
     if "has_litigation" in filters and isinstance(filters["has_litigation"], bool):
         validated["has_litigation"] = filters["has_litigation"]
+
+    if "owner_name" in filters and isinstance(filters["owner_name"], str):
+        validated["owner_name"] = filters["owner_name"][:100]
+
+    if "limit" in filters and isinstance(filters["limit"], int):
+        validated["limit"] = max(1, min(MAX_RESULTS, filters["limit"]))
+
+    if filters.get("apartments_only"):
+        validated["apartments_only"] = True
 
     if "sort_by" in filters and filters["sort_by"] in {
         "score_asc", "score_desc", "complaints", "violations"
@@ -669,7 +817,7 @@ def validate_filters(filters: dict) -> dict:
 async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
     """Execute validated search filters against the database."""
     conditions = []
-    params: dict = {"limit": MAX_RESULTS}
+    params: dict = {"limit": filters.get("limit", MAX_RESULTS)}
 
     if "borough" in filters:
         conditions.append("b.borough = :borough")
@@ -721,6 +869,18 @@ async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
         conditions.append("b.building_class = :building_class")
         params["building_class"] = filters["building_class"]
 
+    if filters.get("building_classes"):
+        clauses = []
+        for i, code in enumerate(filters["building_classes"]):
+            if len(code) == 1:
+                # Single letter = prefix match (e.g. "A" → all A* codes)
+                clauses.append(f"b.building_class LIKE :bclass_{i}")
+                params[f"bclass_{i}"] = f"{code}%"
+            else:
+                clauses.append(f"b.building_class = :bclass_{i}")
+                params[f"bclass_{i}"] = code
+        conditions.append("(" + " OR ".join(clauses) + ")")
+
     if filters.get("complaint_types"):
         conditions.append("""
             EXISTS (
@@ -745,6 +905,16 @@ async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
         else:
             conditions.append("NOT EXISTS (SELECT 1 FROM litigations l WHERE l.bbl = b.bbl)")
 
+    if "owner_name" in filters:
+        conditions.append("b.owner_name ILIKE :owner_name")
+        params["owner_name"] = f"%{filters['owner_name']}%"
+
+    if filters.get("apartments_only"):
+        conditions.append(
+            "(b.building_class LIKE 'C%' OR b.building_class LIKE 'D%'"
+            " OR b.building_class IN ('R1','R2','R4','R6','RR'))"
+        )
+
     # Build sort clause
     sort_map = {
         "score_asc": "hs.composite_score ASC NULLS LAST",
@@ -752,7 +922,7 @@ async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
         "complaints": "hs.total_complaints DESC NULLS LAST",
         "violations": "hs.total_violations DESC NULLS LAST",
     }
-    order_by = sort_map.get(filters.get("sort_by", ""), "hs.composite_score ASC NULLS LAST")
+    order_by = sort_map.get(filters.get("sort_by", ""), "hs.composite_score DESC NULLS LAST")
 
     where_clause = " AND ".join(conditions) if conditions else "TRUE"
 

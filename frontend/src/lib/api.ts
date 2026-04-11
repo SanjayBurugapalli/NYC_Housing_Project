@@ -52,9 +52,9 @@ export async function fetchSubNeighborhoods(): Promise<{
   return fetchApi("/api/neighborhoods/detail");
 }
 
-export async function searchBuildings(query: string): Promise<SearchResult> {
+export async function searchBuildings(query: string, apartmentsOnly = false): Promise<SearchResult> {
   return fetchApi("/api/search", {
     method: "POST",
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, apartments_only: apartmentsOnly }),
   });
 }
