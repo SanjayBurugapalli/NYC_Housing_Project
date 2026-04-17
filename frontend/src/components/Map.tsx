@@ -22,6 +22,7 @@ export function Map() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const moveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const setViewport = useStore((s) => s.setViewport);
   const selectBuilding = useStore((s) => s.selectBuilding);
   const setMapRef = useStore((s) => s.setMapRef);
@@ -211,7 +212,9 @@ export function Map() {
         },
         m.getZoom()
       );
-      fetchAndRenderBuildings(m);
+      // Debounce: wait 250ms after the last moveend before fetching
+      if (moveDebounceRef.current) clearTimeout(moveDebounceRef.current);
+      moveDebounceRef.current = setTimeout(() => fetchAndRenderBuildings(m), 250);
     });
 
     m.on("load", () => {

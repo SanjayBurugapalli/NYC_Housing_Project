@@ -150,14 +150,23 @@ export function ScoreBreakdown({
           const subScore =
             (breakdown[scoreKey as keyof ScoreBreakdownType] as number) ?? 100;
           const weight = weights[key];
+          const isLitigation = key === "litigation";
           return (
             <div key={countKey}>
               <div className="flex justify-between text-sm">
-                <span className="text-gray-300">
+                <span className="text-gray-300 flex items-center gap-1">
                   {label}
                   {useCustomWeights && (
                     <span className="ml-1 text-xs text-gray-500">
                       {Math.round(weight * 100)}%
+                    </span>
+                  )}
+                  {isLitigation && (
+                    <span
+                      className="cursor-help text-gray-500 text-xs"
+                      title="The score bar reflects the stored all-time litigation history. The case count shown here covers only the last 5 years displayed in the panel below."
+                    >
+                      (?)
                     </span>
                   )}
                 </span>

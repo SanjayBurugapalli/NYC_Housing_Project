@@ -1,7 +1,9 @@
 import math
 import re
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +12,7 @@ from app.core.database import get_db
 from app.services.building_service import score_to_grade
 
 router = APIRouter(tags=["search"])
+limiter = Limiter(key_func=get_remote_address)
 
 
 def _sanitize_row(row: dict) -> dict:
@@ -151,12 +154,14 @@ def looks_like_address(query: str) -> bool:
 
 
 @router.post("/search", response_model=SearchResponse)
+@limiter.limit("60/minute")
 async def search_buildings(
-    request: SearchRequest,
+    request: Request,
+    body: SearchRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """Search buildings by address, BBL, or natural language (AI)."""
-    query = request.query.strip()
+    query = body.query.strip().replace("\x00", "")  # strip null bytes
 
     # Direct BBL lookup
     if BBL_PATTERN.match(query):
@@ -174,7 +179,7 @@ async def search_buildings(
             query=query,
         )
 
-    apartments_only = request.apartments_only
+    apartments_only = body.apartments_only
 
     # Address search (if it looks like an address)
     if looks_like_address(query):

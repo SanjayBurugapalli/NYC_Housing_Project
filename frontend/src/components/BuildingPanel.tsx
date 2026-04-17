@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchBuildingDetail } from "@/lib/api";
 import type { ViolationRecord, ComplaintRecord } from "@/types/building";
@@ -17,12 +17,10 @@ const STREET_SUFFIX_EXPANSIONS: Record<string, string> = {
 };
 
 function addressToSlug(address: string, queensStyle: boolean): string {
-  // Split house number from street name at the first space
   const spaceIdx = address.indexOf(" ");
   const houseNum = spaceIdx >= 0 ? address.slice(0, spaceIdx) : address;
   const streetPart = spaceIdx >= 0 ? address.slice(spaceIdx + 1) : "";
 
-  // Queens house numbers like "10-51" use underscores in StreetEasy URLs
   const houseSlug = queensStyle
     ? houseNum.toLowerCase().replace(/-/g, "_").replace(/[^a-z0-9_]/g, "")
     : houseNum.toLowerCase().replace(/[^a-z0-9-]/g, "");
@@ -60,11 +58,9 @@ function buildStreetEasyUrl(address: string, borough: string, subNeighborhood?: 
 
   if (isQueens) {
     if (!subNeighborhood) {
-      // No sub-neighborhood resolved — fall back to search
       const query = encodeURIComponent(`${address}, Queens, NY`);
       return `https://streeteasy.com/search?query=${query}`;
     }
-    // e.g. "Long Island City" → "long_island_city"
     const neighborhoodSlug = subNeighborhood
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "_")
@@ -91,10 +87,58 @@ function gradeColor(grade: string): string {
   return "text-score-critical";
 }
 
+function SkeletonRow() {
+  return <div className="h-4 rounded bg-gray-700/60 animate-pulse" />;
+}
+
+function PanelSkeleton() {
+  return (
+    <div className="space-y-6 p-4">
+      {/* Address block */}
+      <div className="space-y-2">
+        <div className="h-3 w-24 rounded bg-gray-700/60 animate-pulse" />
+        <div className="h-6 w-3/4 rounded bg-gray-700/60 animate-pulse" />
+        <div className="h-3 w-1/2 rounded bg-gray-700/60 animate-pulse" />
+        <div className="mt-3 h-12 w-16 rounded bg-gray-700/60 animate-pulse" />
+      </div>
+      {/* Info grid */}
+      <div className="grid grid-cols-2 gap-3">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="rounded bg-gray-700/50 p-2 space-y-1">
+            <div className="h-3 w-12 rounded bg-gray-600/60 animate-pulse" />
+            <div className="h-4 w-16 rounded bg-gray-600/60 animate-pulse" />
+          </div>
+        ))}
+      </div>
+      {/* Score bars */}
+      <div className="space-y-3">
+        <div className="h-4 w-32 rounded bg-gray-700/60 animate-pulse" />
+        {[...Array(5)].map((_, i) => (
+          <div key={i} className="space-y-1">
+            <div className="flex justify-between">
+              <div className="h-3 w-28 rounded bg-gray-700/60 animate-pulse" />
+              <div className="h-3 w-12 rounded bg-gray-700/60 animate-pulse" />
+            </div>
+            <div className="h-2 rounded-full bg-gray-700 overflow-hidden">
+              <div className="h-full rounded-full bg-gray-600/60 animate-pulse" style={{ width: `${40 + i * 12}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function BuildingPanel({ bbl }: { bbl: string }) {
   const selectBuilding = useStore((s) => s.selectBuilding);
   const hasSearchResults = useStore((s) => s.searchResults.length > 0);
   const mapRef = useStore((s) => s.mapRef);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Move focus to close button when panel opens
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+  }, [bbl]);
 
   // Escape key to close panel
   useEffect(() => {
@@ -105,15 +149,17 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectBuilding]);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["building", bbl],
     queryFn: () => fetchBuildingDetail(bbl),
+    retry: 1,
   });
 
   return (
     <div
       className="flex h-full flex-col overflow-y-auto bg-gray-800/95 backdrop-blur-sm shadow-xl border-l border-gray-700"
       role="dialog"
+      aria-modal="true"
       aria-label="Building detail panel"
     >
       {/* Header */}
@@ -140,6 +186,7 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
             </button>
           )}
           <button
+            ref={closeButtonRef}
             onClick={() => selectBuilding(null)}
             className="rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             aria-label="Close building detail panel"
@@ -151,21 +198,23 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 p-4">
-        {isLoading && (
-          <div className="flex items-center justify-center py-12">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
-          </div>
-        )}
+      <div className="flex-1">
+        {isLoading && <PanelSkeleton />}
 
         {error && (
-          <div className="rounded bg-red-900/50 p-3 text-sm text-red-300">
-            Failed to load building data.
+          <div className="m-4 rounded bg-red-900/50 p-3 text-sm text-red-300 space-y-2">
+            <p>Failed to load building data.</p>
+            <button
+              onClick={() => refetch()}
+              className="rounded bg-red-800 px-3 py-1 text-xs font-medium text-red-200 hover:bg-red-700 transition-colors"
+            >
+              Retry
+            </button>
           </div>
         )}
 
         {data && (
-          <div className="space-y-6">
+          <div className="space-y-6 p-4">
             {/* Address & Score */}
             <div>
               <p className="text-sm text-gray-400">BBL: {data.bbl}</p>
@@ -179,9 +228,7 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
                 </p>
               )}
               <div className="mt-3 flex items-baseline gap-3">
-                <span
-                  className={`text-5xl font-bold ${gradeColor(data.grade)}`}
-                >
+                <span className={`text-5xl font-bold ${gradeColor(data.grade)}`}>
                   {data.grade}
                 </span>
                 <span className="text-sm text-gray-400">Health Grade</span>
@@ -201,15 +248,21 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="rounded bg-gray-700/50 p-2">
                 <p className="text-gray-400">Units</p>
-                <p className="font-medium">{data.residential_units}</p>
+                <p className="font-medium">
+                  {data.residential_units > 0 ? data.residential_units : "—"}
+                </p>
               </div>
               <div className="rounded bg-gray-700/50 p-2">
                 <p className="text-gray-400">Year Built</p>
-                <p className="font-medium">{data.year_built}</p>
+                <p className="font-medium">
+                  {data.year_built ? data.year_built : "—"}
+                </p>
               </div>
               <div className="rounded bg-gray-700/50 p-2 col-span-2">
                 <p className="text-gray-400">Class</p>
-                <p className="font-medium text-xs leading-snug">{getBuildingClassLabel(data.building_class)}</p>
+                <p className="font-medium text-xs leading-snug">
+                  {data.building_class ? getBuildingClassLabel(data.building_class) : "—"}
+                </p>
               </div>
               <div className="rounded bg-gray-700/50 p-2">
                 <p className="text-gray-400">Litigations</p>
@@ -305,11 +358,17 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Expandable Violations List                                        */
+/*  Expandable Violations List                                          */
 /* ------------------------------------------------------------------ */
+
+const VIOLATIONS_PAGE = 20;
 
 function ViolationsList({ violations }: { violations: ViolationRecord[] }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
+
+  const visible = showAll ? violations : violations.slice(0, VIOLATIONS_PAGE);
+  const hasMore = violations.length > VIOLATIONS_PAGE;
 
   return (
     <div>
@@ -317,7 +376,7 @@ function ViolationsList({ violations }: { violations: ViolationRecord[] }) {
         Recent Violations ({violations.length})
       </h4>
       <div className="space-y-2">
-        {violations.slice(0, 20).map((v) => {
+        {visible.map((v) => {
           const isExpanded = expandedId === v.id;
           return (
             <button
@@ -348,7 +407,6 @@ function ViolationsList({ violations }: { violations: ViolationRecord[] }) {
                   {v.description}
                 </p>
               )}
-
               {isExpanded && (
                 <div className="mt-2 space-y-1 border-t border-gray-700 pt-2 text-xs text-gray-400">
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1">
@@ -383,16 +441,31 @@ function ViolationsList({ violations }: { violations: ViolationRecord[] }) {
           );
         })}
       </div>
+      {hasMore && !showAll && (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="mt-2 w-full rounded border border-gray-600 py-1.5 text-xs text-gray-400 hover:border-gray-400 hover:text-gray-200 transition-colors"
+        >
+          Show all {violations.length} violations
+        </button>
+      )}
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  Expandable Complaints List                                        */
+/*  Expandable Complaints List                                          */
 /* ------------------------------------------------------------------ */
+
+const COMPLAINTS_PAGE = 20;
 
 function ComplaintsList({ complaints }: { complaints: ComplaintRecord[] }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
+
+  const visible = showAll ? complaints : complaints.slice(0, COMPLAINTS_PAGE);
+  const hasMore = complaints.length > COMPLAINTS_PAGE;
 
   return (
     <div>
@@ -400,7 +473,7 @@ function ComplaintsList({ complaints }: { complaints: ComplaintRecord[] }) {
         Recent Complaints ({complaints.length})
       </h4>
       <div className="space-y-2">
-        {complaints.slice(0, 20).map((c) => {
+        {visible.map((c) => {
           const isExpanded = expandedId === c.id;
           return (
             <button
@@ -421,7 +494,6 @@ function ComplaintsList({ complaints }: { complaints: ComplaintRecord[] }) {
                   {c.description}
                 </p>
               )}
-
               {isExpanded && (
                 <div className="mt-2 space-y-1 border-t border-gray-700 pt-2 text-xs text-gray-400">
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1">
@@ -453,6 +525,15 @@ function ComplaintsList({ complaints }: { complaints: ComplaintRecord[] }) {
           );
         })}
       </div>
+      {hasMore && !showAll && (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="mt-2 w-full rounded border border-gray-600 py-1.5 text-xs text-gray-400 hover:border-gray-400 hover:text-gray-200 transition-colors"
+        >
+          Show all {complaints.length} complaints
+        </button>
+      )}
     </div>
   );
 }

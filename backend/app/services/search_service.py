@@ -14,6 +14,7 @@ Pipeline:
 
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
@@ -23,6 +24,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.sub_neighborhood_splits import SUB_NEIGHBORHOOD_SPLITS
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Simple in-memory TTL cache for NL search results
+# ---------------------------------------------------------------------------
+
+_SEARCH_CACHE: dict[str, tuple[dict, float]] = {}
+_CACHE_TTL_SECONDS = 60
+
+
+def _cache_key(query: str, extra_filters: dict | None) -> str:
+    extras = "|".join(f"{k}={v}" for k, v in sorted((extra_filters or {}).items()))
+    return f"{query.lower().strip()}|{extras}"
+
 
 # ---------------------------------------------------------------------------
 # Lookup tables
@@ -1120,6 +1134,13 @@ async def search_buildings_ai(
     Always uses rule-based parsing — no LLM API calls.
     Returns results dict including confidence and needs_fallback metadata.
     """
+    # Check cache first
+    key = _cache_key(query, extra_filters)
+    cached, ts = _SEARCH_CACHE.get(key, (None, 0.0))
+    if cached is not None and (time.monotonic() - ts) < _CACHE_TTL_SECONDS:
+        logger.debug("Cache hit for query='%s'", query)
+        return cached
+
     filters = parse_search_query(query)
     if extra_filters:
         filters.update(extra_filters)
@@ -1144,7 +1165,7 @@ async def search_buildings_ai(
             "'rats', 'heat', 'noise', 'worst', 'best', 'pre-war', etc."
         )
 
-    return {
+    result = {
         "results": results,
         "total": len(results),
         "query": query,
@@ -1152,3 +1173,5 @@ async def search_buildings_ai(
         "confidence": confidence,
         "needs_fallback": needs_fallback,
     }
+    _SEARCH_CACHE[key] = (result, time.monotonic())
+    return result

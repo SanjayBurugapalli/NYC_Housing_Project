@@ -3,6 +3,29 @@
 import { useStore } from "@/lib/store";
 import type { BuildingSummary } from "@/types/building";
 
+function exportCsv(results: BuildingSummary[]) {
+  const headers = ["BBL", "Address", "Borough", "Grade", "Score", "Units", "Year Built", "Latitude", "Longitude"];
+  const rows = results.map((b) => [
+    b.bbl,
+    `"${(b.address ?? "").replace(/"/g, '""')}"`,
+    b.borough ?? "",
+    b.grade ?? "",
+    b.health_score ?? "",
+    b.residential_units ?? "",
+    b.year_built ?? "",
+    b.latitude ?? "",
+    b.longitude ?? "",
+  ]);
+  const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "nyc_building_search.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function gradeColor(grade: string): string {
   if (grade === "A") return "text-score-excellent";
   if (grade === "B") return "text-score-good";
@@ -54,14 +77,26 @@ export function SearchResultsPanel({ clarification }: SearchResultsPanelProps) {
           <h2 className="text-lg font-semibold">Search Results</h2>
           <p className="text-xs text-gray-400">{visibleResults.length} building{visibleResults.length !== 1 ? "s" : ""}{gradeFilter.length > 0 ? ` (filtered)` : ""}</p>
         </div>
-        <button
-          onClick={clearSearch}
-          className="rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          aria-label="Clear search results"
-          title="Clear results"
-        >
-          ✕
-        </button>
+        <div className="flex items-center gap-1">
+          {searchResults.length > 0 && (
+            <button
+              onClick={() => exportCsv(searchResults)}
+              className="rounded px-2 py-1 text-xs text-gray-400 hover:bg-gray-700 hover:text-white focus:outline-none"
+              aria-label="Export results as CSV"
+              title="Download CSV"
+            >
+              CSV
+            </button>
+          )}
+          <button
+            onClick={clearSearch}
+            className="rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            aria-label="Clear search results"
+            title="Clear results"
+          >
+            ✕
+          </button>
+        </div>
       </div>
 
       {/* Clarification banner */}

@@ -4,7 +4,17 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "NYC Building Health Score",
-  description: "Interactive map of NYC residential building health scores",
+  description: "Interactive map of NYC residential building health scores based on complaints, violations, and inspections.",
+  openGraph: {
+    title: "NYC Building Health Score",
+    description: "Interactive map of NYC residential building health scores based on complaints, violations, and inspections.",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "NYC Building Health Score",
+    description: "Interactive map of NYC residential building health scores based on complaints, violations, and inspections.",
+  },
 };
 
 export default function RootLayout({

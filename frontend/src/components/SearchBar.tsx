@@ -4,10 +4,43 @@ import { useState, useRef, useEffect, type FormEvent } from "react";
 import { useStore } from "@/lib/store";
 import { searchBuildings } from "@/lib/api";
 
+const HISTORY_KEY = "nyc_search_history";
+const HISTORY_MAX = 8;
+const SUGGESTIONS = [
+  "quiet buildings in Brooklyn",
+  "no heat violations in the Bronx",
+  "rat-free apartments in Astoria",
+  "worst buildings in Harlem",
+  "pre-war elevator buildings in Manhattan",
+];
+
+function loadHistory(): string[] {
+  try {
+    const raw = typeof window !== "undefined" ? localStorage.getItem(HISTORY_KEY) : null;
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+function saveHistory(query: string, existing: string[]): string[] {
+  const deduped = [query, ...existing.filter((h) => h !== query)].slice(0, HISTORY_MAX);
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(deduped));
+  } catch {
+    // ignore
+  }
+  return deduped;
+}
+
 export function SearchBar() {
   const [input, setInput] = useState("");
   const [apartmentsOnly, setApartmentsOnly] = useState(false);
+  const [history, setHistory] = useState<string[]>([]);
+  const [showDropdown, setShowDropdown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const {
     setSearchQuery,
     setSearchResults,
@@ -21,30 +54,54 @@ export function SearchBar() {
     clearSearch,
   } = useStore();
 
-  // Clear error after 5 seconds
+  useEffect(() => {
+    setHistory(loadHistory());
+  }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function onMouseDown(e: MouseEvent) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node) &&
+        inputRef.current &&
+        !inputRef.current.contains(e.target as Node)
+      ) {
+        setShowDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, []);
+
+  // Clear error after 8 seconds
   useEffect(() => {
     if (!searchError) return;
-    const timer = setTimeout(() => setSearchError(null), 5000);
+    const timer = setTimeout(() => setSearchError(null), 8000);
     return () => clearTimeout(timer);
   }, [searchError, setSearchError]);
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    const query = input.trim();
-    if (!query) return;
-
+  const runSearch = async (query: string) => {
+    if (!query.trim()) return;
+    setInput(query);
+    setShowDropdown(false);
     setSearchQuery(query);
     setIsSearching(true);
     setSearchError(null);
 
     try {
       const result = await searchBuildings(query, apartmentsOnly);
+      const updated = saveHistory(query, history);
+      setHistory(updated);
+
       if (result.results.length === 0) {
         setSearchResults([]);
-        setSearchError(result.clarification || "No buildings found matching your search.");
-        setSearchClarification(null);
+        setSearchError(null);
+        setSearchClarification(
+          result.clarification ||
+            'No buildings found. Try: "quiet buildings in Brooklyn" or "worst heat in the Bronx".'
+        );
       } else if (result.results.length === 1) {
-        // Single match — open the building directly
         setSearchResults(result.results);
         setSearchClarification(null);
         selectBuilding(result.results[0].bbl);
@@ -60,11 +117,29 @@ export function SearchBar() {
     }
   };
 
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    runSearch(input.trim());
+  };
+
   const handleClear = () => {
     setInput("");
     clearSearch();
+    setShowDropdown(false);
     inputRef.current?.focus();
   };
+
+  const dropdownItems = input.trim()
+    ? history.filter((h) => h.toLowerCase().includes(input.toLowerCase()))
+    : history.length > 0
+    ? history
+    : SUGGESTIONS;
+
+  const dropdownLabel = input.trim()
+    ? null
+    : history.length > 0
+    ? "Recent searches"
+    : "Try searching for";
 
   return (
     <div className="relative">
@@ -73,11 +148,18 @@ export function SearchBar() {
           ref={inputRef}
           type="text"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            setShowDropdown(true);
+          }}
+          onFocus={() => setShowDropdown(true)}
           placeholder="Search buildings... (e.g., 'buildings with rat problems in Brooklyn')"
           className="w-full rounded-lg border border-gray-600 bg-gray-800/90 px-4 py-3 pr-28 text-white placeholder-gray-400 backdrop-blur-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           aria-label="Search buildings"
+          aria-autocomplete="list"
+          aria-expanded={showDropdown && dropdownItems.length > 0}
           disabled={isSearching}
+          autoComplete="off"
         />
         <div className="absolute right-2 top-1/2 flex -translate-y-1/2 gap-1">
           {input && !isSearching && (
@@ -104,6 +186,36 @@ export function SearchBar() {
         </div>
       </form>
 
+      {/* History / suggestion dropdown */}
+      {showDropdown && dropdownItems.length > 0 && !isSearching && (
+        <div
+          ref={dropdownRef}
+          className="absolute top-full mt-1 w-full rounded-lg border border-gray-600 bg-gray-800/95 py-1 shadow-xl backdrop-blur-sm z-50"
+          role="listbox"
+        >
+          {dropdownLabel && (
+            <p className="px-3 py-1 text-xs font-medium text-gray-500 uppercase tracking-wide">
+              {dropdownLabel}
+            </p>
+          )}
+          {dropdownItems.map((item) => (
+            <button
+              key={item}
+              type="button"
+              role="option"
+              aria-selected={false}
+              onMouseDown={(e) => {
+                e.preventDefault(); // don't blur input before click fires
+                runSearch(item);
+              }}
+              className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-700 transition-colors"
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Apartments only checkbox */}
       <div className="mt-1.5 flex items-center gap-2 px-1">
         <input
@@ -121,16 +233,16 @@ export function SearchBar() {
         </label>
       </div>
 
-      {/* Error / no results toast */}
+      {/* Error toast */}
       {searchError && (
-        <div className="absolute top-full mt-2 w-full rounded-lg border border-red-800 bg-red-900/90 px-4 py-2 text-sm text-red-200 backdrop-blur-sm">
+        <div className="absolute top-full mt-2 w-full rounded-lg border border-red-800 bg-red-900/90 px-4 py-2 text-sm text-red-200 backdrop-blur-sm z-40">
           {searchError}
         </div>
       )}
 
-      {/* Clarification / filter description — only show when no results panel is open */}
+      {/* Clarification / filter description — mobile only (desktop shown in results panel) */}
       {searchClarification && !searchError && (
-        <div className="absolute top-full mt-2 w-full rounded-lg border border-blue-800 bg-blue-900/80 px-4 py-2 text-sm text-blue-200 backdrop-blur-sm md:hidden">
+        <div className="absolute top-full mt-2 w-full rounded-lg border border-blue-800 bg-blue-900/80 px-4 py-2 text-sm text-blue-200 backdrop-blur-sm z-40 md:hidden">
           {searchClarification}
         </div>
       )}
