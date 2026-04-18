@@ -29,8 +29,9 @@ export default function RootLayout({
           href="https://api.mapbox.com/mapbox-gl-js/v3.8.0/mapbox-gl.css"
           rel="stylesheet"
         />
+        <link rel="icon" type="image/svg+xml" href="/logo-mark.svg" />
       </head>
-      <body className="h-screen w-screen bg-gray-900 text-white">
+      <body className="bg-gray-900 text-white">
         <Providers>{children}</Providers>
       </body>
     </html>

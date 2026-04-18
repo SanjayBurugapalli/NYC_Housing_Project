@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" aria-label="NYCHealthMap logo mark">
+  <rect x="2" y="2" width="60" height="60" rx="12" fill="#1f2937" stroke="#374151" stroke-width="1"/>
+  <circle cx="22" cy="22" r="5" fill="#22c55e"/>
+  <circle cx="42" cy="22" r="5" fill="#84cc16"/>
+  <circle cx="32" cy="32" r="5" fill="#eab308"/>
+  <circle cx="22" cy="42" r="5" fill="#f97316"/>
+  <circle cx="42" cy="42" r="5" fill="#ef4444"/>
+</svg>
