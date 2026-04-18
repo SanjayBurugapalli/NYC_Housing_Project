@@ -131,7 +131,7 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
             SELECT
                 b.bbl, b.bin, b.address, b.borough, b.neighborhood,
                 b.latitude, b.longitude, b.residential_units,
-                b.year_built, b.building_class, b.owner_name,
+                b.year_built, b.building_class, b.owner_name, b.managing_agent,
                 hs.composite_score,
                 hs.heat_hot_water_score, hs.pest_rodent_score,
                 hs.structural_safety_score, hs.hpd_severity_score,
@@ -272,6 +272,58 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
 
     rodent_count = len(rodent_inspections)
 
+    # FDNY violations (by BIN, last 5 years, up to 20, open/active only)
+    fdny_result = await db.execute(
+        text("""
+            SELECT external_id, violation_number, violation_type, description,
+                   status, violation_date, address
+            FROM fdny_violations
+            WHERE bin = :bin
+              AND (violation_date IS NULL OR violation_date >= NOW() - INTERVAL '5 years')
+            ORDER BY violation_date DESC NULLS LAST
+            LIMIT 20
+        """),
+        {"bin": b.get("bin") or ""},
+    )
+    fdny_violations = [
+        {
+            "id": row.external_id or str(row[0]),
+            "violation_number": row.violation_number,
+            "violation_type": row.violation_type,
+            "description": row.description,
+            "status": row.status,
+            "date": row.violation_date.strftime("%Y-%m-%d") if row.violation_date else None,
+            "address": row.address,
+        }
+        for row in fdny_result
+    ]
+
+    # Evictions (by BBL, last 5 years, up to 20)
+    evictions_result = await db.execute(
+        text("""
+            SELECT external_id, address, apartment_no, respondent,
+                   executed_date, marshal_name, eviction_type
+            FROM evictions
+            WHERE bbl = :bbl
+              AND (executed_date IS NULL OR executed_date >= NOW() - INTERVAL '5 years')
+            ORDER BY executed_date DESC NULLS LAST
+            LIMIT 20
+        """),
+        {"bbl": bbl},
+    )
+    evictions = [
+        {
+            "id": row.external_id or str(row[0]),
+            "address": row.address,
+            "apartment_no": row.apartment_no,
+            "respondent": row.respondent,
+            "executed_date": row.executed_date.strftime("%Y-%m-%d") if row.executed_date else None,
+            "marshal_name": row.marshal_name,
+            "eviction_type": row.eviction_type,
+        }
+        for row in evictions_result
+    ]
+
     # Per-category complaint/violation counts for score breakdown
     category_counts_result = await db.execute(
         text("""
@@ -321,6 +373,7 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         "year_built": b["year_built"],
         "building_class": b["building_class"],
         "owner_name": b.get("owner_name"),
+        "managing_agent": b.get("managing_agent"),
         "health_score": b.get("composite_score") or 0,
         "grade": score_to_grade(b.get("composite_score") or 0),
         "score_breakdown": {
@@ -344,6 +397,9 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         "violations": violations,
         "litigations": litigations,
         "rodent_inspections": rodent_inspections,
+        "fdny_violations": fdny_violations,
+        "evictions": evictions,
         "litigation_count": len(litigations),
         "rodent_inspection_count": rodent_count,
+        "eviction_count": len(evictions),
     }

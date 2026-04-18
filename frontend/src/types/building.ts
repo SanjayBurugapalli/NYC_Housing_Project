@@ -82,16 +82,40 @@ export interface RodentInspectionRecord {
   address: string | null;
 }
 
+export interface FDNYViolationRecord {
+  id: string;
+  violation_number: string | null;
+  violation_type: string | null;
+  description: string | null;
+  status: string | null;
+  date: string | null;
+  address: string | null;
+}
+
+export interface EvictionRecord {
+  id: string;
+  address: string | null;
+  apartment_no: string | null;
+  respondent: string | null;
+  executed_date: string | null;
+  marshal_name: string | null;
+  eviction_type: string | null;
+}
+
 export interface BuildingDetail extends BuildingSummary {
   owner_name: string | null;
+  managing_agent: string | null;
   sub_neighborhood: string | null;
   score_breakdown: ScoreBreakdown;
   complaints: ComplaintRecord[];
   violations: ViolationRecord[];
   litigations: LitigationRecord[];
   rodent_inspections: RodentInspectionRecord[];
+  fdny_violations: FDNYViolationRecord[];
+  evictions: EvictionRecord[];
   litigation_count: number;
   rodent_inspection_count: number;
+  eviction_count: number;
 }
 
 export interface NeighborhoodAggregate {

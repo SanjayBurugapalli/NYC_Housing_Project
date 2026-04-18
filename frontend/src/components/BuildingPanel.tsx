@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchBuildingDetail } from "@/lib/api";
-import type { ViolationRecord, ComplaintRecord } from "@/types/building";
+import type { ViolationRecord, ComplaintRecord, FDNYViolationRecord, EvictionRecord } from "@/types/building";
 import { useStore } from "@/lib/store";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { getBuildingClassLabel } from "@/lib/buildingClasses";
@@ -227,6 +227,11 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
                   Owner: <span className="text-gray-200">{data.owner_name}</span>
                 </p>
               )}
+              {data.managing_agent && (
+                <p className="mt-0.5 text-sm text-gray-400">
+                  Managing Agent: <span className="text-gray-200">{data.managing_agent}</span>
+                </p>
+              )}
               <div className="mt-3 flex items-baseline gap-3">
                 <span className={`text-5xl font-bold ${gradeColor(data.grade)}`}>
                   {data.grade}
@@ -350,8 +355,112 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
                 </div>
               </div>
             )}
+
+            {/* FDNY Violations */}
+            {data.fdny_violations && data.fdny_violations.length > 0 && (
+              <FDNYViolationsList violations={data.fdny_violations} />
+            )}
+
+            {/* Evictions */}
+            {data.evictions && data.evictions.length > 0 && (
+              <EvictionsList evictions={data.evictions} />
+            )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  FDNY Violations List                                               */
+/* ------------------------------------------------------------------ */
+
+function FDNYViolationsList({ violations }: { violations: FDNYViolationRecord[] }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  return (
+    <div>
+      <h4 className="mb-2 font-semibold">
+        FDNY Violations ({violations.length})
+      </h4>
+      <div className="space-y-2">
+        {violations.map((v) => {
+          const isExpanded = expandedId === v.id;
+          const isOpen = v.status?.toUpperCase() === "OPEN";
+          return (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => setExpandedId(isExpanded ? null : v.id)}
+              className="w-full rounded border border-gray-700 p-2 text-sm text-left hover:border-gray-500 transition-colors"
+            >
+              <div className="flex items-center justify-between">
+                <span className={isOpen ? "text-red-400" : "text-gray-400"}>
+                  {v.violation_type || "FDNY Violation"}
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500">{v.date}</span>
+                  <span className="text-gray-500 text-xs">{isExpanded ? "▲" : "▼"}</span>
+                </div>
+              </div>
+              {v.description && (
+                <p className={`mt-1 text-gray-300 ${isExpanded ? "" : "line-clamp-1"}`}>
+                  {v.description}
+                </p>
+              )}
+              {isExpanded && (
+                <div className="mt-2 space-y-1 border-t border-gray-700 pt-2 text-xs text-gray-400">
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    {v.violation_number && (
+                      <><span className="text-gray-500">Violation #</span><span>{v.violation_number}</span></>
+                    )}
+                    {v.status && (
+                      <><span className="text-gray-500">Status</span>
+                      <span className={isOpen ? "text-red-400" : "text-gray-400"}>{v.status}</span></>
+                    )}
+                  </div>
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Evictions List                                                      */
+/* ------------------------------------------------------------------ */
+
+function EvictionsList({ evictions }: { evictions: EvictionRecord[] }) {
+  return (
+    <div>
+      <h4 className="mb-2 font-semibold text-red-400">
+        Evictions ({evictions.length})
+      </h4>
+      <div className="space-y-2">
+        {evictions.map((e) => (
+          <div
+            key={e.id}
+            className="rounded border border-red-900/50 bg-red-950/20 p-2 text-sm"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-red-300">
+                {e.eviction_type || "Eviction"}
+                {e.apartment_no ? ` · Apt ${e.apartment_no}` : ""}
+              </span>
+              <span className="text-gray-500">{e.executed_date}</span>
+            </div>
+            {e.respondent && (
+              <p className="mt-1 text-gray-400 text-xs">Respondent: {e.respondent}</p>
+            )}
+            {e.marshal_name && (
+              <p className="text-gray-500 text-xs">Marshal: {e.marshal_name}</p>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

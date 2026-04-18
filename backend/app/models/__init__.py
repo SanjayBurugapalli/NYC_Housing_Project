@@ -5,6 +5,8 @@ from app.models.litigation import Litigation
 from app.models.rodent_inspection import RodentInspection
 from app.models.health_score import HealthScore
 from app.models.neighborhood import Neighborhood
+from app.models.fdny_violation import FDNYViolation
+from app.models.eviction import Eviction
 
 __all__ = [
     "Building",
@@ -14,4 +16,6 @@ __all__ = [
     "RodentInspection",
     "HealthScore",
     "Neighborhood",
+    "FDNYViolation",
+    "Eviction",
 ]

@@ -94,16 +94,40 @@ class RodentInspectionResponse(BaseModel):
     address: str | None = None
 
 
+class FDNYViolationResponse(BaseModel):
+    id: str
+    violation_number: str | None = None
+    violation_type: str | None = None
+    description: str | None = None
+    status: str | None = None
+    date: str | None = None
+    address: str | None = None
+
+
+class EvictionResponse(BaseModel):
+    id: str
+    address: str | None = None
+    apartment_no: str | None = None
+    respondent: str | None = None
+    executed_date: str | None = None
+    marshal_name: str | None = None
+    eviction_type: str | None = None
+
+
 class BuildingDetailResponse(BuildingSummaryResponse):
     owner_name: str | None = None
+    managing_agent: str | None = None
     sub_neighborhood: str | None = None
     score_breakdown: ScoreBreakdownResponse | None = None
     complaints: list[ComplaintResponse] = []
     violations: list[ViolationResponse] = []
     litigations: list[LitigationResponse] = []
     rodent_inspections: list[RodentInspectionResponse] = []
+    fdny_violations: list[FDNYViolationResponse] = []
+    evictions: list[EvictionResponse] = []
     litigation_count: int = 0
     rodent_inspection_count: int = 0
+    eviction_count: int = 0
 
 
 class BuildingListResponse(BaseModel):
