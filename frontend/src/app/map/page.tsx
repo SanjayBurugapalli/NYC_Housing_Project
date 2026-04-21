@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useSearchParams, useRouter } from "next/navigation";
 import { SearchBar } from "@/components/SearchBar";
 import { BuildingPanel } from "@/components/BuildingPanel";
 import { InfoPanel } from "@/components/InfoPanel";
 import { SearchResultsPanel } from "@/components/SearchResultsPanel";
 import { GradeFilter } from "@/components/GradeFilter";
+import { MapFiltersPanel } from "@/components/MapFiltersPanel";
+import { ComparePanel } from "@/components/ComparePanel";
 import { useStore } from "@/lib/store";
 
 const Map = dynamic(() => import("@/components/Map").then((m) => m.Map), {
@@ -15,11 +18,42 @@ const Map = dynamic(() => import("@/components/Map").then((m) => m.Map), {
   loading: () => <div className="h-full w-full bg-gray-900" />,
 });
 
+/** Syncs selectedBbl ↔ ?bbl= URL param without causing a full navigation. */
+function BblUrlSync() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const selectedBuilding = useStore((s) => s.selectedBbl);
+  const selectBuilding = useStore((s) => s.selectBuilding);
+
+  // On mount: if ?bbl= is present, open that building
+  useEffect(() => {
+    const bbl = params.get("bbl");
+    if (bbl && /^\d{10}$/.test(bbl)) selectBuilding(bbl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount only
+
+  // When selectedBuilding changes: keep URL in sync
+  useEffect(() => {
+    const current = new URLSearchParams(window.location.search);
+    if (selectedBuilding) {
+      if (current.get("bbl") === selectedBuilding) return;
+      current.set("bbl", selectedBuilding);
+    } else {
+      if (!current.has("bbl")) return;
+      current.delete("bbl");
+    }
+    router.replace(`/map?${current.toString()}`, { scroll: false });
+  }, [selectedBuilding, router]);
+
+  return null;
+}
+
 export default function MapPage() {
   const selectedBuilding = useStore((s) => s.selectedBbl);
   const buildingCount = useStore((s) => s.buildingCount);
   const zoom = useStore((s) => s.zoom);
   const searchResults = useStore((s) => s.searchResults);
+  const isSearching = useStore((s) => s.isSearching);
   const searchClarification = useStore((s) => s.searchClarification);
   const [showInfo, setShowInfo] = useState(false);
   const [lastOpened, setLastOpened] = useState<"building" | "info">("building");
@@ -30,10 +64,11 @@ export default function MapPage() {
 
   const showBuildingPanel = !!selectedBuilding && (!showInfo || lastOpened === "building");
   const showInfoPanel = showInfo && (!selectedBuilding || lastOpened === "info");
-  const showSearchResults = searchResults.length > 0 && !selectedBuilding && !showInfo;
+  const showSearchResults = (isSearching || searchResults.length > 0) && !selectedBuilding && !showInfo;
 
   return (
-    <main className="relative h-screen w-screen">
+    <main className="relative h-screen w-screen overflow-hidden">
+      <Suspense fallback={null}><BblUrlSync /></Suspense>
       <Map />
 
       {/* Search bar */}
@@ -56,13 +91,14 @@ export default function MapPage() {
         ) : null}
       </div>
 
-      {/* Grade filter */}
-      <div className="absolute bottom-6 left-4 z-20 pointer-events-auto">
+      {/* Grade filter + map filters */}
+      <div className="absolute bottom-14 left-2 z-20 pointer-events-auto w-44">
         <GradeFilter />
+        <MapFiltersPanel />
       </div>
 
-      {/* Home link + Info button */}
-      <div className="absolute bottom-6 right-4 z-20 flex items-center gap-2">
+      {/* Home link + Info button — hidden when any right panel is open */}
+      <div className={`absolute bottom-6 right-4 z-20 flex items-center gap-2 transition-opacity duration-150 ${showBuildingPanel || showInfoPanel || showSearchResults ? "pointer-events-none opacity-0" : "opacity-100"}`}>
         <Link
           href="/"
           className="flex items-center gap-1.5 rounded-lg border border-gray-600 bg-gray-800/95 px-3 py-2 text-sm font-semibold text-gray-400 backdrop-blur-sm hover:bg-gray-700 hover:text-white transition-colors shadow-lg"
@@ -103,6 +139,9 @@ export default function MapPage() {
           </div>
         </>
       )}
+
+      {/* Compare panel */}
+      <ComparePanel />
 
       {/* Building detail panel */}
       {showBuildingPanel && (

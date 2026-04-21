@@ -24,6 +24,7 @@ class BuildingSummaryResponse(BaseModel):
     address: str | None = None
     borough: str | None = None
     neighborhood: str | None = None
+    nta_name: str | None = None
     health_score: float = 0.0
     grade: str = "A"
     latitude: float | None = None
@@ -128,6 +129,7 @@ class BuildingDetailResponse(BuildingSummaryResponse):
     litigation_count: int = 0
     rodent_inspection_count: int = 0
     eviction_count: int = 0
+    rent_status: str = "unknown"
 
 
 class BuildingListResponse(BaseModel):
@@ -153,7 +155,9 @@ class NeighborhoodListResponse(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=500)
-    apartments_only: bool = False
+    include_small_homes: bool = False
+    borough: str | None = None
+    min_units: int | None = None
 
 
 class SearchResponse(BaseModel):

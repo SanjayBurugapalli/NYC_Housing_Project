@@ -86,18 +86,11 @@ def _address_variants(raw: str) -> list[str]:
     return result[:5]  # cap to keep query complexity low
 
 
-# Building class prefixes/codes considered "apartments"
-APARTMENT_CLASS_CONDITIONS = """
-    (
-        b.building_class LIKE 'C%'
-        OR b.building_class LIKE 'D%'
-        OR b.building_class IN ('R1','R2','R4','R6','RR')
-    )
-"""
+EXCLUDE_SMALL_HOMES = "b.building_class NOT LIKE 'A%' AND b.building_class NOT LIKE 'B%'"
 
-async def search_by_address(db: AsyncSession, query: str, apartments_only: bool = False) -> list[dict]:
+async def search_by_address(db: AsyncSession, query: str, include_small_homes: bool = False) -> list[dict]:
     """Search buildings by address substring match, trying multiple normalized variants."""
-    apt_clause = f"AND {APARTMENT_CLASS_CONDITIONS}" if apartments_only else ""
+    size_clause = "" if include_small_homes else f"AND {EXCLUDE_SMALL_HOMES}"
     variants = _address_variants(query)
 
     # Build OR'd LIKE conditions for each variant
@@ -108,13 +101,13 @@ async def search_by_address(db: AsyncSession, query: str, apartments_only: bool 
     result = await db.execute(
         text(f"""
             SELECT
-                b.bbl, b.bin, b.address, b.borough, b.neighborhood,
+                b.bbl, b.bin, b.address, b.borough, b.neighborhood, b.nta_name,
                 COALESCE(hs.composite_score, 0) as health_score,
                 b.latitude, b.longitude,
                 b.residential_units, b.year_built, b.building_class
             FROM buildings b
             LEFT JOIN health_scores hs ON hs.building_id = b.id
-            WHERE ({like_clauses}) {apt_clause}
+            WHERE ({like_clauses}) {size_clause}
             ORDER BY hs.composite_score DESC NULLS LAST
             LIMIT :limit
         """),
@@ -128,7 +121,7 @@ async def search_by_bbl(db: AsyncSession, bbl: str) -> list[dict]:
     result = await db.execute(
         text("""
             SELECT
-                b.bbl, b.bin, b.address, b.borough, b.neighborhood,
+                b.bbl, b.bin, b.address, b.borough, b.neighborhood, b.nta_name,
                 COALESCE(hs.composite_score, 0) as health_score,
                 b.latitude, b.longitude,
                 b.residential_units, b.year_built, b.building_class
@@ -151,6 +144,51 @@ def looks_like_address(query: str) -> bool:
     if re.match(r"^[EWNS]\s+\d", q, re.IGNORECASE):
         return True
     return False
+
+
+async def _search_by_field(db: AsyncSession, field: str, value: str) -> list[dict]:
+    """Return buildings matching a specific owner_name or managing_agent (exact, case-insensitive)."""
+    result = await db.execute(
+        text(f"""
+            SELECT
+                b.bbl, b.bin, b.address, b.borough, b.neighborhood, b.nta_name,
+                COALESCE(hs.composite_score, 0) as health_score,
+                b.latitude, b.longitude,
+                b.residential_units, b.year_built, b.building_class
+            FROM buildings b
+            LEFT JOIN health_scores hs ON hs.building_id = b.id
+            WHERE LOWER(b.{field}) = LOWER(:value)
+              AND b.latitude IS NOT NULL
+            ORDER BY hs.composite_score ASC NULLS LAST
+            LIMIT :limit
+        """),
+        {"value": value, "limit": MAX_RESULTS},
+    )
+    return [_sanitize_row(dict(row._mapping)) for row in result]
+
+
+@router.get("/search/by-owner", response_model=SearchResponse)
+async def buildings_by_owner(name: str, db: AsyncSession = Depends(get_db)):
+    rows = await _search_by_field(db, "owner_name", name)
+    buildings = [BuildingSummaryResponse(**b, grade=score_to_grade(b.get("health_score", 0))) for b in rows]
+    return SearchResponse(
+        results=buildings,
+        total=len(buildings),
+        query=name,
+        clarification=f"{len(buildings)} building{'s' if len(buildings) != 1 else ''} owned by {name}",
+    )
+
+
+@router.get("/search/by-manager", response_model=SearchResponse)
+async def buildings_by_manager(name: str, db: AsyncSession = Depends(get_db)):
+    rows = await _search_by_field(db, "managing_agent", name)
+    buildings = [BuildingSummaryResponse(**b, grade=score_to_grade(b.get("health_score", 0))) for b in rows]
+    return SearchResponse(
+        results=buildings,
+        total=len(buildings),
+        query=name,
+        clarification=f"{len(buildings)} building{'s' if len(buildings) != 1 else ''} managed by {name}",
+    )
 
 
 @router.post("/search", response_model=SearchResponse)
@@ -179,11 +217,17 @@ async def search_buildings(
             query=query,
         )
 
-    apartments_only = body.apartments_only
+    include_small_homes = body.include_small_homes
+    extra_filters: dict = {"include_small_homes": include_small_homes}
+    if body.borough:
+        # Normalize to uppercase to match DB values (e.g. "BROOKLYN")
+        extra_filters["borough"] = body.borough.upper()
+    if body.min_units is not None:
+        extra_filters["min_units"] = body.min_units
 
     # Address search (if it looks like an address)
     if looks_like_address(query):
-        results = await search_by_address(db, query, apartments_only)
+        results = await search_by_address(db, query, include_small_homes)
         buildings = [
             BuildingSummaryResponse(
                 **b,
@@ -199,7 +243,7 @@ async def search_buildings(
         )
 
     # Try address search as fallback for any query
-    results = await search_by_address(db, query, apartments_only)
+    results = await search_by_address(db, query, include_small_homes)
     if results:
         buildings = [
             BuildingSummaryResponse(
@@ -218,8 +262,7 @@ async def search_buildings(
     # No address matches — try AI search for natural language queries
     try:
         from app.services.search_service import search_buildings_ai
-        extra_filters = {"apartments_only": True} if apartments_only else {}
-        result = await search_buildings_ai(db, query, extra_filters=extra_filters)
+        result = await search_buildings_ai(db, query, extra_filters=extra_filters if extra_filters else None)
         buildings = [
             BuildingSummaryResponse(
                 **_sanitize_row(b),

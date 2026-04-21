@@ -5,11 +5,14 @@ import { useStore } from "@/lib/store";
 import { searchBuildings } from "@/lib/api";
 
 export function useBuildingSearch() {
-  const { setSearchResults, setIsSearching } = useStore();
+  const { setSearchResults, setIsSearching, selectBuilding } = useStore();
 
   const mutation = useMutation({
-    mutationFn: searchBuildings,
-    onMutate: () => setIsSearching(true),
+    mutationFn: (query: string) => searchBuildings(query),
+    onMutate: () => {
+      setIsSearching(true);
+      selectBuilding(null); // dismiss any open building panel so results panel appears
+    },
     onSuccess: (data) => {
       setSearchResults(data.results);
       setIsSearching(false);

@@ -29,26 +29,39 @@ export function Map() {
   const setBuildingCount = useStore((s) => s.setBuildingCount);
   const searchResults = useStore((s) => s.searchResults);
   const gradeFilter = useStore((s) => s.gradeFilter);
+  const mapFilters = useStore((s) => s.mapFilters);
   const selectedBbl = useStore((s) => s.selectedBbl);
 
   // Cache of last-fetched raw building features (before grade filtering)
   const rawBuildingsRef = useRef<any[]>([]);
-  // Ref so fetchAndRenderBuildings doesn't need gradeFilter as a dep (avoids map teardown on filter change)
+  // Refs so callbacks don't need grade/mapFilters as deps (avoids map teardown on filter change)
   const gradeFilterRef = useRef(gradeFilter);
   useEffect(() => { gradeFilterRef.current = gradeFilter; }, [gradeFilter]);
+  const mapFiltersRef = useRef(mapFilters);
+  useEffect(() => { mapFiltersRef.current = mapFilters; }, [mapFilters]);
 
   const applyGradeFilter = useCallback((
     m: mapboxgl.Map,
     features: any[],
-    filter: string[]
+    filter: string[],
+    mf?: typeof mapFilters
   ) => {
     const source = m.getSource("buildings") as mapboxgl.GeoJSONSource | undefined;
     if (!source) return;
-    const visible = filter.length > 0
+    const activeFilters = mf ?? mapFiltersRef.current;
+    let visible = filter.length > 0
       ? features.filter((f) => filter.includes(f.properties.grade))
       : features;
+    if (activeFilters.minUnits != null)
+      visible = visible.filter((f) => (f.properties.residential_units ?? 0) >= activeFilters.minUnits!);
+    if (activeFilters.maxUnits != null)
+      visible = visible.filter((f) => (f.properties.residential_units ?? 0) <= activeFilters.maxUnits!);
+    if (activeFilters.minYear != null)
+      visible = visible.filter((f) => f.properties.year_built != null && f.properties.year_built >= activeFilters.minYear!);
+    if (activeFilters.maxYear != null)
+      visible = visible.filter((f) => f.properties.year_built != null && f.properties.year_built <= activeFilters.maxYear!);
     source.setData({ type: "FeatureCollection", features: visible });
-    setBuildingCount(features.length); // always show total, not filtered count
+    setBuildingCount(features.length);
   }, [setBuildingCount]);
 
   const fetchAndRenderBuildings = useCallback(async (m: mapboxgl.Map) => {
@@ -90,6 +103,8 @@ export function Map() {
             grade: b.grade ?? "A",
             address: b.address ?? "",
             borough: b.borough ?? "",
+            residential_units: b.residential_units ?? 0,
+            year_built: b.year_built ?? null,
           },
         }));
 
@@ -198,7 +213,7 @@ export function Map() {
     const m = map.current;
     setMapRef(m);
 
-    m.addControl(new mapboxgl.NavigationControl(), "bottom-right");
+    m.addControl(new mapboxgl.NavigationControl(), "top-right");
 
     m.on("moveend", () => {
       const bounds = m.getBounds();
@@ -483,14 +498,14 @@ export function Map() {
     };
   }, [setViewport, selectBuilding, fetchAndRenderBuildings, setMapRef, loadNeighborhoods]);
 
-  // Re-filter buildings on map when grade filter changes
+  // Re-filter buildings on map when grade filter or map filters change
   useEffect(() => {
     const m = map.current;
     if (!m || !m.isStyleLoaded()) return;
     if (rawBuildingsRef.current.length > 0) {
-      applyGradeFilter(m, rawBuildingsRef.current, gradeFilter);
+      applyGradeFilter(m, rawBuildingsRef.current, gradeFilter, mapFilters);
     }
-  }, [gradeFilter, applyGradeFilter]);
+  }, [gradeFilter, mapFilters, applyGradeFilter]);
 
   // Highlight selected building with a white ring
   useEffect(() => {

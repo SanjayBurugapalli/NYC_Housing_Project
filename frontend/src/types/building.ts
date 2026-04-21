@@ -12,6 +12,7 @@ export interface BuildingSummary {
   address: string;
   borough: Borough;
   neighborhood: string;
+  nta_name?: string | null;
   health_score: number;
   grade: Grade;
   latitude: number;
@@ -116,6 +117,7 @@ export interface BuildingDetail extends BuildingSummary {
   litigation_count: number;
   rodent_inspection_count: number;
   eviction_count: number;
+  rent_status: "likely_stabilized" | "condo" | "coop" | "not_regulated" | "unknown";
 }
 
 export interface NeighborhoodAggregate {

@@ -7,6 +7,32 @@ from app.api.neighborhood_names import get_neighborhood_name
 from app.api.sub_neighborhood_splits import SUB_NEIGHBORHOOD_SPLITS
 
 
+_CONDO_CLASSES = {"C6", "D5"}
+_COOP_CLASSES = {"C0", "D0", "D4"}
+
+def _compute_rent_status(building_class: str | None, year_built: int | None, residential_units: int) -> str:
+    """Derive likely rent regulation status from building attributes.
+
+    Heuristic only — authoritative data requires DHCR registration records.
+    Rent stabilization generally covers rental buildings with 6+ units built before 1974.
+    """
+    bc = (building_class or "").upper().strip()
+    if not bc:
+        return "unknown"
+    if bc in _CONDO_CLASSES or bc.startswith("R"):
+        return "condo"
+    if bc in _COOP_CLASSES:
+        return "coop"
+    first = bc[0]
+    if first in ("A", "B"):
+        return "not_regulated"
+    if first in ("C", "D"):
+        if residential_units >= 6 and year_built and year_built <= 1974:
+            return "likely_stabilized"
+        return "not_regulated"
+    return "unknown"
+
+
 _BOROUGH_CD_PREFIX: dict[str, str] = {
     "MANHATTAN": "1", "BRONX": "2", "BROOKLYN": "3", "QUEENS": "4", "STATEN ISLAND": "5",
 }
@@ -72,7 +98,7 @@ async def get_buildings_in_viewport(
     result = await db.execute(
         text("""
             SELECT
-                b.bbl, b.bin, b.address, b.borough, b.neighborhood,
+                b.bbl, b.bin, b.address, b.borough, b.neighborhood, b.nta_name,
                 COALESCE(hs.composite_score, 0) as health_score,
                 b.latitude, b.longitude,
                 b.residential_units, b.year_built, b.building_class
@@ -129,7 +155,7 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
     result = await db.execute(
         text("""
             SELECT
-                b.bbl, b.bin, b.address, b.borough, b.neighborhood,
+                b.bbl, b.bin, b.address, b.borough, b.neighborhood, b.nta_name,
                 b.latitude, b.longitude, b.residential_units,
                 b.year_built, b.building_class, b.owner_name, b.managing_agent,
                 hs.composite_score,
@@ -355,18 +381,14 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
     )
     dob_count = dob_count_result.scalar() or 0
 
-    cd_code = (b.get("neighborhood") or "").split("-")[0]
-    sub_neighborhood = _resolve_sub_neighborhood(
-        cd_code, b.get("latitude"), b.get("longitude"), b.get("borough") or ""
-    )
-
     return {
         "bbl": b["bbl"],
         "bin": b["bin"],
         "address": b["address"],
         "borough": b["borough"],
-        "neighborhood": get_neighborhood_name(b["neighborhood"] or "", b["borough"] or "") if b.get("neighborhood") else b["neighborhood"],
-        "sub_neighborhood": sub_neighborhood,
+        "neighborhood": b.get("nta_name") or get_neighborhood_name(b["neighborhood"] or "", b["borough"] or "") if b.get("neighborhood") else b.get("nta_name"),
+        "nta_name": b.get("nta_name"),
+        "sub_neighborhood": None,
         "latitude": b["latitude"],
         "longitude": b["longitude"],
         "residential_units": b["residential_units"] or 0,
@@ -402,4 +424,9 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         "litigation_count": len(litigations),
         "rodent_inspection_count": rodent_count,
         "eviction_count": len(evictions),
+        "rent_status": _compute_rent_status(
+            b.get("building_class"),
+            b.get("year_built"),
+            b.get("residential_units") or 0,
+        ),
     }

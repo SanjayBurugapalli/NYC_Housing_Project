@@ -69,7 +69,7 @@ export default function LandingPage() {
       <nav className="sticky top-0 z-50 border-b border-gray-700/50 bg-gray-900/85 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-8">
           <Link href="/" className="flex items-center gap-2.5 text-white no-underline">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-blue-800 text-base font-bold shadow-lg">H</div>
+            <img src="/logo-mark.svg" alt="" className="h-8 w-8" aria-hidden="true" />
             <span className="text-[15px] font-semibold tracking-tight">NYC Building Health Score</span>
           </Link>
           <div className="flex items-center gap-7">
@@ -141,71 +141,6 @@ export default function LandingPage() {
             </a>
           </div>
 
-          {/* Map mockup */}
-          <div className="mx-auto mt-18 mt-16 max-w-5xl overflow-hidden rounded-xl border border-gray-700 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)]" style={{ background: "#0b1220" }}>
-            <svg viewBox="0 0 1040 560" xmlns="http://www.w3.org/2000/svg" className="block w-full" aria-hidden="true">
-              <defs>
-                <linearGradient id="mockBg" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0" stopColor="#0b1220"/>
-                  <stop offset="1" stopColor="#111827"/>
-                </linearGradient>
-                <pattern id="mockPark" width="30" height="30" patternUnits="userSpaceOnUse">
-                  <rect width="30" height="30" fill="#14281f"/>
-                </pattern>
-              </defs>
-              <rect width="1040" height="560" fill="url(#mockBg)"/>
-              <rect x="440" y="100" width="160" height="300" fill="url(#mockPark)" opacity="0.6" rx="2"/>
-              <path d="M0 440 Q 260 420 540 450 T 1040 470 L 1040 560 L 0 560 Z" fill="#0a1628" opacity="0.9"/>
-              <g stroke="#1f2937" strokeWidth="0.6">
-                <line x1="0" y1="80" x2="1040" y2="80"/><line x1="0" y1="120" x2="1040" y2="120"/>
-                <line x1="0" y1="160" x2="1040" y2="160"/><line x1="0" y1="200" x2="1040" y2="200"/>
-                <line x1="0" y1="240" x2="1040" y2="240"/><line x1="0" y1="280" x2="1040" y2="280"/>
-                <line x1="0" y1="320" x2="1040" y2="320"/><line x1="0" y1="360" x2="1040" y2="360"/>
-                <line x1="0" y1="400" x2="1040" y2="400"/>
-                <line x1="80" y1="0" x2="80" y2="560"/><line x1="160" y1="0" x2="160" y2="560"/>
-                <line x1="240" y1="0" x2="240" y2="560"/><line x1="320" y1="0" x2="320" y2="560"/>
-                <line x1="720" y1="0" x2="720" y2="560"/><line x1="800" y1="0" x2="800" y2="560"/>
-                <line x1="880" y1="0" x2="880" y2="560"/><line x1="960" y1="0" x2="960" y2="560"/>
-              </g>
-              <g stroke="#293345" strokeWidth="1.2">
-                <line x1="120" y1="0" x2="120" y2="560"/><line x1="360" y1="0" x2="360" y2="560"/>
-                <line x1="640" y1="0" x2="640" y2="560"/><line x1="860" y1="0" x2="860" y2="560"/>
-                <line x1="0" y1="140" x2="1040" y2="140"/><line x1="0" y1="300" x2="1040" y2="300"/>
-              </g>
-              <g>
-                <circle cx="120" cy="180" r="5" fill="#22c55e"/><circle cx="200" cy="260" r="5" fill="#22c55e"/>
-                <circle cx="340" cy="340" r="5" fill="#22c55e"/><circle cx="680" cy="160" r="5" fill="#22c55e"/>
-                <circle cx="760" cy="240" r="5" fill="#22c55e"/><circle cx="900" cy="320" r="5" fill="#22c55e"/>
-                <circle cx="260" cy="420" r="5" fill="#22c55e"/><circle cx="620" cy="410" r="5" fill="#22c55e"/>
-                <circle cx="140" cy="240" r="5" fill="#84cc16"/><circle cx="300" cy="200" r="5" fill="#84cc16"/>
-                <circle cx="720" cy="340" r="5" fill="#84cc16"/><circle cx="820" cy="180" r="5" fill="#84cc16"/>
-                <circle cx="240" cy="360" r="5" fill="#84cc16"/>
-                <circle cx="180" cy="320" r="5" fill="#eab308"/><circle cx="340" cy="260" r="5" fill="#eab308"/>
-                <circle cx="700" cy="280" r="5" fill="#eab308"/><circle cx="840" cy="360" r="5" fill="#eab308"/>
-                <circle cx="960" cy="220" r="5" fill="#eab308"/>
-                <circle cx="100" cy="380" r="5" fill="#f97316"/><circle cx="220" cy="140" r="5" fill="#f97316"/>
-                <circle cx="780" cy="400" r="5" fill="#f97316"/>
-                <circle cx="160" cy="420" r="5" fill="#ef4444"/><circle cx="880" cy="420" r="5" fill="#ef4444"/>
-                <circle cx="520" cy="240" r="7" fill="#22c55e"/>
-                <circle cx="520" cy="240" r="11" fill="none" stroke="#fff" strokeWidth="2.5"/>
-              </g>
-              {/* Search pill */}
-              <g transform="translate(32,28)">
-                <rect width="360" height="44" rx="8" fill="rgba(31,41,55,0.9)" stroke="#4b5563"/>
-                <text x="18" y="27" fill="#9ca3af" fontFamily="system-ui, sans-serif" fontSize="13">Search buildings...</text>
-                <rect x="270" y="7" width="80" height="30" rx="4" fill="#2563eb"/>
-                <text x="310" y="27" fill="#fff" fontFamily="system-ui, sans-serif" fontSize="13" fontWeight="500" textAnchor="middle">Search</text>
-              </g>
-              {/* Tooltip */}
-              <g transform="translate(410,180)">
-                <rect width="220" height="50" rx="6" fill="rgba(31,41,55,0.95)" stroke="#374151"/>
-                <text x="14" y="22" fill="#fff" fontFamily="system-ui, sans-serif" fontSize="13" fontWeight="600">89 Greene Avenue</text>
-                <text x="14" y="40" fill="#9ca3af" fontFamily="system-ui, sans-serif" fontSize="11">Brooklyn · 18 units</text>
-                <rect x="178" y="14" width="28" height="22" rx="4" fill="#22c55e22" stroke="#22c55e"/>
-                <text x="192" y="29" fill="#22c55e" fontFamily="system-ui, sans-serif" fontSize="13" fontWeight="700" textAnchor="middle">A</text>
-              </g>
-            </svg>
-          </div>
         </div>
       </section>
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchBuildingDetail } from "@/lib/api";
+import { fetchBuildingDetail, searchByOwner, searchByManager } from "@/lib/api";
 import type { ViolationRecord, ComplaintRecord, FDNYViolationRecord, EvictionRecord } from "@/types/building";
 import { useStore } from "@/lib/store";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
@@ -79,6 +79,27 @@ function buildStreetEasyUrl(address: string, borough: string, subNeighborhood?: 
   return `https://streeteasy.com/search?query=${query}`;
 }
 
+function CopyLinkButton({ bbl }: { bbl: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    const url = `${window.location.origin}/map?bbl=${bbl}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+  return (
+    <button
+      onClick={copy}
+      className="rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-white focus:outline-none transition-colors"
+      aria-label="Copy shareable link"
+      title="Copy link to this building"
+    >
+      {copied ? "✓" : "🔗"}
+    </button>
+  );
+}
+
 function gradeColor(grade: string): string {
   if (grade === "A") return "text-score-excellent";
   if (grade === "B") return "text-score-good";
@@ -131,8 +152,30 @@ function PanelSkeleton() {
 
 export function BuildingPanel({ bbl }: { bbl: string }) {
   const selectBuilding = useStore((s) => s.selectBuilding);
+  const setSearchResults = useStore((s) => s.setSearchResults);
+  const setSearchClarification = useStore((s) => s.setSearchClarification);
   const hasSearchResults = useStore((s) => s.searchResults.length > 0);
   const mapRef = useStore((s) => s.mapRef);
+  const compareBbls = useStore((s) => s.compareBbls);
+  const addToCompare = useStore((s) => s.addToCompare);
+  const removeFromCompare = useStore((s) => s.removeFromCompare);
+  const isInCompare = compareBbls.includes(bbl);
+  const canCompare = !isInCompare && compareBbls.length < 2;
+  const [entitySearching, setEntitySearching] = useState<"owner" | "manager" | null>(null);
+
+  async function handleEntitySearch(type: "owner" | "manager", name: string) {
+    setEntitySearching(type);
+    try {
+      const result = type === "owner" ? await searchByOwner(name) : await searchByManager(name);
+      setSearchResults(result.results);
+      setSearchClarification(result.clarification ?? null);
+      selectBuilding(null);
+    } catch {
+      // silently fail — building panel stays open
+    } finally {
+      setEntitySearching(null);
+    }
+  }
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   // Move focus to close button when panel opens
@@ -157,7 +200,7 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
 
   return (
     <div
-      className="flex h-full flex-col overflow-y-auto bg-gray-800/95 backdrop-blur-sm shadow-xl border-l border-gray-700"
+      className="flex h-full flex-col overflow-y-auto bg-gray-800/95 backdrop-blur-sm shadow-xl border-l border-gray-700 pb-20"
       role="dialog"
       aria-modal="true"
       aria-label="Building detail panel"
@@ -175,6 +218,20 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
               ← Results
             </button>
           )}
+          {(canCompare || isInCompare) && (
+            <button
+              onClick={() => isInCompare ? removeFromCompare(bbl) : addToCompare(bbl)}
+              className={`rounded px-2 py-1 text-xs focus:outline-none transition-colors ${
+                isInCompare
+                  ? "bg-blue-900/40 text-blue-300 hover:bg-blue-900/60"
+                  : "text-gray-400 hover:bg-gray-700 hover:text-white"
+              }`}
+              title={isInCompare ? "Remove from comparison" : "Add to comparison"}
+            >
+              {isInCompare ? "✓ Comparing" : "+ Compare"}
+            </button>
+          )}
+          <CopyLinkButton bbl={bbl} />
           {data?.latitude != null && data?.longitude != null && (
             <button
               onClick={() => mapRef?.flyTo({ center: [data.longitude!, data.latitude!], zoom: Math.max(mapRef.getZoom(), 16), duration: 800 })}
@@ -220,16 +277,34 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
               <p className="text-sm text-gray-400">BBL: {data.bbl}</p>
               <h3 className="text-xl font-bold">{data.address}</h3>
               <p className="text-sm text-gray-400">
-                {data.borough} · {data.neighborhood}
+                {data.borough} · {data.nta_name || data.neighborhood}
               </p>
               {data.owner_name && (
                 <p className="mt-1 text-sm text-gray-400">
-                  Owner: <span className="text-gray-200">{data.owner_name}</span>
+                  Owner:{" "}
+                  <button
+                    onClick={() => handleEntitySearch("owner", data.owner_name!)}
+                    disabled={entitySearching !== null}
+                    className="text-gray-200 hover:text-blue-400 hover:underline transition-colors disabled:opacity-50 text-left"
+                    title="See all buildings by this owner"
+                  >
+                    {data.owner_name}
+                    {entitySearching === "owner" ? " …" : " ↗"}
+                  </button>
                 </p>
               )}
               {data.managing_agent && (
                 <p className="mt-0.5 text-sm text-gray-400">
-                  Managing Agent: <span className="text-gray-200">{data.managing_agent}</span>
+                  Managing Agent:{" "}
+                  <button
+                    onClick={() => handleEntitySearch("manager", data.managing_agent!)}
+                    disabled={entitySearching !== null}
+                    className="text-gray-200 hover:text-blue-400 hover:underline transition-colors disabled:opacity-50 text-left"
+                    title="See all buildings by this manager"
+                  >
+                    {data.managing_agent}
+                    {entitySearching === "manager" ? " …" : " ↗"}
+                  </button>
                 </p>
               )}
               <div className="mt-3 flex items-baseline gap-3">
@@ -272,6 +347,24 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
               <div className="rounded bg-gray-700/50 p-2">
                 <p className="text-gray-400">Litigations</p>
                 <p className="font-medium">{data.litigation_count}</p>
+              </div>
+              <div className="rounded bg-gray-700/50 p-2">
+                <p className="text-gray-400">Rent Status</p>
+                {data.rent_status === "likely_stabilized" && (
+                  <p className="font-medium text-xs leading-snug text-teal-400">Rent Stabilized</p>
+                )}
+                {data.rent_status === "condo" && (
+                  <p className="font-medium text-xs leading-snug text-blue-400">Condo</p>
+                )}
+                {data.rent_status === "coop" && (
+                  <p className="font-medium text-xs leading-snug text-purple-400">Co-op</p>
+                )}
+                {data.rent_status === "not_regulated" && (
+                  <p className="font-medium text-xs leading-snug text-gray-300">Not Regulated</p>
+                )}
+                {data.rent_status === "unknown" && (
+                  <p className="font-medium text-xs leading-snug text-gray-500">—</p>
+                )}
               </div>
             </div>
 
@@ -365,6 +458,18 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
             {data.evictions && data.evictions.length > 0 && (
               <EvictionsList evictions={data.evictions} />
             )}
+
+            {/* Report error */}
+            <div className="border-t border-gray-700 pt-3 text-center">
+              <a
+                href={`https://github.com/SanjayBurugapalli/NYC_Housing_Project/issues/new?title=Data+issue+for+BBL+${bbl}&body=Building+BBL%3A+${bbl}%0A%0ADescribe+the+issue%3A`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                Report incorrect data ↗
+              </a>
+            </div>
           </div>
         )}
       </div>
@@ -570,7 +675,6 @@ function ViolationsList({ violations }: { violations: ViolationRecord[] }) {
 const COMPLAINTS_PAGE = 20;
 
 function ComplaintsList({ complaints }: { complaints: ComplaintRecord[] }) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
 
   const visible = showAll ? complaints : complaints.slice(0, COMPLAINTS_PAGE);
@@ -582,57 +686,29 @@ function ComplaintsList({ complaints }: { complaints: ComplaintRecord[] }) {
         Recent Complaints ({complaints.length})
       </h4>
       <div className="space-y-2">
-        {visible.map((c) => {
-          const isExpanded = expandedId === c.id;
-          return (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => setExpandedId(isExpanded ? null : c.id)}
-              className="w-full rounded border border-gray-700 p-2 text-sm text-left hover:border-gray-500 transition-colors"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-blue-400">{c.type}</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-500">{c.date}</span>
-                  <span className="text-gray-500 text-xs">{isExpanded ? "▲" : "▼"}</span>
-                </div>
-              </div>
-              {c.description && (
-                <p className={`mt-1 text-gray-300 ${isExpanded ? "" : "line-clamp-1"}`}>
-                  {c.description}
-                </p>
+        {visible.map((c) => (
+          <div
+            key={c.id}
+            className="rounded border border-gray-700 p-2 text-sm"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-blue-400">{c.type}</span>
+              <span className="text-gray-500">{c.date}</span>
+            </div>
+            {c.description && (
+              <p className="mt-1 text-gray-300 line-clamp-2">{c.description}</p>
+            )}
+            <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500">
+              {c.source && <span>{c.source}</span>}
+              {c.category && <span className="capitalize">{c.category}</span>}
+              {c.status && (
+                <span className={c.status === "Closed" ? "text-gray-500" : "text-yellow-400"}>
+                  {c.status}
+                </span>
               )}
-              {isExpanded && (
-                <div className="mt-2 space-y-1 border-t border-gray-700 pt-2 text-xs text-gray-400">
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                    {c.source && (
-                      <><span className="text-gray-500">Source</span><span>{c.source}</span></>
-                    )}
-                    {c.descriptor && (
-                      <><span className="text-gray-500">Descriptor</span><span>{c.descriptor}</span></>
-                    )}
-                    {c.category && (
-                      <><span className="text-gray-500">Category</span><span className="capitalize">{c.category}</span></>
-                    )}
-                    {c.status && (
-                      <><span className="text-gray-500">Status</span>
-                      <span className={c.status === "Closed" ? "text-gray-500" : "text-yellow-400"}>
-                        {c.status}
-                      </span></>
-                    )}
-                    {c.closed_date && (
-                      <><span className="text-gray-500">Closed</span><span>{c.closed_date}</span></>
-                    )}
-                    {c.resolution_days != null && (
-                      <><span className="text-gray-500">Resolution</span><span>{c.resolution_days} days</span></>
-                    )}
-                  </div>
-                </div>
-              )}
-            </button>
-          );
-        })}
+            </div>
+          </div>
+        ))}
       </div>
       {hasMore && !showAll && (
         <button

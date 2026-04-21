@@ -21,7 +21,7 @@ from typing import Any, TypedDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.sub_neighborhood_splits import SUB_NEIGHBORHOOD_SPLITS
+pass  # sub_neighborhood_splits removed — NTA spatial join replaces Voronoi lookup
 
 logger = logging.getLogger(__name__)
 
@@ -42,178 +42,279 @@ def _cache_key(query: str, extra_filters: dict | None) -> str:
 # Lookup tables
 # ---------------------------------------------------------------------------
 
-CD_NAMES = {
-    "101": "Financial District", "102": "Greenwich Village/SoHo",
-    "103": "Lower East Side/Chinatown", "104": "Chelsea/Clinton",
-    "105": "Midtown", "106": "Upper West Side", "107": "Upper East Side",
-    "108": "Upper Manhattan", "109": "Morningside Heights/Hamilton Heights",
-    "110": "Central Harlem", "111": "East Harlem",
-    "112": "Washington Heights/Inwood",
-    "201": "Mott Haven/Melrose", "202": "Hunts Point/Longwood",
-    "203": "Morrisania/Crotona", "204": "Highbridge/Concourse",
-    "205": "Fordham/University Heights", "206": "Belmont/East Tremont",
-    "207": "Kingsbridge/Riverdale", "208": "Throgs Neck/Pelham Bay",
-    "209": "Parkchester/Soundview", "210": "Co-op City/Eastchester",
-    "211": "Morris Park/Pelham Parkway", "212": "Williamsbridge/Baychester",
-    "301": "Greenpoint/Williamsburg", "302": "Fort Greene/Brooklyn Heights",
-    "303": "Bedford-Stuyvesant", "304": "Bushwick", "305": "East New York",
-    "306": "Park Slope/Red Hook", "307": "Sunset Park",
-    "308": "Crown Heights", "309": "Crown Heights South/Prospect Lefferts",
-    "310": "Bay Ridge", "311": "Bensonhurst", "312": "Borough Park",
-    "313": "Coney Island", "314": "Flatbush/Midwood",
-    "315": "Sheepshead Bay", "316": "Brownsville", "317": "East Flatbush",
-    "318": "Canarsie/Flatlands",
-    "401": "Astoria/Long Island City", "402": "Woodside/Sunnyside",
-    "403": "Jackson Heights", "404": "Elmhurst/Corona",
-    "405": "Ridgewood/Glendale", "406": "Forest Hills/Rego Park",
-    "407": "Flushing", "408": "Hillcrest/Fresh Meadows",
-    "409": "Kew Gardens/Woodhaven", "410": "South Ozone Park/Howard Beach",
-    "411": "Bayside/Little Neck", "412": "Jamaica",
-    "413": "Queens Village", "414": "The Rockaways",
-    "501": "St. George/Stapleton", "502": "South Beach/Willowbrook",
-    "503": "Tottenville/Great Kills",
-}
+# ---------------------------------------------------------------------------
+# NTA alias table  (replaces CD_NAMES + NEIGHBORHOOD_ALIASES + SUBNBHD_ALIASES)
+# ---------------------------------------------------------------------------
+# Maps a search term → NTA name fragment used in  b.nta_name ILIKE '%<pattern>%'
+# Multi-word keys must come before their substrings in lookup (handled by sort).
+# ---------------------------------------------------------------------------
 
-NEIGHBORHOOD_ALIASES: dict[str, str] = {
+NTA_ALIASES: dict[str, str] = {
     # Manhattan
-    "fidi": "101", "financial district": "101",
-    "soho": "102", "the village": "102", "greenwich": "102", "greenwich village": "102",
-    "les": "103", "lower east side": "103", "chinatown": "103",
-    "chelsea": "104", "hells kitchen": "104", "hell's kitchen": "104", "clinton": "104",
-    "midtown": "105", "midtown west": "105", "midtown east": "105", "times square": "105",
-    "uws": "106", "upper west side": "106",
-    "ues": "107", "upper east side": "107",
-    "morningside heights": "109", "hamilton heights": "109",
-    "harlem": "110", "central harlem": "110",
-    "east harlem": "111", "el barrio": "111", "spanish harlem": "111",
-    "washington heights": "112", "inwood": "112",
+    "financial district": "Financial District",
+    "fidi": "Financial District",
+    "battery park": "Financial District",
+    "tribeca": "Tribeca",
+    "soho": "SoHo",
+    "little italy": "Little Italy",
+    "hudson square": "Hudson Square",
+    "chinatown": "Chinatown",
+    "two bridges": "Two Bridges",
+    "lower east side": "Lower East Side",
+    "les": "Lower East Side",
+    "east village": "East Village",
+    "west village": "West Village",
+    "greenwich village": "Greenwich Village",
+    "the village": "Greenwich Village",
+    "greenwich": "Greenwich Village",
+    "chelsea": "Chelsea",
+    "hell's kitchen": "Hell's Kitchen",
+    "hells kitchen": "Hell's Kitchen",
+    "clinton": "Hell's Kitchen",
+    "midtown": "Midtown",
+    "times square": "Times Square",
+    "flatiron": "Flatiron",
+    "union square": "Flatiron",
+    "gramercy": "Gramercy",
+    "murray hill": "Murray Hill",
+    "kips bay": "Kips Bay",
+    "turtle bay": "Turtle Bay",
+    "east midtown": "East Midtown",
+    "stuyvesant town": "Stuyvesant Town",
+    "peter cooper": "Stuyvesant Town",
+    "upper west side": "Upper West Side",
+    "uws": "Upper West Side",
+    "lincoln square": "Lincoln Square",
+    "manhattan valley": "Manhattan Valley",
+    "upper east side": "Upper East Side",
+    "ues": "Upper East Side",
+    "yorkville": "Yorkville",
+    "lenox hill": "Lenox Hill",
+    "carnegie hill": "Carnegie Hill",
+    "roosevelt island": "Roosevelt Island",
+    "morningside heights": "Morningside Heights",
+    "hamilton heights": "Hamilton Heights",
+    "sugar hill": "Sugar Hill",
+    "harlem": "Harlem",
+    "central harlem": "Harlem",
+    "east harlem": "East Harlem",
+    "el barrio": "East Harlem",
+    "spanish harlem": "East Harlem",
+    "manhattanville": "Manhattanville",
+    "west harlem": "West Harlem",
+    "inwood": "Inwood",
+    "washington heights": "Washington Heights",
     # Bronx
-    "south bronx": "201", "mott haven": "201",
-    "hunts point": "202", "longwood": "202",
-    "morrisania": "203", "crotona": "203",
-    "highbridge": "204", "concourse": "204", "grand concourse": "204",
-    "fordham": "205", "university heights": "205",
-    "belmont": "206", "east tremont": "206", "little italy bronx": "206",
-    "riverdale": "207", "kingsbridge": "207",
-    "throgs neck": "208", "pelham bay": "208",
-    "parkchester": "209", "soundview": "209",
-    "co-op city": "210", "eastchester": "210",
-    "morris park": "211", "pelham parkway": "211",
-    "williamsbridge": "212", "baychester": "212",
+    "south bronx": "Mott Haven",
+    "mott haven": "Mott Haven",
+    "port morris": "Mott Haven",
+    "melrose": "Melrose",
+    "hunts point": "Hunts Point",
+    "longwood": "Longwood",
+    "morrisania": "Morrisania",
+    "crotona": "Crotona Park East",
+    "highbridge": "Highbridge",
+    "concourse": "Concourse Village",
+    "grand concourse": "Concourse Village",
+    "fordham": "Fordham",
+    "belmont": "Belmont",
+    "tremont": "Tremont",
+    "east tremont": "Tremont",
+    "mount hope": "Mount Hope",
+    "riverdale": "Riverdale",
+    "kingsbridge": "Kingsbridge",
+    "marble hill": "Kingsbridge",
+    "pelham bay": "Pelham Bay",
+    "pelham parkway": "Pelham Parkway",
+    "pelham gardens": "Pelham Gardens",
+    "soundview": "Soundview",
+    "castle hill": "Castle Hill",
+    "parkchester": "Parkchester",
+    "morris park": "Morris Park",
+    "co-op city": "Co-op City",
+    "coop city": "Co-op City",
+    "westchester square": "Westchester Square",
+    "williamsbridge": "Williamsbridge",
+    "baychester": "Eastchester-Baychester",
+    "eastchester": "Eastchester-Baychester",
+    "wakefield": "Wakefield",
+    "allerton": "Allerton",
+    "norwood": "Norwood",
+    "bedford park": "Bedford Park",
     # Brooklyn
-    "greenpoint": "301", "williamsburg": "301",
-    "fort greene": "302", "brooklyn heights": "302", "dumbo": "302",
-    "bed-stuy": "303", "bed stuy": "303", "bedford stuyvesant": "303", "bedford-stuyvesant": "303",
-    "bushwick": "304",
-    "east new york": "305", "eny": "305",
-    "park slope": "306", "red hook": "306", "gowanus": "306",
-    "sunset park": "307",
-    "crown heights": "308",
-    "prospect lefferts": "309", "prospect lefferts gardens": "309", "plg": "309",
-    "bay ridge": "310", "dyker heights": "310",
-    "bensonhurst": "311", "bath beach": "311",
-    "borough park": "312", "boro park": "312",
-    "coney island": "313", "brighton beach": "313",
-    "flatbush": "314", "midwood": "314", "ditmas park": "314",
-    "sheepshead bay": "315", "manhattan beach": "315",
-    "brownsville": "316",
-    "east flatbush": "317",
-    "canarsie": "318", "flatlands": "318",
+    "greenpoint": "Greenpoint",
+    "williamsburg": "Williamsburg",
+    "east williamsburg": "East Williamsburg",
+    "south williamsburg": "South Williamsburg",
+    "bushwick": "Bushwick",
+    "bed-stuy": "Bedford-Stuyvesant",
+    "bed stuy": "Bedford-Stuyvesant",
+    "bedford stuyvesant": "Bedford-Stuyvesant",
+    "bedford-stuyvesant": "Bedford-Stuyvesant",
+    "ocean hill": "Ocean Hill",
+    "crown heights": "Crown Heights",
+    "prospect heights": "Prospect Heights",
+    "park slope": "Park Slope",
+    "windsor terrace": "Windsor Terrace",
+    "red hook": "Carroll Gardens",  # same NTA
+    "gowanus": "Carroll Gardens",
+    "cobble hill": "Carroll Gardens",
+    "carroll gardens": "Carroll Gardens",
+    "boerum hill": "DUMBO",
+    "dumbo": "DUMBO",
+    "brooklyn heights": "Brooklyn Heights",
+    "fort greene": "Fort Greene",
+    "clinton hill": "Clinton Hill",
+    "borough park": "Borough Park",
+    "boro park": "Borough Park",
+    "bensonhurst": "Bensonhurst",
+    "bath beach": "Bath Beach",
+    "bay ridge": "Bay Ridge",
+    "dyker heights": "Dyker Heights",
+    "sunset park": "Sunset Park",
+    "kensington": "Kensington",
+    "flatbush": "Flatbush",
+    "ditmas park": "Ditmas Park",
+    "midwood": "Midwood",
+    "sheepshead bay": "Sheepshead Bay",
+    "manhattan beach": "Sheepshead Bay",
+    "gerritsen beach": "Sheepshead Bay",
+    "coney island": "Coney Island",
+    "sea gate": "Coney Island",
+    "brighton beach": "Brighton Beach",
+    "brownsville": "Brownsville",
+    "east flatbush": "East Flatbush",
+    "east new york": "East New York",
+    "eny": "East New York",
+    "cypress hills": "Cypress Hills",
+    "canarsie": "Canarsie",
+    "flatlands": "Flatlands",
+    "marine park": "Marine Park",
+    "mill basin": "Marine Park",
+    "gravesend": "Gravesend",
+    "madison brooklyn": "Madison",
+    "mapleton": "Mapleton",
+    "prospect lefferts gardens": "Prospect Lefferts Gardens",
+    "prospect lefferts": "Prospect Lefferts Gardens",
+    "plg": "Prospect Lefferts Gardens",
+    "spring creek": "Spring Creek",
+    "east williamsburg": "East Williamsburg",
     # Queens
-    "astoria": "401", "long island city": "401", "lic": "401",
-    "woodside": "402", "sunnyside": "402",
-    "jackson heights": "403",
-    "elmhurst": "404", "corona": "404",
-    "ridgewood": "405", "glendale": "405",
-    "forest hills": "406", "rego park": "406",
-    "flushing": "407",
-    "hillcrest": "408", "fresh meadows": "408",
-    "kew gardens": "409", "woodhaven": "409",
-    "south ozone park": "410", "howard beach": "410", "ozone park": "410",
-    "bayside": "411", "little neck": "411",
-    "jamaica": "412",
-    "queens village": "413",
-    "rockaways": "414", "rockaway": "414", "far rockaway": "414",
+    "astoria": "Astoria",
+    "ditmars": "Astoria",
+    "steinway": "Astoria",
+    "old astoria": "Old Astoria",
+    "hallets point": "Old Astoria",
+    "long island city": "Long Island City",
+    "lic": "Long Island City",
+    "hunters point": "Long Island City",
+    "queensbridge": "Queensbridge-Ravenswood",
+    "ravenswood": "Queensbridge-Ravenswood",
+    "dutch kills": "Queensbridge-Ravenswood",
+    "east elmhurst": "East Elmhurst",
+    "woodside": "Woodside",
+    "sunnyside": "Sunnyside",
+    "jackson heights": "Jackson Heights",
+    "elmhurst": "Elmhurst",
+    "corona": "Corona",
+    "north corona": "North Corona",
+    "ridgewood": "Ridgewood",
+    "glendale": "Glendale",
+    "maspeth": "Maspeth",
+    "middle village": "Middle Village",
+    "forest hills": "Forest Hills",
+    "rego park": "Rego Park",
+    "kew gardens": "Kew Gardens",
+    "kew gardens hills": "Kew Gardens Hills",
+    "woodhaven": "Woodhaven",
+    "ozone park": "Ozone Park",
+    "south ozone park": "South Ozone Park",
+    "howard beach": "Howard Beach",
+    "richmond hill": "Richmond Hill",
+    "south richmond hill": "South Richmond Hill",
+    "flushing": "Flushing",
+    "college point": "College Point",
+    "auburndale": "Auburndale",
+    "east flushing": "East Flushing",
+    "queensboro hill": "Queensboro Hill",
+    "bayside": "Bayside",
+    "whitestone": "Whitestone",
+    "little neck": "Little Neck",
+    "douglaston": "Douglaston",
+    "jamaica": "Jamaica",
+    "south jamaica": "South Jamaica",
+    "hollis": "Hollis",
+    "st. albans": "St. Albans",
+    "queens village": "Queens Village",
+    "fresh meadows": "Fresh Meadows",
+    "hillcrest": "Hillcrest",
+    "pomonok": "Hillcrest-Pomonok",
+    "rockaways": "Rockaway",
+    "far rockaway": "Far Rockaway",
+    "rockaway beach": "Rockaway Beach",
+    "rockaway peninsula": "Rockaway Peninsula",
+    "breezy point": "Rockaway Peninsula",
+    "belle harbor": "Rockaway Peninsula",
+    "laurelton": "Laurelton",
+    "rosedale": "Rosedale",
+    "cambria heights": "Cambria Heights",
+    "hollis hills": "Jamaica Estates",
+    "jamaica estates": "Jamaica Estates",
+    "briarwood": "Jamaica Hills",
+    "jamaica hills": "Jamaica Hills",
+    "bellerose": "Bellerose",
+    "oakland gardens": "Oakland Gardens",
+    "glen oaks": "Glen Oaks-Floral Park",
+    "floral park": "Glen Oaks-Floral Park",
+    "bay terrace": "Bay Terrace",
+    "clearview": "Bay Terrace",
+    "baisley park": "Baisley Park",
     # Staten Island
-    "st. george": "501", "st george": "501", "stapleton": "501",
-    "south beach": "502", "willowbrook": "502",
-    "tottenville": "503", "great kills": "503",
+    "st. george": "St. George",
+    "st george": "St. George",
+    "new brighton": "St. George",
+    "stapleton": "Stapleton",
+    "clifton": "Stapleton",
+    "rosebank": "Rosebank-Shore Acres",
+    "tompkinsville": "Stapleton",
+    "port richmond": "Port Richmond",
+    "west new brighton": "West New Brighton-Grymes Hill",
+    "grymes hill": "West New Brighton-Grymes Hill",
+    "silver lake": "West New Brighton-Grymes Hill",
+    "westerleigh": "Westerleigh",
+    "castleton corners": "Westerleigh",
+    "mariners harbor": "Mariner's Harbor",
+    "mariner's harbor": "Mariner's Harbor",
+    "arlington": "Mariner's Harbor",
+    "graniteville": "Mariner's Harbor",
+    "new springville": "New Springville-Willowbrook",
+    "willowbrook": "New Springville-Willowbrook",
+    "bulls head": "New Springville-Willowbrook",
+    "richmond": "Oakwood-Richmond Town",
+    "oakwood": "Oakwood-Richmond Town",
+    "new dorp": "New Dorp",
+    "midland beach": "New Dorp",
+    "south beach": "Arrochar-South Beach",
+    "arrochar": "Arrochar-South Beach",
+    "grasmere": "Arrochar-South Beach",
+    "dongan hills": "Arrochar-South Beach",
+    "great kills": "Great Kills",
+    "eltingville": "Great Kills",
+    "tottenville": "Tottenville",
+    "charleston": "Tottenville",
+    "annadale": "Prince's Bay-Annadale",
+    "prince's bay": "Prince's Bay-Annadale",
+    "huguenot": "Prince's Bay-Annadale",
+    "woodrow": "Prince's Bay-Annadale",
+    "todt hill": "Todt Hill-Emerson Hill",
+    "emerson hill": "Todt Hill-Emerson Hill",
+    "lighthouse hill": "Todt Hill-Emerson Hill",
+    "manor heights": "Todt Hill-Emerson Hill",
+    "arden heights": "Arden Heights",
+    "rossville": "Arden Heights",
 }
 
-
-# Maps alias → (cd_code, sub_neighborhood_name). Checked before NEIGHBORHOOD_ALIASES
-# so that a search for "greenwich village" only returns Greenwich Village, not SoHo.
-SUBNBHD_ALIASES: dict[str, tuple[str, str]] = {
-    # Manhattan
-    "financial district": ("101", "Financial District"), "fidi": ("101", "Financial District"),
-    "tribeca": ("101", "Tribeca"),
-    "greenwich village": ("102", "Greenwich Village"), "the village": ("102", "Greenwich Village"),
-    "greenwich": ("102", "Greenwich Village"), "soho": ("102", "SoHo"),
-    "lower east side": ("103", "Lower East Side"), "les": ("103", "Lower East Side"),
-    "chinatown": ("103", "Chinatown"),
-    "chelsea": ("104", "Chelsea"),
-    "hells kitchen": ("104", "Hell's Kitchen"), "hell's kitchen": ("104", "Hell's Kitchen"),
-    "clinton": ("104", "Hell's Kitchen"),
-    "morningside heights": ("109", "Morningside Heights"),
-    "hamilton heights": ("109", "Hamilton Heights"),
-    "washington heights": ("112", "Washington Heights"), "inwood": ("112", "Inwood"),
-    # Bronx
-    "mott haven": ("201", "Mott Haven"), "south bronx": ("201", "Mott Haven"),
-    "melrose": ("201", "Melrose"),
-    "hunts point": ("202", "Hunts Point"), "longwood": ("202", "Longwood"),
-    "morrisania": ("203", "Morrisania"), "crotona": ("203", "Crotona"),
-    "highbridge": ("204", "Highbridge"),
-    "concourse": ("204", "Concourse"), "grand concourse": ("204", "Concourse"),
-    "fordham": ("205", "Fordham"), "university heights": ("205", "University Heights"),
-    "belmont": ("206", "Belmont"), "east tremont": ("206", "East Tremont"),
-    "little italy bronx": ("206", "Belmont"),
-    "kingsbridge": ("207", "Kingsbridge"), "riverdale": ("207", "Riverdale"),
-    "parkchester": ("209", "Parkchester"), "soundview": ("209", "Soundview"),
-    "morris park": ("211", "Morris Park"),
-    # Brooklyn
-    "greenpoint": ("301", "Greenpoint"), "williamsburg": ("301", "Williamsburg"),
-    "fort greene": ("302", "Fort Greene"),
-    "brooklyn heights": ("302", "Brooklyn Heights"), "dumbo": ("302", "Brooklyn Heights"),
-    "east new york": ("305", "East New York"), "eny": ("305", "East New York"),
-    "park slope": ("306", "Park Slope"),
-    "sunset park": ("307", "Sunset Park"), "windsor terrace": ("307", "Windsor Terrace"),
-    "prospect lefferts": ("309", "Prospect Lefferts"),
-    "prospect lefferts gardens": ("309", "Prospect Lefferts"), "plg": ("309", "Prospect Lefferts"),
-    "bay ridge": ("310", "Bay Ridge"), "dyker heights": ("310", "Dyker Heights"),
-    "bensonhurst": ("311", "Bensonhurst"), "bath beach": ("311", "Bath Beach"),
-    "borough park": ("312", "Borough Park"), "boro park": ("312", "Borough Park"),
-    "coney island": ("313", "Coney Island"), "brighton beach": ("313", "Brighton Beach"),
-    "flatbush": ("314", "Flatbush"), "ditmas park": ("314", "Flatbush"),
-    "midwood": ("314", "Midwood"),
-    "sheepshead bay": ("315", "Sheepshead Bay"),
-    "brownsville": ("316", "Brownsville"),
-    "east flatbush": ("317", "East Flatbush"),
-    "canarsie": ("318", "Canarsie"), "flatlands": ("318", "Flatlands"),
-    # Queens
-    "astoria": ("401", "Astoria"),
-    "long island city": ("401", "Long Island City"), "lic": ("401", "Long Island City"),
-    "woodside": ("402", "Woodside"), "sunnyside": ("402", "Sunnyside"),
-    "jackson heights": ("403", "Jackson Heights"),
-    "elmhurst": ("404", "Elmhurst"), "corona": ("404", "South Corona"),
-    "ridgewood": ("405", "Ridgewood"), "glendale": ("405", "Glendale"),
-    "forest hills": ("406", "Forest Hills"), "rego park": ("406", "Rego Park"),
-    "flushing": ("407", "Flushing"),
-    "fresh meadows": ("408", "Fresh Meadows"), "hillcrest": ("408", "Fresh Meadows"),
-    "woodhaven": ("409", "Woodhaven"), "kew gardens": ("409", "Woodhaven"),
-    "howard beach": ("410", "Howard Beach"),
-    "south ozone park": ("410", "Ozone Park"), "ozone park": ("410", "Ozone Park"),
-    "bayside": ("411", "Bayside"), "little neck": ("411", "Little Neck"),
-    "jamaica": ("412", "Jamaica"),
-    "queens village": ("413", "Queens Village"),
-    "rockaways": ("414", "Rockaway"), "rockaway": ("414", "Rockaway"),
-    "far rockaway": ("414", "Rockaway"),
-    # Staten Island
-    "st. george": ("501", "St. George"), "st george": ("501", "St. George"),
-    "stapleton": ("501", "Stapleton"),
-    "south beach": ("502", "South Beach"), "willowbrook": ("502", "Willowbrook"),
-}
-
-_SUBNBHD_SORTED = sorted(SUBNBHD_ALIASES.items(), key=lambda x: -len(x[0]))
+_NTA_SORTED = sorted(NTA_ALIASES.items(), key=lambda x: -len(x[0]))
 
 BOROUGH_ALIASES: dict[str, str] = {
     "staten island": "STATEN ISLAND", "si": "STATEN ISLAND",
@@ -225,7 +326,6 @@ BOROUGH_ALIASES: dict[str, str] = {
 
 # Sorted by length descending so longer matches win
 _BOROUGH_SORTED = sorted(BOROUGH_ALIASES.items(), key=lambda x: -len(x[0]))
-_NEIGHBORHOOD_SORTED = sorted(NEIGHBORHOOD_ALIASES.items(), key=lambda x: -len(x[0]))
 
 COMPLAINT_KEYWORDS: dict[str, str] = {
     # pest (multi-word first)
@@ -587,6 +687,8 @@ def compute_confidence(filters: dict, concepts: list[SortClause], global_intent:
     score = 0.0
     if "borough" in filters:
         score += 0.4
+    if "nta_name" in filters:
+        score += 0.3
     if concepts:
         score += 0.3
         if len(concepts) >= 2:
@@ -641,7 +743,7 @@ def parse_search_query(query: str) -> dict:
     filters["sort"] = sort_clauses
     filters["confidence"] = confidence
     # needs_fallback: no entity filters AND confidence < 0.4
-    entity_filter_keys = {"borough", "neighborhood", "complaint_types", "min_score", "max_score",
+    entity_filter_keys = {"borough", "nta_name", "complaint_types", "min_score", "max_score",
                           "has_litigation", "min_units", "max_units", "min_year_built",
                           "max_year_built", "building_classes", "owner_name"}
     has_entity_filters = bool(entity_filter_keys & filters.keys())
@@ -663,23 +765,10 @@ def _extract_borough(q: str, filters: dict) -> None:
 
 
 def _extract_neighborhood(q: str, filters: dict) -> None:
-    # Check precise sub-neighborhood aliases first (adds Voronoi filter)
-    for alias, (cd_code, sub_name) in _SUBNBHD_SORTED:
+    """Match NTA aliases (longest first) and store a pattern for ILIKE filtering."""
+    for alias, nta_pattern in _NTA_SORTED:
         if _word_match(alias, q):
-            filters["neighborhood"] = cd_code
-            cd_splits = SUB_NEIGHBORHOOD_SPLITS.get(cd_code, [])
-            target = next((s for s in cd_splits if s["name"] == sub_name), None)
-            if target and len(cd_splits) > 1:
-                filters["sub_nbhd"] = {
-                    "lat": target["lat"],
-                    "lng": target["lng"],
-                    "siblings": [s for s in cd_splits if s["name"] != sub_name],
-                }
-            return
-    # Fall back to whole-CD aliases
-    for alias, cd_code in _NEIGHBORHOOD_SORTED:
-        if _word_match(alias, q):
-            filters["neighborhood"] = cd_code
+            filters["nta_name"] = nta_pattern
             return
 
 
@@ -862,18 +951,8 @@ def _describe_filters(filters: dict) -> str | None:
     parts: list[str] = []
     if "borough" in filters:
         parts.append(f"in {filters['borough'].title()}")
-    if "neighborhood" in filters:
-        if "sub_nbhd" in filters:
-            cd_splits = SUB_NEIGHBORHOOD_SPLITS.get(filters["neighborhood"], [])
-            sn = filters["sub_nbhd"]
-            target = next(
-                (s["name"] for s in cd_splits if s["lat"] == sn["lat"] and s["lng"] == sn["lng"]),
-                None,
-            )
-            name = target or CD_NAMES.get(filters["neighborhood"], filters["neighborhood"])
-        else:
-            name = CD_NAMES.get(filters["neighborhood"], filters["neighborhood"])
-        parts.append(f"({name})")
+    if "nta_name" in filters:
+        parts.append(f"({filters['nta_name']})")
     if "complaint_types" in filters:
         parts.append(f"with {', '.join(filters['complaint_types'])} issues")
     if "exclude_complaint_types" in filters:
@@ -920,8 +999,8 @@ def validate_filters(filters: dict) -> dict:
     if "borough" in filters and filters["borough"] in VALID_BOROUGHS:
         validated["borough"] = filters["borough"]
 
-    if "neighborhood" in filters and isinstance(filters["neighborhood"], str):
-        validated["neighborhood"] = filters["neighborhood"][:100]
+    if "nta_name" in filters and isinstance(filters["nta_name"], str):
+        validated["nta_name"] = filters["nta_name"][:120]
 
     for key in ["min_score", "max_score"]:
         if key in filters and isinstance(filters[key], (int, float)):
@@ -936,9 +1015,6 @@ def validate_filters(filters: dict) -> dict:
         validated["exclude_complaint_types"] = [
             ct for ct in filters["exclude_complaint_types"] if ct in valid_categories
         ]
-    if "sub_nbhd" in filters and isinstance(filters["sub_nbhd"], dict):
-        validated["sub_nbhd"] = filters["sub_nbhd"]
-
     for key in ["min_units", "max_units"]:
         if key in filters and isinstance(filters[key], int):
             validated[key] = max(1, min(10000, filters[key]))
@@ -965,8 +1041,8 @@ def validate_filters(filters: dict) -> dict:
     if "limit" in filters and isinstance(filters["limit"], int):
         validated["limit"] = max(1, min(MAX_RESULTS, filters["limit"]))
 
-    if filters.get("apartments_only"):
-        validated["apartments_only"] = True
+    if "include_small_homes" in filters:
+        validated["include_small_homes"] = bool(filters["include_small_homes"])
 
     # Pass through sort list after whitelisting columns
     if "sort" in filters and isinstance(filters["sort"], list):
@@ -1001,23 +1077,9 @@ async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
         conditions.append("b.borough = :borough")
         params["borough"] = filters["borough"]
 
-    if "neighborhood" in filters:
-        conditions.append("b.neighborhood ILIKE :neighborhood")
-        params["neighborhood"] = f"%{filters['neighborhood']}%"
-
-    if "sub_nbhd" in filters:
-        # Voronoi-like filter: keep buildings closer to target centroid than any sibling
-        sn = filters["sub_nbhd"]
-        params["sub_lng"] = sn["lng"]
-        params["sub_lat"] = sn["lat"]
-        conditions.append("b.geom IS NOT NULL")
-        for i, sib in enumerate(sn["siblings"]):
-            conditions.append(
-                f"ST_Distance(b.geom::geography, ST_MakePoint(:sub_lng, :sub_lat)::geography) <= "
-                f"ST_Distance(b.geom::geography, ST_MakePoint(:sib_{i}_lng, :sib_{i}_lat)::geography)"
-            )
-            params[f"sib_{i}_lng"] = sib["lng"]
-            params[f"sib_{i}_lat"] = sib["lat"]
+    if "nta_name" in filters:
+        conditions.append("b.nta_name ILIKE :nta_name")
+        params["nta_name"] = f"%{filters['nta_name']}%"
 
     if "min_score" in filters:
         conditions.append("hs.composite_score >= :min_score")
@@ -1087,10 +1149,9 @@ async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
         conditions.append("b.owner_name ILIKE :owner_name")
         params["owner_name"] = f"%{filters['owner_name']}%"
 
-    if filters.get("apartments_only"):
+    if not filters.get("include_small_homes"):
         conditions.append(
-            "(b.building_class LIKE 'C%' OR b.building_class LIKE 'D%'"
-            " OR b.building_class IN ('R1','R2','R4','R6','RR'))"
+            "b.building_class NOT LIKE 'A%' AND b.building_class NOT LIKE 'B%'"
         )
 
     # Build ORDER BY from sort list (validated columns only)
@@ -1106,7 +1167,7 @@ async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
 
     query = text(f"""
         SELECT
-            b.bbl, b.bin, b.address, b.borough, b.neighborhood,
+            b.bbl, b.bin, b.address, b.borough, b.neighborhood, b.nta_name,
             COALESCE(hs.composite_score, 0) as health_score,
             b.latitude, b.longitude,
             b.residential_units, b.year_built, b.building_class

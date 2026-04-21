@@ -68,9 +68,28 @@ export async function fetchSubNeighborhoods(): Promise<{
   return fetchApi("/api/neighborhoods/detail");
 }
 
-export async function searchBuildings(query: string, apartmentsOnly = false): Promise<SearchResult> {
+export interface SearchFilters {
+  includeSmallHomes?: boolean;
+  borough?: string | null;
+  minUnits?: number | null;
+}
+
+export async function searchBuildings(query: string, filters: SearchFilters = {}): Promise<SearchResult> {
   return fetchApi("/api/search", {
     method: "POST",
-    body: JSON.stringify({ query, apartments_only: apartmentsOnly }),
+    body: JSON.stringify({
+      query,
+      include_small_homes: filters.includeSmallHomes ?? false,
+      borough: filters.borough ?? null,
+      min_units: filters.minUnits ?? null,
+    }),
   });
+}
+
+export async function searchByOwner(name: string): Promise<SearchResult> {
+  return fetchApi(`/api/search/by-owner?name=${encodeURIComponent(name)}`);
+}
+
+export async function searchByManager(name: string): Promise<SearchResult> {
+  return fetchApi(`/api/search/by-manager?name=${encodeURIComponent(name)}`);
 }

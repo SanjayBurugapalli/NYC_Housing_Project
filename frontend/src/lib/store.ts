@@ -56,6 +56,17 @@ interface AppState {
   toggleGrade: (grade: string) => void;
   clearGradeFilter: () => void;
 
+  // Map filters (applied to viewport buildings layer)
+  mapFilters: { minUnits: number | null; maxUnits: number | null; minYear: number | null; maxYear: number | null };
+  setMapFilter: (key: "minUnits" | "maxUnits" | "minYear" | "maxYear", value: number | null) => void;
+  clearMapFilters: () => void;
+
+  // Building comparison (max 2)
+  compareBbls: string[];
+  addToCompare: (bbl: string) => void;
+  removeFromCompare: (bbl: string) => void;
+  clearCompare: () => void;
+
   // Custom scoring weights
   customWeights: CategoryWeights;
   useCustomWeights: boolean;
@@ -126,6 +137,25 @@ export const useStore = create<AppState>((set) => ({
         : [...state.gradeFilter, grade],
     })),
   clearGradeFilter: () => set({ gradeFilter: [] }),
+
+  // Map filters
+  mapFilters: { minUnits: null, maxUnits: null, minYear: null, maxYear: null },
+  setMapFilter: (key, value) =>
+    set((state) => ({ mapFilters: { ...state.mapFilters, [key]: value } })),
+  clearMapFilters: () =>
+    set({ mapFilters: { minUnits: null, maxUnits: null, minYear: null, maxYear: null } }),
+
+  // Building comparison
+  compareBbls: [],
+  addToCompare: (bbl) =>
+    set((state) => ({
+      compareBbls: state.compareBbls.includes(bbl) || state.compareBbls.length >= 2
+        ? state.compareBbls
+        : [...state.compareBbls, bbl],
+    })),
+  removeFromCompare: (bbl) =>
+    set((state) => ({ compareBbls: state.compareBbls.filter((b) => b !== bbl) })),
+  clearCompare: () => set({ compareBbls: [] }),
 
   // Custom scoring weights
   customWeights: { ...DEFAULT_WEIGHTS },

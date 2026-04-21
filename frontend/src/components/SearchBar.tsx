@@ -14,6 +14,8 @@ const SUGGESTIONS = [
   "pre-war elevator buildings in Manhattan",
 ];
 
+const BOROUGHS = ["MANHATTAN", "BROOKLYN", "QUEENS", "BRONX", "STATEN ISLAND"];
+
 function loadHistory(): string[] {
   try {
     const raw = typeof window !== "undefined" ? localStorage.getItem(HISTORY_KEY) : null;
@@ -36,7 +38,10 @@ function saveHistory(query: string, existing: string[]): string[] {
 
 export function SearchBar() {
   const [input, setInput] = useState("");
-  const [apartmentsOnly, setApartmentsOnly] = useState(false);
+  const [includeSmallHomes, setIncludeSmallHomes] = useState(false);
+  const [borough, setBorough] = useState<string>("");
+  const [minUnits, setMinUnits] = useState<string>("");
+  const [showFilters, setShowFilters] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -81,6 +86,9 @@ export function SearchBar() {
     return () => clearTimeout(timer);
   }, [searchError, setSearchError]);
 
+  const activeFilterCount =
+    (includeSmallHomes ? 1 : 0) + (borough ? 1 : 0) + (minUnits ? 1 : 0);
+
   const runSearch = async (query: string) => {
     if (!query.trim()) return;
     setInput(query);
@@ -90,7 +98,11 @@ export function SearchBar() {
     setSearchError(null);
 
     try {
-      const result = await searchBuildings(query, apartmentsOnly);
+      const result = await searchBuildings(query, {
+        includeSmallHomes,
+        borough: borough || null,
+        minUnits: minUnits ? parseInt(minUnits, 10) : null,
+      });
       const updated = saveHistory(query, history);
       setHistory(updated);
 
@@ -186,6 +198,15 @@ export function SearchBar() {
         </div>
       </form>
 
+      {/* Loading bar */}
+      <div className="relative h-0.5 overflow-hidden rounded-full">
+        <div
+          className={`absolute inset-0 transition-opacity duration-300 ${isSearching ? "opacity-100" : "opacity-0"}`}
+        >
+          <div className="h-full w-full animate-loading-bar bg-gradient-to-r from-transparent via-blue-500 to-transparent" />
+        </div>
+      </div>
+
       {/* History / suggestion dropdown */}
       {showDropdown && dropdownItems.length > 0 && !isSearching && (
         <div
@@ -205,7 +226,7 @@ export function SearchBar() {
               role="option"
               aria-selected={false}
               onMouseDown={(e) => {
-                e.preventDefault(); // don't blur input before click fires
+                e.preventDefault();
                 runSearch(item);
               }}
               className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-700 transition-colors"
@@ -216,22 +237,90 @@ export function SearchBar() {
         </div>
       )}
 
-      {/* Apartments only checkbox */}
-      <div className="mt-1.5 flex items-center gap-2 px-1">
-        <input
-          id="apartments-only"
-          type="checkbox"
-          checked={apartmentsOnly}
-          onChange={(e) => setApartmentsOnly(e.target.checked)}
-          className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 accent-blue-500 cursor-pointer"
-        />
-        <label
-          htmlFor="apartments-only"
-          className="text-xs text-gray-400 cursor-pointer select-none hover:text-gray-200"
+      {/* Filter toggle row */}
+      <div className="mt-1.5 flex items-center gap-3 px-1">
+        <button
+          type="button"
+          onClick={() => setShowFilters((v) => !v)}
+          className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors ${
+            showFilters || activeFilterCount > 0
+              ? "bg-blue-900/60 text-blue-300 hover:bg-blue-900"
+              : "text-gray-400 hover:text-gray-200"
+          }`}
         >
-          Only show apartments
-        </label>
+          <span>Filters</span>
+          {activeFilterCount > 0 && (
+            <span className="rounded-full bg-blue-600 px-1.5 py-0 text-[10px] font-bold text-white leading-4">
+              {activeFilterCount}
+            </span>
+          )}
+          <span className={`transition-transform duration-150 ${showFilters ? "rotate-180" : ""}`}>▾</span>
+        </button>
       </div>
+
+      {/* Filter dropdown */}
+      {showFilters && (
+        <div className="mt-1 rounded-lg border border-gray-600 bg-gray-800/95 p-3 shadow-xl backdrop-blur-sm">
+          <div className="flex flex-col gap-3">
+            {/* Include 1–2 family homes */}
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeSmallHomes}
+                onChange={(e) => setIncludeSmallHomes(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 accent-blue-500"
+              />
+              <span className="text-xs text-gray-300 select-none">Include 1–2 family homes</span>
+            </label>
+
+            {/* Borough select */}
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-gray-400">Borough</label>
+              <select
+                value={borough}
+                onChange={(e) => setBorough(e.target.value)}
+                className="rounded border border-gray-600 bg-gray-700 px-2 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+              >
+                <option value="">Any borough</option>
+                {BOROUGHS.map((b) => (
+                  <option key={b} value={b}>
+                    {b.charAt(0) + b.slice(1).toLowerCase()}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Min units */}
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-gray-400">Minimum units</label>
+              <input
+                type="number"
+                min={1}
+                max={9999}
+                placeholder="e.g. 10"
+                value={minUnits}
+                onChange={(e) => setMinUnits(e.target.value)}
+                className="rounded border border-gray-600 bg-gray-700 px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
+            </div>
+
+            {/* Clear filters */}
+            {activeFilterCount > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIncludeSmallHomes(false);
+                  setBorough("");
+                  setMinUnits("");
+                }}
+                className="self-start text-xs text-gray-500 underline hover:text-gray-300"
+              >
+                Clear all filters
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Error toast */}
       {searchError && (
@@ -240,7 +329,7 @@ export function SearchBar() {
         </div>
       )}
 
-      {/* Clarification / filter description — mobile only (desktop shown in results panel) */}
+      {/* Clarification — mobile only (desktop shown in results panel) */}
       {searchClarification && !searchError && (
         <div className="absolute top-full mt-2 w-full rounded-lg border border-blue-800 bg-blue-900/80 px-4 py-2 text-sm text-blue-200 backdrop-blur-sm z-40 md:hidden">
           {searchClarification}
