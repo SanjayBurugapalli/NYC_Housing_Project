@@ -1,6 +1,4 @@
-import json
 from pydantic_settings import BaseSettings
-from pydantic import field_validator
 
 
 class Settings(BaseSettings):
@@ -11,18 +9,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     socrata_app_token: str = ""
 
-    cors_origins: list[str] = ["*"]
     admin_token: str = ""
-
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, v: object) -> list[str]:
-        if isinstance(v, str):
-            try:
-                return json.loads(v)
-            except json.JSONDecodeError:
-                return [o.strip() for o in v.split(",")]
-        return v
 
     # Scoring weights
     weight_heat_hot_water: float = 0.20
