@@ -10,6 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from app.core.config import settings
+from app.api.analytics import router as analytics_router
 from app.api.buildings import router as buildings_router
 from app.api.neighborhoods import router as neighborhoods_router
 from app.api.search import router as search_router
@@ -43,7 +44,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
@@ -68,6 +69,7 @@ async def log_requests(request: Request, call_next):
     return response
 
 
+app.include_router(analytics_router, prefix="/api")
 app.include_router(buildings_router, prefix="/api")
 app.include_router(neighborhoods_router, prefix="/api")
 app.include_router(search_router, prefix="/api")
