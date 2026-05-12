@@ -4,7 +4,6 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -49,16 +48,19 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
-)
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "*",
+    "Access-Control-Max-Age": "86400",
+}
 
 @app.middleware("http")
-async def log_requests(request: Request, call_next):
+async def handle_cors_and_logging(request: Request, call_next):
+    if request.method == "OPTIONS":
+        from starlette.responses import Response
+        return Response(status_code=204, headers=CORS_HEADERS)
+
     request_id = str(uuid.uuid4())[:8]
     start = time.monotonic()
     response = await call_next(request)
@@ -73,6 +75,8 @@ async def log_requests(request: Request, call_next):
         request.client.host if request.client else "unknown",
     )
     response.headers["X-Request-Id"] = request_id
+    for k, v in CORS_HEADERS.items():
+        response.headers[k] = v
     return response
 
 
