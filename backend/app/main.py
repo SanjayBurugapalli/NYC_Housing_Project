@@ -9,7 +9,10 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
+from sqlalchemy import text
+
 from app.core.config import settings
+from app.core.database import engine
 from app.api.analytics import router as analytics_router
 from app.api.buildings import router as buildings_router
 from app.api.neighborhoods import router as neighborhoods_router
@@ -27,9 +30,13 @@ limiter = Limiter(key_func=get_remote_address)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        logger.info('"msg":"DB connection OK"')
+    except Exception as e:
+        logger.error('"msg":"DB connection FAILED: %s"', str(e))
     yield
-    # Shutdown
 
 
 app = FastAPI(
