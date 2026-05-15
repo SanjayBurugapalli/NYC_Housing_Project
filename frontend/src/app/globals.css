@@ -12,3 +12,11 @@ body {
   width: 100%;
   height: 100%;
 }
+
+/* External feedback widget (injected by Vercel / hosting platform):
+   force it below side panels so it doesn't cover the building or search views.
+   Panels use z-10 (desktop) / z-20 (mobile); we use z-index: 1 + isolation here. */
+button[aria-label="Submit feedback"],
+*:has(> button[aria-label="Submit feedback"]) {
+  z-index: 1 !important;
+}

@@ -45,12 +45,11 @@ function gradeBg(grade: string): string {
 
 const GRADE_ORDER: Record<string, number> = { A: 0, B: 1, C: 2, D: 3, F: 4 };
 
-type SortKey = "score_desc" | "score_asc" | "grade_asc" | "grade_desc";
+// Grade ordering subsumes score ordering — separate score sort was redundant.
+type SortKey = "grade_asc" | "grade_desc";
 
 function sortResults(results: BuildingSummary[], sort: SortKey): BuildingSummary[] {
   return [...results].sort((a, b) => {
-    if (sort === "score_desc") return (b.health_score ?? 0) - (a.health_score ?? 0);
-    if (sort === "score_asc")  return (a.health_score ?? 0) - (b.health_score ?? 0);
     if (sort === "grade_asc")  return (GRADE_ORDER[a.grade ?? "F"] ?? 4) - (GRADE_ORDER[b.grade ?? "F"] ?? 4);
     if (sort === "grade_desc") return (GRADE_ORDER[b.grade ?? "F"] ?? 4) - (GRADE_ORDER[a.grade ?? "F"] ?? 4);
     return 0;
@@ -69,7 +68,7 @@ export function SearchResultsPanel({ clarification }: SearchResultsPanelProps) {
   const clearSearch = useStore((s) => s.clearSearch);
   const mapRef = useStore((s) => s.mapRef);
 
-  const [sortKey, setSortKey] = useState<SortKey>("score_desc");
+  const [sortKey, setSortKey] = useState<SortKey>("grade_asc");
 
   const filtered = gradeFilter.length > 0
     ? searchResults.filter((b) => gradeFilter.includes(b.grade ?? ""))
@@ -109,8 +108,6 @@ export function SearchResultsPanel({ clarification }: SearchResultsPanelProps) {
               className="rounded border border-gray-600 bg-gray-700 px-2 py-1 text-xs text-gray-300 focus:border-blue-500 focus:outline-none"
               aria-label="Sort results"
             >
-              <option value="score_desc">Score: High → Low</option>
-              <option value="score_asc">Score: Low → High</option>
               <option value="grade_asc">Grade: A → F</option>
               <option value="grade_desc">Grade: F → A</option>
             </select>
