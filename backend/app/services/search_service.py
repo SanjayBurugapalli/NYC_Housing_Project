@@ -1190,9 +1190,10 @@ async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
 async def search_buildings_ai(
     db: AsyncSession, query: str, extra_filters: dict | None = None
 ) -> dict:
-    """Translate natural language into a structured search using the deterministic pipeline.
+    """Translate natural language into a structured search.
 
-    Always uses rule-based parsing — no LLM API calls.
+    Tries Claude Haiku first; falls back to the deterministic rule-based parser
+    when the API key is missing, the call fails, or the response is empty.
     Returns results dict including confidence and needs_fallback metadata.
     """
     # Check cache first
@@ -1202,7 +1203,20 @@ async def search_buildings_ai(
         logger.debug("Cache hit for query='%s'", query)
         return cached
 
-    filters = parse_search_query(query)
+    parser_used = "rule_based"
+    from app.services.claude_search_parser import claude_confidence, parse_query_with_claude
+
+    claude_filters = await parse_query_with_claude(query)
+    if claude_filters is not None and claude_filters:
+        filters = claude_filters
+        # Default sort if Claude didn't provide one
+        filters.setdefault("sort", [{"column": "hs.composite_score", "order": "DESC"}])
+        filters["confidence"] = claude_confidence(filters)
+        filters["needs_fallback"] = False
+        parser_used = "claude"
+    else:
+        filters = parse_search_query(query)
+
     if extra_filters:
         filters.update(extra_filters)
 
@@ -1210,9 +1224,10 @@ async def search_buildings_ai(
     needs_fallback = filters.get("needs_fallback", False)
 
     logger.info(
-        "Parsed '%s' → confidence=%.2f needs_fallback=%s filters=%s",
-        query, confidence, needs_fallback, {k: v for k, v in filters.items()
-                                             if k not in ("sort", "confidence", "needs_fallback")},
+        "Parsed '%s' via %s → confidence=%.2f needs_fallback=%s filters=%s",
+        query, parser_used, confidence, needs_fallback,
+        {k: v for k, v in filters.items()
+         if k not in ("sort", "confidence", "needs_fallback")},
     )
 
     filters = validate_filters(filters)
