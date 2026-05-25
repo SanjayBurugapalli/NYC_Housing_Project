@@ -225,7 +225,7 @@ async def search_buildings(
     if body.min_units is not None:
         extra_filters["min_units"] = body.min_units
 
-    # Address search (if it looks like an address)
+    # Address search (only if the query looks like a specific street address)
     if looks_like_address(query):
         results = await search_by_address(db, query, include_small_homes)
         buildings = [
@@ -242,24 +242,7 @@ async def search_buildings(
             clarification=f"Showing address matches for \"{query}\"" if buildings else None,
         )
 
-    # Try address search as fallback for any query
-    results = await search_by_address(db, query, include_small_homes)
-    if results:
-        buildings = [
-            BuildingSummaryResponse(
-                **b,
-                grade=score_to_grade(b.get("health_score", 0)),
-            )
-            for b in results
-        ]
-        return SearchResponse(
-            results=buildings,
-            total=len(buildings),
-            query=query,
-            clarification=f"Showing address matches for \"{query}\"",
-        )
-
-    # No address matches — try AI search for natural language queries
+    # Natural language → AI search
     try:
         from app.services.search_service import search_buildings_ai
         result = await search_buildings_ai(db, query, extra_filters=extra_filters if extra_filters else None)

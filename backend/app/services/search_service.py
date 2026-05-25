@@ -1,14 +1,15 @@
 """Search for NYC residential buildings.
 
-Deterministic rule-based natural language parser — no LLM API required.
+Primary path: Claude Haiku (tool-use) translates natural language into structured
+filters that are validated and executed as SQL.
+
+Fallback path: deterministic rule-based parser (regex + lookup tables) runs
+automatically if the Claude API call fails or times out.
 
 Pipeline:
-    normalize(query)
-    → extract_entities (borough, neighborhood, complaints, filters)
-    → match_concepts (noise, pest, heat, structural, hpd, litigation)
-    → detect_global_intent (best / worst)
-    → build_sort → list[SortClause]
-    → compute_confidence → float
+    _claude_search(query)        ← primary (Claude Haiku, 6s timeout)
+       OR parse_search_query()   ← fallback (rule-based)
+    → validate_filters()
     → execute_search (SQL)
 """
 
@@ -16,12 +17,10 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import TypedDict
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-pass  # sub_neighborhood_splits removed — NTA spatial join replaces Voronoi lookup
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +30,20 @@ logger = logging.getLogger(__name__)
 
 _SEARCH_CACHE: dict[str, tuple[dict, float]] = {}
 _CACHE_TTL_SECONDS = 60
+_CACHE_MAX_ENTRIES = 500
 
 
 def _cache_key(query: str, extra_filters: dict | None) -> str:
     extras = "|".join(f"{k}={v}" for k, v in sorted((extra_filters or {}).items()))
     return f"{query.lower().strip()}|{extras}"
+
+
+def _cache_set(key: str, value: dict) -> None:
+    if len(_SEARCH_CACHE) >= _CACHE_MAX_ENTRIES:
+        # Evict oldest entries (by insertion order) until under cap
+        for k in list(_SEARCH_CACHE.keys())[: len(_SEARCH_CACHE) - _CACHE_MAX_ENTRIES + 1]:
+            _SEARCH_CACHE.pop(k, None)
+    _SEARCH_CACHE[key] = (value, time.monotonic())
 
 
 # ---------------------------------------------------------------------------
@@ -731,9 +739,9 @@ def parse_search_query(query: str) -> dict:
     global_intent = detect_global_intent(q)
 
     # Special-case: explicit sort-by-count phrases override concept sort
-    if "most complaints" in q or "by complaints" in q:
+    if _word_match("most complaints", q) or _word_match("by complaints", q):
         sort_clauses: list[SortClause] = [{"column": "hs.total_complaints", "order": "DESC"}]
-    elif "most violations" in q or "by violations" in q:
+    elif _word_match("most violations", q) or _word_match("by violations", q):
         sort_clauses = [{"column": "hs.total_violations", "order": "DESC"}]
     else:
         sort_clauses = build_sort(concepts, global_intent)
@@ -817,15 +825,15 @@ def _extract_score_filters(q: str, filters: dict) -> None:
     mid = {"average", "moderate", "mediocre"}
 
     for kw in sorted(bad, key=len, reverse=True):
-        if kw in q:
+        if _word_match(kw, q):
             filters["max_score"] = 50
             return
     for kw in sorted(good, key=len, reverse=True):
-        if kw in q:
+        if _word_match(kw, q):
             filters["min_score"] = 80
             return
     for kw in sorted(mid, key=len, reverse=True):
-        if kw in q:
+        if _word_match(kw, q):
             filters["min_score"] = 40
             filters["max_score"] = 70
             return
@@ -833,16 +841,16 @@ def _extract_score_filters(q: str, filters: dict) -> None:
 
 def _extract_litigation(q: str, filters: dict) -> None:
     for kw in LITIGATION_KEYWORDS:
-        if kw in q:
+        if _word_match(kw, q):
             filters["has_litigation"] = True
             return
 
 
 def _extract_size_filters(q: str, filters: dict) -> None:
-    if any(p in q for p in ("large building", "big building", "high rise", "high-rise", "highrise")):
+    if any(_word_match(p, q) for p in ("large building", "big building", "high rise", "high-rise", "highrise")):
         filters["min_units"] = 50
         return
-    if any(p in q for p in ("small building", "walk-up", "walkup", "walk up")):
+    if any(_word_match(p, q) for p in ("small building", "walk-up", "walkup", "walk up")):
         filters["max_units"] = 10
         return
 
@@ -928,7 +936,7 @@ def _extract_building_class(q: str, filters: dict) -> None:
         return
 
     for keyword, codes in BUILDING_CLASS_KEYWORDS:
-        if keyword in q:
+        if _word_match(keyword, q):
             filters["building_classes"] = codes
             return
 
@@ -1196,7 +1204,6 @@ async def search_buildings_ai(
     when the API key is missing, the call fails, or the response is empty.
     Returns results dict including confidence and needs_fallback metadata.
     """
-    # Check cache first
     key = _cache_key(query, extra_filters)
     cached, ts = _SEARCH_CACHE.get(key, (None, 0.0))
     if cached is not None and (time.monotonic() - ts) < _CACHE_TTL_SECONDS:
@@ -1249,5 +1256,5 @@ async def search_buildings_ai(
         "confidence": confidence,
         "needs_fallback": needs_fallback,
     }
-    _SEARCH_CACHE[key] = (result, time.monotonic())
+    _cache_set(key, result)
     return result
