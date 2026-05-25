@@ -12,7 +12,7 @@ export function InfoPanel({ onClose }: { onClose: () => void }) {
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-gray-700 bg-gray-800">
         <div className="flex items-center justify-between px-4 py-3">
-          <h2 className="text-lg font-semibold">NYC Building Health Score</h2>
+          <h2 className="text-lg font-semibold">BeforeYouRent</h2>
           <button
             onClick={onClose}
             className="rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -58,10 +58,10 @@ function AboutTab() {
   return (
     <div className="space-y-4">
       <p>
-        <span className="font-semibold text-white">NYC Building Health Score</span> is
-        an interactive tool that analyzes New York City residential buildings using
-        publicly available data and assigns each building a composite health grade
-        from <span className="text-score-excellent font-semibold">A</span> (healthiest) to{" "}
+        <span className="font-semibold text-white">BeforeYouRent</span> is an
+        interactive tool that analyzes New York City residential buildings using
+        publicly available data and assigns each building a composite health score
+        and letter grade from <span className="text-score-excellent font-semibold">A</span> (healthiest) to{" "}
         <span className="text-score-critical font-semibold">F</span> (most issues).
       </p>
 

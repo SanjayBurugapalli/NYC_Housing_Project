@@ -20,7 +20,7 @@ OUTPUT_DIR="${2:-tiles}"
 GEOJSON_FILE="${OUTPUT_DIR}/buildings.geojson"
 MBTILES_FILE="${OUTPUT_DIR}/buildings.mbtiles"
 
-echo "=== NYC Building Health Score — Tile Generation ==="
+echo "=== BeforeYouRent — Tile Generation ==="
 
 # Step 1: Export buildings with scores to GeoJSON
 echo "[1/3] Exporting buildings to GeoJSON..."
@@ -51,7 +51,7 @@ tippecanoe \
     -o "${MBTILES_FILE}" \
     -z 16 \
     -Z 10 \
-    --name="NYC Building Health Scores" \
+    --name="BeforeYouRent Building Health Scores" \
     --description="Building health scores for NYC residential buildings" \
     --layer="buildings" \
     --drop-densest-as-needed \

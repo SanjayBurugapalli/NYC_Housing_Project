@@ -42,3 +42,7 @@ data/raw/
 tiles/*.mbtiles
 tiles/*.geojson
 .claude/
+
+# Generated / personal
+frontend/tsconfig.tsbuildinfo
+todo.md

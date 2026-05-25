@@ -1,7 +1,7 @@
-# NYC Building Health Score
+# BeforeYouRent
 
 ## Project Overview
-A full-stack application that analyzes NYC residential buildings using public data and assigns a composite "health score" (0-100) based on complaints, violations, and inspections. Features an interactive map UI and AI-powered natural language search.
+BeforeYouRent is a full-stack application that analyzes NYC residential buildings using public data and assigns each one a composite "health score" (0-100) based on complaints, violations, and inspections. Features an interactive map UI and AI-powered natural language search.
 
 ## Tech Stack
 - **Frontend:** Next.js (TypeScript), Mapbox GL JS, Tailwind CSS, shadcn/ui, React Query, Zustand
@@ -13,7 +13,7 @@ A full-stack application that analyzes NYC residential buildings using public da
 
 ## Project Structure
 ```
-nyc-building-health/
+before-you-rent/
 ├── frontend/              # Next.js app
 │   ├── src/
 │   │   ├── app/           # App router pages

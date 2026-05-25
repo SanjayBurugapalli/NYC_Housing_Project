@@ -1,6 +1,6 @@
-# NYC Building Health Score
+# BeforeYouRent
 
-An interactive full-stack map application that analyzes NYC residential buildings using public data and assigns a composite health score (0–100) based on complaints, violations, and inspections.
+An interactive full-stack map application that analyzes NYC residential buildings using public data and assigns each one a composite health score (0–100) based on complaints, violations, and inspections.
 
 ## Features
 

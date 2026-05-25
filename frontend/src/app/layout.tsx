@@ -1,19 +1,20 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/react";
 import { Providers } from "@/components/Providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "NYC Building Health Score",
-  description: "Interactive map of NYC residential building health scores based on complaints, violations, and inspections.",
+  title: "BeforeYouRent",
+  description: "Health scores for every NYC residential building, based on complaints, violations, and inspections.",
   openGraph: {
-    title: "NYC Building Health Score",
-    description: "Interactive map of NYC residential building health scores based on complaints, violations, and inspections.",
+    title: "BeforeYouRent",
+    description: "Health scores for every NYC residential building, based on complaints, violations, and inspections.",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: "NYC Building Health Score",
-    description: "Interactive map of NYC residential building health scores based on complaints, violations, and inspections.",
+    title: "BeforeYouRent",
+    description: "Health scores for every NYC residential building, based on complaints, violations, and inspections.",
   },
 };
 
@@ -32,6 +33,7 @@ export default function RootLayout({
         <link rel="icon" type="image/svg+xml" href="/logo-mark.svg" />
       </head>
       <body className="bg-gray-900 text-white">
+        <Analytics />
         <Providers>{children}</Providers>
       </body>
     </html>

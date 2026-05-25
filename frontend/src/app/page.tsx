@@ -70,7 +70,7 @@ export default function LandingPage() {
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-8">
           <Link href="/" className="flex items-center gap-2.5 text-white no-underline">
             <img src="/logo-mark.svg" alt="" className="h-8 w-8" aria-hidden="true" />
-            <span className="text-[15px] font-semibold tracking-tight">NYC Building Health Score</span>
+            <span className="text-[15px] font-semibold tracking-tight">BeforeYouRent</span>
           </Link>
           <div className="flex items-center gap-7">
             <a href="#about" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors sm:block">About</a>
@@ -120,9 +120,9 @@ export default function LandingPage() {
           </h1>
 
           <p className="mx-auto mt-6 max-w-lg text-[19px] leading-relaxed text-gray-400">
-            NYC Building Health Score analyzes complaints, violations, and inspections across
-            every residential building in the city — then gives each one a letter grade from
-            A to F. Free. No login.
+            BeforeYouRent analyzes complaints, violations, and inspections across every
+            NYC residential building — then assigns each one a health score and letter grade
+            from A to F. Free. No login.
           </p>
 
           <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
@@ -290,7 +290,7 @@ export default function LandingPage() {
       {/* ── Footer ── */}
       <footer className="border-t border-gray-800 px-8 py-10">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 text-[13px] text-gray-500">
-          <div>© 2026 NYC Building Health Score. Built on NYC Open Data.</div>
+          <div>© 2026 BeforeYouRent. Built on NYC Open Data.</div>
           <div className="flex gap-5">
             <a href="#about" className="text-gray-400 hover:text-white transition-colors">About</a>
             <a href="#scoring" className="text-gray-400 hover:text-white transition-colors">Scoring</a>

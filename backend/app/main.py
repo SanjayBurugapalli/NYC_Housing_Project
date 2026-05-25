@@ -10,7 +10,6 @@ from slowapi.util import get_remote_address
 
 from sqlalchemy import text
 
-from app.core.config import settings
 from app.core.database import engine
 from app.api.analytics import router as analytics_router
 from app.api.buildings import router as buildings_router
@@ -39,7 +38,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="NYC Building Health Score",
+    title="BeforeYouRent API",
     description="API for NYC residential building health scores",
     version="0.1.0",
     lifespan=lifespan,
