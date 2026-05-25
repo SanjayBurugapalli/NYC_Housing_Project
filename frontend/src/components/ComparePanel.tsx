@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchBuildingDetail } from "@/lib/api";
+import { fetchBuildingDetail, trackEvent } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import type { BuildingDetail } from "@/types/building";
 
@@ -110,6 +111,12 @@ export function ComparePanel() {
   const compareBbls = useStore((s) => s.compareBbls);
   const clearCompare = useStore((s) => s.clearCompare);
   const removeFromCompare = useStore((s) => s.removeFromCompare);
+
+  useEffect(() => {
+    if (compareBbls.length === 2) {
+      trackEvent("compare", { bbls: compareBbls });
+    }
+  }, [compareBbls]);
 
   if (compareBbls.length === 0) return null;
 

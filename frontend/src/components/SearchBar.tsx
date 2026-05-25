@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, type FormEvent } from "react";
 import { useStore } from "@/lib/store";
-import { searchBuildings } from "@/lib/api";
+import { searchBuildings, trackEvent } from "@/lib/api";
 
 const HISTORY_KEY = "nyc_search_history";
 const HISTORY_MAX = 8;
@@ -105,6 +105,8 @@ export function SearchBar() {
       });
       const updated = saveHistory(query, history);
       setHistory(updated);
+
+      trackEvent("search", { query, result_count: result.results.length });
 
       if (result.results.length === 0) {
         setSearchResults([]);

@@ -39,12 +39,11 @@ def pull_evictions(limit: int | None = None):
             limit=batch_limit,
             offset=offset,
             select=(
-                "court_index_number,docket_number,eviction_address,apartment_no,"
+                "court_index_number,docket_number,eviction_address,eviction_apt_num,"
                 "executed_date,marshal_first_name,marshal_last_name,"
-                "respondent_first_name,respondent_last_name,"
                 "ejectment,eviction_possession,residential_commercial_ind,bbl,borough"
             ),
-            where="residential_commercial_ind='RESIDENTIAL'",
+            where="residential_commercial_ind='Residential'",
             order="executed_date DESC",
         )
 
@@ -92,6 +91,7 @@ def transform_evictions(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     df["address"] = df.get("eviction_address", pd.Series([None] * len(df))).fillna("").str.upper().str.strip()
+    df["apartment_no"] = df.get("eviction_apt_num", pd.Series([None] * len(df)))
 
     # BBL cleanup
     if "bbl" in df.columns:
@@ -110,11 +110,7 @@ def transform_evictions(df: pd.DataFrame) -> pd.DataFrame:
         lambda x: normalize_borough(x) if x else None
     )
 
-    # Respondent full name
-    df["respondent"] = (
-        df.get("respondent_first_name", pd.Series([""] * len(df))).fillna("") + " " +
-        df.get("respondent_last_name", pd.Series([""] * len(df))).fillna("")
-    ).str.strip().replace("", None)
+    df["respondent"] = None
 
     # Marshal full name
     df["marshal_name"] = (

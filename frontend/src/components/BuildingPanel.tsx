@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchBuildingDetail, searchByOwner, searchByManager } from "@/lib/api";
+import { fetchBuildingDetail, searchByOwner, searchByManager, trackEvent } from "@/lib/api";
 import type { ViolationRecord, ComplaintRecord, FDNYViolationRecord, EvictionRecord } from "@/types/building";
 import { useStore } from "@/lib/store";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
@@ -197,6 +197,11 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
     queryFn: () => fetchBuildingDetail(bbl),
     retry: 1,
   });
+
+  useEffect(() => {
+    if (!data) return;
+    trackEvent("building_view", { bbl, address: data.address, grade: data.grade });
+  }, [bbl, data]);
 
   return (
     <div

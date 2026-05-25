@@ -1,8 +1,8 @@
 """Pull Multiple Dwelling Registration data to extract managing agent names.
 
 Socrata endpoints:
-  - tesw-yqqr  Multiple Dwelling Registrations (one row per building registration)
-  - feu5-w2e2  Registration Contacts (agents, officers; join on registrationid)
+  - tesw-yqqr  Multiple Dwelling Registrations (BBL constructed from boroid+block+lot)
+  - feu5-w2e2  Registration Contacts (agents; join on registrationid)
 
 Writes managing_agent to the buildings table keyed by BBL.
 """
@@ -12,7 +12,7 @@ import logging
 import pandas as pd
 from sqlalchemy import text
 
-from base import get_socrata_client, get_db_engine, clean_row_for_sql
+from base import get_socrata_client, get_db_engine
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -23,13 +23,12 @@ BATCH_SIZE = 50000
 
 
 def pull_registrations(limit: int | None = None) -> int:
-    """Pull active registrations + agent contacts, update buildings.managing_agent."""
     client = get_socrata_client()
     client.timeout = 300
     engine = get_db_engine()
 
-    # --- Step 1: pull active registrations (BBL → registrationid) ---
-    logger.info("Fetching active registrations...")
+    # --- Step 1: pull registrations (construct BBL from boroid+block+lot) ---
+    logger.info("Fetching registrations...")
     all_regs: list[dict] = []
     offset = 0
     while True:
@@ -40,8 +39,7 @@ def pull_registrations(limit: int | None = None) -> int:
             REGISTRATIONS_ENDPOINT,
             limit=batch_limit,
             offset=offset,
-            select="registrationid,bbl,lifecyclestage",
-            where="lifecyclestage='Active'",
+            select="registrationid,boroid,block,lot,registrationenddate",
         )
         if not results:
             break
@@ -55,20 +53,24 @@ def pull_registrations(limit: int | None = None) -> int:
         return 0
 
     regs_df = pd.DataFrame(all_regs)
+
+    # Construct 10-digit BBL
     regs_df["bbl"] = (
-        pd.to_numeric(regs_df["bbl"], errors="coerce")
-        .fillna(0)
-        .astype(int)
-        .astype(str)
-        .str.zfill(10)
-        .replace("0000000000", None)
+        regs_df["boroid"].astype(str).str.strip().str.zfill(1) +
+        regs_df["block"].astype(str).str.strip().str.zfill(5) +
+        regs_df["lot"].astype(str).str.strip().str.zfill(4)
     )
-    regs_df = regs_df[regs_df["bbl"].notna()].drop_duplicates("bbl")
-    reg_ids = set(regs_df["registrationid"].astype(str).tolist())
-    logger.info(f"Active registrations: {len(regs_df)}")
+    regs_df = regs_df[regs_df["bbl"].str.match(r"^\d{10}$")]
+
+    # Keep most recent registration per BBL
+    regs_df["registrationid"] = regs_df["registrationid"].astype(str)
+    regs_df = regs_df.sort_values("registrationenddate", ascending=False).drop_duplicates("bbl")
+
+    reg_ids = set(regs_df["registrationid"].tolist())
+    logger.info(f"Registrations loaded: {len(regs_df)}")
 
     # --- Step 2: pull agent contacts ---
-    logger.info("Fetching registration contacts (type=Agent)...")
+    logger.info("Fetching agent contacts...")
     all_contacts: list[dict] = []
     offset = 0
     while True:
@@ -79,7 +81,7 @@ def pull_registrations(limit: int | None = None) -> int:
             CONTACTS_ENDPOINT,
             limit=batch_limit,
             offset=offset,
-            select="registrationid,type,firstname,lastname,corporationname",
+            select="registrationid,type,corporationname",
             where="type='Agent'",
         )
         if not results:
@@ -97,18 +99,8 @@ def pull_registrations(limit: int | None = None) -> int:
     contacts_df["registrationid"] = contacts_df["registrationid"].astype(str)
     contacts_df = contacts_df[contacts_df["registrationid"].isin(reg_ids)]
 
-    # Build agent display name: corp name if present, else first + last
-    def agent_name(row):
-        corp = str(row.get("corporationname", "") or "").strip()
-        if corp:
-            return corp
-        first = str(row.get("firstname", "") or "").strip()
-        last = str(row.get("lastname", "") or "").strip()
-        full = f"{first} {last}".strip()
-        return full if full else None
-
-    contacts_df["agent"] = contacts_df.apply(agent_name, axis=1)
-    contacts_df = contacts_df[contacts_df["agent"].notna()].drop_duplicates("registrationid")
+    contacts_df["agent"] = contacts_df["corporationname"].astype(str).str.strip().replace("nan", None)
+    contacts_df = contacts_df[contacts_df["agent"].notna() & (contacts_df["agent"] != "")].drop_duplicates("registrationid")
 
     # --- Step 3: join and update buildings ---
     merged = regs_df.merge(contacts_df[["registrationid", "agent"]], on="registrationid", how="inner")
@@ -118,11 +110,7 @@ def pull_registrations(limit: int | None = None) -> int:
     records = [{"bbl": row["bbl"], "managing_agent": row["agent"]} for _, row in merged.iterrows()]
     with engine.begin() as conn:
         conn.execute(
-            text("""
-                UPDATE buildings
-                SET managing_agent = :managing_agent
-                WHERE bbl = :bbl
-            """),
+            text("UPDATE buildings SET managing_agent = :managing_agent WHERE bbl = :bbl"),
             records,
         )
 
@@ -132,7 +120,6 @@ def pull_registrations(limit: int | None = None) -> int:
 
 if __name__ == "__main__":
     import argparse
-
     parser = argparse.ArgumentParser(description="Pull MDR registration / agent data")
     parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args()

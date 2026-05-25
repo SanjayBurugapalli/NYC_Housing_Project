@@ -11,6 +11,7 @@ import { SearchResultsPanel } from "@/components/SearchResultsPanel";
 import { GradeFilter } from "@/components/GradeFilter";
 import { MapFiltersPanel } from "@/components/MapFiltersPanel";
 import { ComparePanel } from "@/components/ComparePanel";
+import { FeedbackModal } from "@/components/FeedbackModal";
 import { useStore } from "@/lib/store";
 
 const Map = dynamic(() => import("@/components/Map").then((m) => m.Map), {
@@ -88,6 +89,7 @@ export default function MapPage() {
   const isSearching = useStore((s) => s.isSearching);
   const searchClarification = useStore((s) => s.searchClarification);
   const [showInfo, setShowInfo] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
   const [lastOpened, setLastOpened] = useState<"building" | "info">("building");
 
   // Remember the last bbl shown so the BuildingPanel keeps rendering content
@@ -140,6 +142,17 @@ export default function MapPage() {
       <div className="absolute bottom-14 left-2 z-20 pointer-events-auto w-44">
         <GradeFilter />
         <MapFiltersPanel />
+      </div>
+
+      {/* Feedback button — always visible */}
+      <div className="absolute bottom-16 right-4 z-20">
+        <button
+          onClick={() => setShowFeedback(true)}
+          className="flex items-center gap-1.5 rounded-lg border border-gray-600 bg-gray-800/95 px-3 py-2 text-sm font-semibold text-gray-300 backdrop-blur-sm hover:bg-gray-700 hover:text-white transition-colors shadow-lg"
+          aria-label="Submit feedback"
+        >
+          💬 Feedback
+        </button>
       </div>
 
       {/* Home link + Info button — hidden when any right panel is open */}
@@ -207,6 +220,11 @@ export default function MapPage() {
 
       {/* Compare panel */}
       <ComparePanel />
+
+      {/* Feedback modal */}
+      {showFeedback && (
+        <FeedbackModal onClose={() => setShowFeedback(false)} />
+      )}
     </main>
   );
 }

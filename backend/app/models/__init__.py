@@ -1,3 +1,4 @@
+from app.models.analytics import AnalyticsEvent, Feedback
 from app.models.building import Building
 from app.models.complaint import Complaint
 from app.models.violation import Violation
@@ -9,6 +10,8 @@ from app.models.fdny_violation import FDNYViolation
 from app.models.eviction import Eviction
 
 __all__ = [
+    "AnalyticsEvent",
+    "Feedback",
     "Building",
     "Complaint",
     "Violation",

@@ -93,3 +93,31 @@ export async function searchByOwner(name: string): Promise<SearchResult> {
 export async function searchByManager(name: string): Promise<SearchResult> {
   return fetchApi(`/api/search/by-manager?name=${encodeURIComponent(name)}`);
 }
+
+export function trackEvent(
+  type: "search" | "building_view" | "compare",
+  data?: Record<string, unknown>
+): void {
+  fetch(`${API_URL}/api/events`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event_type: type, data }),
+    keepalive: true,
+  }).catch(() => {});
+}
+
+export interface FeedbackPayload {
+  message: string;
+  rating?: number | null;
+  email?: string | null;
+  page_context?: string;
+}
+
+export async function submitFeedback(
+  payload: FeedbackPayload
+): Promise<{ success: boolean }> {
+  return fetchApi<{ success: boolean }>("/api/feedback", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

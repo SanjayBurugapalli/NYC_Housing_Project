@@ -1,0 +1,19 @@
+tile_size: 0.01          # degrees per tile side (~0.9 km); keep small to avoid pagination limits
+rate_limit_rps: 1.0      # max requests per second across ALL fetchers combined
+matching_radius_meters: 50
+freshness_hours: 72      # listings older than this are excluded from signal aggregation
+max_retries: 3
+backoff_base: 2.0        # exponential backoff multiplier
+raw_log_sample_rate: 0.05  # fraction of raw API responses saved to listing_raw_log
+nyc_bbox:
+  west: -74.26
+  east: -73.70
+  south: 40.47
+  north: 40.92
+
+# RapidAPI credentials for Zillow/StreetEasy fetchers.
+# Sign up at https://rapidapi.com and subscribe to:
+#   Zillow  → zillow56.p.rapidapi.com  (free tier: 10k req/mo)
+#   SE      → streeteasy.p.rapidapi.com (free tier available)
+# Leave blank to disable that source gracefully.
+rapidapi_key: ""          # override with RAPIDAPI_KEY env var

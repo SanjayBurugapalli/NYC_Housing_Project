@@ -1,5 +1,5 @@
 {
-  "name": "nyc-building-health-frontend",
+  "name": "before-you-rent-frontend",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,28 +9,29 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.62.0",
+    "@vercel/analytics": "^2.0.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.468.0",
+    "mapbox-gl": "^3.8.0",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "mapbox-gl": "^3.8.0",
-    "@tanstack/react-query": "^5.62.0",
-    "zustand": "^5.0.2",
-    "clsx": "^2.1.1",
+    "recharts": "^2.15.0",
     "tailwind-merge": "^2.6.0",
-    "class-variance-authority": "^0.7.1",
-    "lucide-react": "^0.468.0",
-    "recharts": "^2.15.0"
+    "zustand": "^5.0.2"
   },
   "devDependencies": {
-    "typescript": "^5.7.2",
+    "@tailwindcss/forms": "^0.5.9",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.1",
-    "tailwindcss": "^3.4.16",
-    "postcss": "^8.4.49",
     "autoprefixer": "^10.4.20",
-    "@tailwindcss/forms": "^0.5.9",
     "eslint": "^9.16.0",
-    "eslint-config-next": "^15.1.0"
+    "eslint-config-next": "^15.1.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "typescript": "^5.7.2"
   }
 }
