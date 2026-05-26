@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, Suspense } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { Home, MessageSquare, HelpCircle, SlidersHorizontal } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { SearchBar } from "@/components/SearchBar";
 import { BuildingPanel } from "@/components/BuildingPanel";
@@ -88,9 +89,18 @@ export default function MapPage() {
   const searchResults = useStore((s) => s.searchResults);
   const isSearching = useStore((s) => s.isSearching);
   const searchClarification = useStore((s) => s.searchClarification);
+  const gradeFilter = useStore((s) => s.gradeFilter);
+  const mapFilters = useStore((s) => s.mapFilters);
   const [showInfo, setShowInfo] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [lastOpened, setLastOpened] = useState<"building" | "info">("building");
+
+  const activeFilterCount =
+    gradeFilter.length +
+    [mapFilters.minUnits, mapFilters.maxUnits, mapFilters.minYear, mapFilters.maxYear].filter(
+      (v) => v != null
+    ).length;
 
   // Remember the last bbl shown so the BuildingPanel keeps rendering content
   // during its exit slide-out (after selectedBuilding is cleared to null).
@@ -138,14 +148,34 @@ export default function MapPage() {
         ) : null}
       </div>
 
-      {/* Grade filter + map filters */}
-      <div className="absolute bottom-14 left-2 z-20 pointer-events-auto w-44">
-        <GradeFilter />
-        <MapFiltersPanel />
+      {/* Grade filter + map filters.
+          Desktop: always-open stack. Mobile: collapsed behind a compact pill
+          that grows the panel upward so it never runs off the bottom edge. */}
+      <div className="absolute bottom-14 left-2 z-20 flex w-44 max-w-[calc(100vw-1rem)] flex-col gap-2 pointer-events-auto">
+        <div className={`${showMobileFilters ? "block" : "hidden"} md:block`}>
+          <GradeFilter />
+          <MapFiltersPanel />
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowMobileFilters((v) => !v)}
+          className="flex items-center gap-1.5 self-start rounded-lg border border-gray-600 bg-gray-800/95 px-3 py-2 text-sm font-semibold text-gray-200 backdrop-blur-sm shadow-lg active:bg-gray-700 md:hidden"
+          aria-expanded={showMobileFilters}
+          aria-label="Toggle filters"
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          <span>Filters</span>
+          {activeFilterCount > 0 && (
+            <span className="rounded-full bg-blue-600 px-1.5 text-[10px] font-bold leading-4 text-white">
+              {activeFilterCount}
+            </span>
+          )}
+          <span className={`text-xs text-gray-400 transition-transform ${showMobileFilters ? "rotate-180" : ""}`}>▾</span>
+        </button>
       </div>
 
-      {/* Feedback button — always visible */}
-      <div className="absolute bottom-16 right-4 z-20">
+      {/* Desktop feedback button — always visible */}
+      <div className="absolute bottom-16 right-4 z-20 hidden md:block">
         <button
           onClick={() => setShowFeedback(true)}
           className="flex items-center gap-1.5 rounded-lg border border-gray-600 bg-gray-800/95 px-3 py-2 text-sm font-semibold text-gray-300 backdrop-blur-sm hover:bg-gray-700 hover:text-white transition-colors shadow-lg"
@@ -155,8 +185,8 @@ export default function MapPage() {
         </button>
       </div>
 
-      {/* Home link + Info button — hidden when any right panel is open */}
-      <div className={`absolute bottom-6 right-4 z-20 flex items-center gap-2 transition-opacity duration-150 ${anyPanelRendered ? "pointer-events-none opacity-0" : "opacity-100"}`}>
+      {/* Desktop home + about — hidden when any right panel is open */}
+      <div className={`absolute bottom-6 right-4 z-20 hidden items-center gap-2 transition-opacity duration-150 md:flex ${anyPanelRendered ? "pointer-events-none opacity-0" : "opacity-100"}`}>
         <Link
           href="/"
           className="flex items-center gap-1.5 rounded-lg border border-gray-600 bg-gray-800/95 px-3 py-2 text-sm font-semibold text-gray-400 backdrop-blur-sm hover:bg-gray-700 hover:text-white transition-colors shadow-lg"
@@ -171,6 +201,34 @@ export default function MapPage() {
         >
           <span className="text-base leading-none">?</span>
           <span>About &amp; Guide</span>
+        </button>
+      </div>
+
+      {/* Mobile nav — compact icon buttons, hidden when any panel is open
+          (the bottom sheet covers this corner). aria-label avoids "Submit
+          feedback" so the external-widget z-index rule in globals.css can't
+          demote this cluster. */}
+      <div className={`absolute bottom-6 right-4 z-20 flex items-center gap-2 transition-opacity duration-150 md:hidden ${anyPanelRendered ? "pointer-events-none opacity-0" : "opacity-100"}`}>
+        <Link
+          href="/"
+          className="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-600 bg-gray-800/95 text-gray-300 backdrop-blur-sm shadow-lg active:bg-gray-700"
+          aria-label="Back to home"
+        >
+          <Home className="h-5 w-5" />
+        </Link>
+        <button
+          onClick={() => setShowFeedback(true)}
+          className="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-600 bg-gray-800/95 text-gray-300 backdrop-blur-sm shadow-lg active:bg-gray-700"
+          aria-label="Send feedback"
+        >
+          <MessageSquare className="h-5 w-5" />
+        </button>
+        <button
+          onClick={() => { setShowInfo(true); setLastOpened("info"); }}
+          className="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-600 bg-gray-800/95 text-blue-400 backdrop-blur-sm shadow-lg active:bg-gray-700"
+          aria-label="About this project"
+        >
+          <HelpCircle className="h-5 w-5" />
         </button>
       </div>
 

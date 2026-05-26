@@ -213,8 +213,6 @@ export function Map() {
     const m = map.current;
     setMapRef(m);
 
-    m.addControl(new mapboxgl.NavigationControl(), "top-right");
-
     m.on("moveend", () => {
       const bounds = m.getBounds();
       if (!bounds) return;
