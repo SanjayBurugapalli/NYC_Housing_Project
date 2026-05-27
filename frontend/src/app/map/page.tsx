@@ -26,30 +26,27 @@ const SLIDE_EXIT_MS = 220;
 /**
  * Keeps a panel mounted long enough to play its exit animation when `open` flips
  * to false. Returns `shouldRender` (true while open OR animating out) and
- * `entering` (one-shot true on the first render after open becomes true) so the
- * caller can choose the enter vs exit animation class.
+ * `entering` (true while open, false while exit-animating) so the caller can
+ * choose the enter vs exit animation class. Mounts synchronously during render
+ * on the closed→open transition so the panel's first paint includes the
+ * slide-in animation class — otherwise the panel can flash into place before
+ * the animation has a chance to run.
  */
 function useSlidePanel(open: boolean): { shouldRender: boolean; entering: boolean } {
-  const [shouldRender, setShouldRender] = useState(open);
-  const [entering, setEntering] = useState(open);
-  const wasOpen = useRef(open);
+  const [mounted, setMounted] = useState(open);
+
+  if (open && !mounted) {
+    setMounted(true);
+  }
 
   useEffect(() => {
-    if (open && !wasOpen.current) {
-      // Closed → open: render immediately and mark as entering
-      setShouldRender(true);
-      setEntering(true);
-    } else if (!open && wasOpen.current) {
-      // Open → closed: keep mounted for the exit animation
-      setEntering(false);
-      const t = setTimeout(() => setShouldRender(false), SLIDE_EXIT_MS);
-      wasOpen.current = open;
+    if (!open && mounted) {
+      const t = setTimeout(() => setMounted(false), SLIDE_EXIT_MS);
       return () => clearTimeout(t);
     }
-    wasOpen.current = open;
-  }, [open]);
+  }, [open, mounted]);
 
-  return { shouldRender, entering };
+  return { shouldRender: mounted, entering: open };
 }
 
 /** Syncs selectedBbl ↔ ?bbl= URL param without causing a full navigation. */
