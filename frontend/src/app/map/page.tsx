@@ -148,7 +148,7 @@ export default function MapPage() {
       {/* Grade filter + map filters.
           Desktop: always-open stack. Mobile: collapsed behind a compact pill
           that grows the panel upward so it never runs off the bottom edge. */}
-      <div className="absolute bottom-14 left-2 z-20 flex w-44 max-w-[calc(100vw-1rem)] flex-col gap-2 pointer-events-auto">
+      <div className="absolute bottom-1 left-28 md:bottom-2 md:left-28 z-20 flex w-44 max-w-[calc(100vw-1rem)] flex-col gap-2 pointer-events-auto">
         <div className={`${showMobileFilters ? "block" : "hidden"} md:block`}>
           <GradeFilter />
           <MapFiltersPanel />
@@ -205,7 +205,7 @@ export default function MapPage() {
           (the bottom sheet covers this corner). aria-label avoids "Submit
           feedback" so the external-widget z-index rule in globals.css can't
           demote this cluster. */}
-      <div className={`absolute bottom-6 right-4 z-20 flex items-center gap-2 transition-opacity duration-150 md:hidden ${anyPanelRendered ? "pointer-events-none opacity-0" : "opacity-100"}`}>
+      <div className={`absolute bottom-1 right-10 z-20 flex items-center gap-2 transition-opacity duration-150 md:hidden ${anyPanelRendered ? "pointer-events-none opacity-0" : "opacity-100"}`}>
         <Link
           href="/"
           className="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-600 bg-gray-800/95 text-gray-300 backdrop-blur-sm shadow-lg active:bg-gray-700"
