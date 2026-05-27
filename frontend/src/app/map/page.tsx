@@ -121,7 +121,7 @@ export default function MapPage() {
   const anyPanelRendered = buildingSlide.shouldRender || infoSlide.shouldRender || searchSlide.shouldRender;
 
   return (
-    <main className="relative h-screen w-screen overflow-hidden">
+    <main className="relative h-dvh w-screen overflow-hidden">
       <Suspense fallback={null}><BblUrlSync /></Suspense>
       <Map />
 
@@ -240,7 +240,7 @@ export default function MapPage() {
       {/* Building detail panel */}
       {buildingSlide.shouldRender && lastBblRef.current && (
         <>
-          <div className={`absolute bottom-0 left-0 right-0 z-10 h-[70vh] md:hidden ${buildingSlide.entering ? "animate-slide-in-bottom" : "animate-slide-out-bottom"}`}>
+          <div className={`absolute bottom-0 left-0 right-0 z-10 h-[70dvh] md:hidden ${buildingSlide.entering ? "animate-slide-in-bottom" : "animate-slide-out-bottom"}`}>
             <BuildingPanel bbl={lastBblRef.current} />
           </div>
           <div className={`absolute top-0 right-0 z-10 hidden h-full w-96 md:block ${buildingSlide.entering ? "animate-slide-in-right" : "animate-slide-out-right"}`}>
@@ -252,7 +252,7 @@ export default function MapPage() {
       {/* Info panel */}
       {infoSlide.shouldRender && (
         <>
-          <div className={`absolute bottom-0 left-0 right-0 z-20 h-[70vh] md:hidden ${infoSlide.entering ? "animate-slide-in-bottom" : "animate-slide-out-bottom"}`}>
+          <div className={`absolute bottom-0 left-0 right-0 z-20 h-[70dvh] md:hidden ${infoSlide.entering ? "animate-slide-in-bottom" : "animate-slide-out-bottom"}`}>
             <InfoPanel onClose={() => setShowInfo(false)} />
           </div>
           <div className={`absolute top-0 right-0 z-20 hidden h-full w-96 md:block ${infoSlide.entering ? "animate-slide-in-right" : "animate-slide-out-right"}`}>
@@ -264,7 +264,7 @@ export default function MapPage() {
       {/* Search results panel — overlays building/info when active */}
       {searchSlide.shouldRender && (
         <>
-          <div className={`absolute bottom-0 left-0 right-0 z-30 h-[50vh] md:hidden ${searchSlide.entering ? "animate-slide-in-bottom" : "animate-slide-out-bottom"}`}>
+          <div className={`absolute bottom-0 left-0 right-0 z-30 h-[50dvh] md:hidden ${searchSlide.entering ? "animate-slide-in-bottom" : "animate-slide-out-bottom"}`}>
             <SearchResultsPanel clarification={searchClarification} />
           </div>
           <div className={`absolute top-0 right-0 z-30 hidden h-full w-96 md:block ${searchSlide.entering ? "animate-slide-in-right" : "animate-slide-out-right"}`}>

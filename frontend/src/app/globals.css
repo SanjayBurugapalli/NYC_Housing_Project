@@ -7,6 +7,14 @@ body {
   padding: 0;
 }
 
+/* Lock the document height on the /map route so the bottom UI controls
+   stay inside the visible viewport on mobile browsers, where 100vh leaks
+   behind the address bar. The landing page (page.tsx) opts out by setting
+   its own min-h-screen on the wrapper. */
+html, body {
+  overscroll-behavior: none;
+}
+
 .mapboxgl-map {
   width: 100%;
   height: 100%;
