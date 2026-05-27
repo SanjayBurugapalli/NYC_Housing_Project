@@ -1195,6 +1195,20 @@ async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+ENTITY_FILTER_KEYS = frozenset({
+    "borough", "nta_name", "complaint_types", "exclude_complaint_types",
+    "min_score", "max_score", "has_litigation", "min_units", "max_units",
+    "min_year_built", "max_year_built", "building_classes", "building_class",
+    "owner_name",
+})
+
+UNPARSEABLE_MESSAGE = (
+    "Could not understand that query. "
+    "Try keywords like borough names ('Brooklyn'), neighborhoods ('Astoria'), "
+    "issues ('rats', 'heat', 'noise'), or intent ('worst', 'best', 'pre-war')."
+)
+
+
 async def search_buildings_ai(
     db: AsyncSession, query: str, extra_filters: dict | None = None
 ) -> dict:
@@ -1203,6 +1217,11 @@ async def search_buildings_ai(
     Tries Claude Haiku first; falls back to the deterministic rule-based parser
     when the API key is missing, the call fails, or the response is empty.
     Returns results dict including confidence and needs_fallback metadata.
+
+    If no parser path produces any entity filters, the SQL is skipped and an
+    empty result set is returned with a clarification — otherwise an unparseable
+    query (e.g. "asdfgh") would silently match every building and dump the
+    top-scored 100 city-wide.
     """
     key = _cache_key(query, extra_filters)
     cached, ts = _SEARCH_CACHE.get(key, (None, 0.0))
@@ -1219,7 +1238,6 @@ async def search_buildings_ai(
         # Default sort if Claude didn't provide one
         filters.setdefault("sort", [{"column": "hs.composite_score", "order": "DESC"}])
         filters["confidence"] = claude_confidence(filters)
-        filters["needs_fallback"] = False
         parser_used = "claude"
     else:
         filters = parse_search_query(query)
@@ -1227,8 +1245,14 @@ async def search_buildings_ai(
     if extra_filters:
         filters.update(extra_filters)
 
+    # Recompute needs_fallback against the final merged filter set so the Claude
+    # path, the rule-based path, and API-side overrides all agree on what
+    # "unparseable" means.
+    has_entity_filters = bool(ENTITY_FILTER_KEYS & filters.keys())
+    filters["needs_fallback"] = not has_entity_filters
+
     confidence = filters.get("confidence", 0.0)
-    needs_fallback = filters.get("needs_fallback", False)
+    needs_fallback = filters["needs_fallback"]
 
     logger.info(
         "Parsed '%s' via %s → confidence=%.2f needs_fallback=%s filters=%s",
@@ -1238,15 +1262,24 @@ async def search_buildings_ai(
     )
 
     filters = validate_filters(filters)
-    results = await execute_search(db, filters)
 
+    if needs_fallback:
+        # Skip the SQL — without any WHERE conditions it would return the
+        # top-100 buildings city-wide, which is misleading for a query the
+        # parser couldn't make sense of.
+        result = {
+            "results": [],
+            "total": 0,
+            "query": query,
+            "clarification": UNPARSEABLE_MESSAGE,
+            "confidence": confidence,
+            "needs_fallback": True,
+        }
+        _cache_set(key, result)
+        return result
+
+    results = await execute_search(db, filters)
     clarification = _describe_filters(filters)
-    if not results and needs_fallback:
-        clarification = (
-            "Could not find buildings matching that description. "
-            "Try keywords like borough names, neighborhood names, "
-            "'rats', 'heat', 'noise', 'worst', 'best', 'pre-war', etc."
-        )
 
     result = {
         "results": results,

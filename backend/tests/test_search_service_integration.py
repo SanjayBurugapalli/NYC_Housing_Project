@@ -112,3 +112,38 @@ async def test_extra_filters_merged_on_claude_path(fake_db, stub_execute_search)
     filters_passed = args[1]
     assert filters_passed["borough"] == "QUEENS"  # override won
     assert filters_passed["min_units"] == 10
+
+
+async def test_unparseable_query_short_circuits_sql(fake_db, stub_execute_search):
+    """A query with no entity filters must not run the SQL — otherwise the
+    no-WHERE-clause query returns top-100 buildings city-wide, which is
+    misleading for nonsense input like 'asdfgh'."""
+    with patch(
+        "app.services.claude_search_parser.parse_query_with_claude",
+        AsyncMock(return_value=None),
+    ):
+        result = await search_service.search_buildings_ai(fake_db, "asdfgh")
+
+    stub_execute_search.assert_not_called()
+    assert result["total"] == 0
+    assert result["results"] == []
+    assert result["needs_fallback"] is True
+    assert "Could not understand" in result["clarification"]
+
+
+async def test_claude_sort_only_response_is_treated_as_unparseable(
+    fake_db, stub_execute_search
+):
+    """If Claude returns only a sort clause (no entity filters), the query
+    should still short-circuit instead of dumping top-100 city-wide."""
+    claude_filters = {"sort": [{"column": "hs.composite_score", "order": "DESC"}]}
+
+    with patch(
+        "app.services.claude_search_parser.parse_query_with_claude",
+        AsyncMock(return_value=claude_filters),
+    ):
+        result = await search_service.search_buildings_ai(fake_db, "buildings please")
+
+    stub_execute_search.assert_not_called()
+    assert result["needs_fallback"] is True
+    assert result["total"] == 0
