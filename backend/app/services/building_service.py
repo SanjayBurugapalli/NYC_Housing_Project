@@ -87,6 +87,7 @@ async def get_buildings_in_viewport(
     north: float,
     zoom: int,
     limit: int = 500,
+    include_small_homes: bool = False,
 ) -> list[dict]:
     """Return buildings visible in map viewport. Zoom-dependent response."""
 
@@ -95,8 +96,13 @@ async def get_buildings_in_viewport(
         return await get_neighborhood_aggregates_in_bbox(db, west, south, east, north)
 
     # High zoom: return individual buildings with scores
+    size_clause = (
+        ""
+        if include_small_homes
+        else "AND b.building_class NOT LIKE 'A%' AND b.building_class NOT LIKE 'B%'"
+    )
     result = await db.execute(
-        text("""
+        text(f"""
             SELECT
                 b.bbl, b.bin, b.address, b.borough, b.neighborhood, b.nta_name,
                 COALESCE(hs.composite_score, 0) as health_score,
@@ -109,6 +115,7 @@ async def get_buildings_in_viewport(
                     b.geom,
                     ST_MakeEnvelope(:west, :south, :east, :north, 4326)
                 )
+                {size_clause}
             ORDER BY hs.composite_score ASC NULLS LAST
             LIMIT :limit
         """),

@@ -38,7 +38,6 @@ function saveHistory(query: string, existing: string[]): string[] {
 
 export function SearchBar() {
   const [input, setInput] = useState("");
-  const [includeSmallHomes, setIncludeSmallHomes] = useState(false);
   const [borough, setBorough] = useState<string>("");
   const [minUnits, setMinUnits] = useState<string>("");
   const [showFilters, setShowFilters] = useState(false);
@@ -57,6 +56,8 @@ export function SearchBar() {
     searchError,
     searchClarification,
     clearSearch,
+    includeSmallHomes,
+    setIncludeSmallHomes,
   } = useStore();
 
   useEffect(() => {

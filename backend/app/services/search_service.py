@@ -1245,6 +1245,12 @@ async def search_buildings_ai(
     if extra_filters:
         filters.update(extra_filters)
 
+    # If the parser identified an A% or B% (1–2 family) class, the user explicitly
+    # asked for those — override the default exclusion so the query returns rows.
+    bclasses = filters.get("building_classes") or []
+    if any(isinstance(c, str) and c[:1] in ("A", "B") for c in bclasses):
+        filters["include_small_homes"] = True
+
     # Recompute needs_fallback against the final merged filter set so the Claude
     # path, the rule-based path, and API-side overrides all agree on what
     # "unparseable" means.

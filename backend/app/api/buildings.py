@@ -20,6 +20,7 @@ async def list_buildings(
     request: Request,
     bbox: str | None = Query(None, description="west,south,east,north"),
     zoom: int = Query(12, ge=1, le=22),
+    include_small_homes: bool = Query(False, description="Include 1-2 family homes (PLUTO class A/B)"),
     db: AsyncSession = Depends(get_db),
 ):
     """Return buildings visible in map viewport. Zoom-dependent response."""
@@ -38,7 +39,9 @@ async def list_buildings(
     east = min(east, NYC_BOUNDS["east"])
     north = min(north, NYC_BOUNDS["north"])
 
-    rows = await get_buildings_in_viewport(db, west, south, east, north, zoom)
+    rows = await get_buildings_in_viewport(
+        db, west, south, east, north, zoom, include_small_homes=include_small_homes
+    )
 
     buildings = [BuildingSummaryResponse(**row) for row in rows]
     return BuildingListResponse(buildings=buildings, total=len(buildings))

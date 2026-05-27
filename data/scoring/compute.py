@@ -572,6 +572,8 @@ def update_neighborhood_aggregates(engine):
                 FROM buildings b
                 JOIN health_scores hs ON hs.building_id = b.id
                 WHERE b.neighborhood IS NOT NULL
+                  AND b.building_class NOT LIKE 'A%'
+                  AND b.building_class NOT LIKE 'B%'
                 GROUP BY b.neighborhood, b.borough
             """)
         )

@@ -61,6 +61,10 @@ interface AppState {
   setMapFilter: (key: "minUnits" | "maxUnits" | "minYear" | "maxYear", value: number | null) => void;
   clearMapFilters: () => void;
 
+  // Include 1-2 family homes — shared by SearchBar and viewport map layer
+  includeSmallHomes: boolean;
+  setIncludeSmallHomes: (include: boolean) => void;
+
   // Building comparison (max 2)
   compareBbls: string[];
   addToCompare: (bbl: string) => void;
@@ -144,6 +148,10 @@ export const useStore = create<AppState>((set) => ({
     set((state) => ({ mapFilters: { ...state.mapFilters, [key]: value } })),
   clearMapFilters: () =>
     set({ mapFilters: { minUnits: null, maxUnits: null, minYear: null, maxYear: null } }),
+
+  // Include 1-2 family homes
+  includeSmallHomes: false,
+  setIncludeSmallHomes: (includeSmallHomes) => set({ includeSmallHomes }),
 
   // Building comparison
   compareBbls: [],

@@ -7,10 +7,11 @@ import { fetchBuildings } from "@/lib/api";
 export function useMapViewport() {
   const viewport = useStore((s) => s.viewport);
   const zoom = useStore((s) => s.zoom);
+  const includeSmallHomes = useStore((s) => s.includeSmallHomes);
 
   const query = useQuery({
-    queryKey: ["buildings", viewport, zoom],
-    queryFn: () => fetchBuildings(viewport, zoom),
+    queryKey: ["buildings", viewport, zoom, includeSmallHomes],
+    queryFn: () => fetchBuildings(viewport, zoom, includeSmallHomes),
     enabled: zoom >= 13, // Only fetch individual buildings at high zoom
     staleTime: 30_000,
     placeholderData: (prev) => prev,

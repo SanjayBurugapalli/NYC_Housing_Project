@@ -91,6 +91,8 @@ async def list_sub_neighborhoods(db: AsyncSession = Depends(get_db)):
             WHERE b.latitude  IS NOT NULL
               AND b.longitude IS NOT NULL
               AND b.neighborhood = ANY(:cd_codes)
+              AND b.building_class NOT LIKE 'A%'
+              AND b.building_class NOT LIKE 'B%'
         """),
         {"cd_codes": cd_codes},
     )

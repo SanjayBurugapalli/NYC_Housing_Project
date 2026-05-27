@@ -37,10 +37,12 @@ async function fetchApi<T>(path: string, options?: RequestInit & { timeoutMs?: n
 
 export async function fetchBuildings(
   bounds: ViewportBounds,
-  zoom: number
+  zoom: number,
+  includeSmallHomes: boolean = false
 ): Promise<{ buildings: BuildingSummary[]; total: number }> {
   const bbox = `${bounds.west},${bounds.south},${bounds.east},${bounds.north}`;
-  return fetchApi(`/api/buildings?bbox=${bbox}&zoom=${zoom}`);
+  const small = includeSmallHomes ? "&include_small_homes=true" : "";
+  return fetchApi(`/api/buildings?bbox=${bbox}&zoom=${zoom}${small}`);
 }
 
 export async function fetchBuildingDetail(
