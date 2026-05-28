@@ -1,0 +1,33 @@
+# Cron image — runs data/refresh.py to ingest NYC Open Data + recompute scores.
+#
+# Build context must be the repo root (the directory containing this file)
+# so that both backend/ and data/ are visible to COPY.
+#
+# Reuses backend/requirements.txt so the cron environment matches the API
+# environment exactly — same SQLAlchemy, sodapy, pandas versions, etc.
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    libgdal-dev \
+    libgeos-dev \
+    libproj-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python deps first so the layer can be cached across code changes.
+COPY backend/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Copy the backend package + the data orchestrator. The data/ scripts import
+# from app.* via the WORKDIR being /app, so backend/'s contents land directly
+# at /app (matching the API container's layout) and data/ lands at /app/data.
+COPY backend/ /app/
+COPY data/ /app/data/
+
+# Default to a full refresh of every dataset + scoring. Override via the
+# Railway service's "Start Command" if you want to schedule a subset
+# (e.g. weekly: python data/refresh.py --datasets=litigations,evictions).
+CMD ["python", "data/refresh.py"]
