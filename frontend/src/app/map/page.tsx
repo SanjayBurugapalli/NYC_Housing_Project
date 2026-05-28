@@ -13,6 +13,7 @@ import { GradeFilter } from "@/components/GradeFilter";
 import { MapFiltersPanel } from "@/components/MapFiltersPanel";
 import { ComparePanel } from "@/components/ComparePanel";
 import { FeedbackModal } from "@/components/FeedbackModal";
+import { FreshnessPill } from "@/components/FreshnessPill";
 import { useStore } from "@/lib/store";
 
 const Map = dynamic(() => import("@/components/Map").then((m) => m.Map), {
@@ -143,6 +144,11 @@ export default function MapPage() {
             {buildingCount.toLocaleString()} buildings in view
           </div>
         ) : null}
+      </div>
+
+      {/* Data freshness pill — display only. */}
+      <div className="absolute top-20 left-4 z-10">
+        <FreshnessPill />
       </div>
 
       {/* Grade filter + map filters.

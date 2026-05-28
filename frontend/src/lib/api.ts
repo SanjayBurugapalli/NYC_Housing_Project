@@ -70,6 +70,24 @@ export async function fetchSubNeighborhoods(): Promise<{
   return fetchApi("/api/neighborhoods/detail");
 }
 
+export interface DatasetRefreshStatus {
+  dataset: string;
+  last_completed_at: string | null;
+  last_status: "success" | "fail" | "running" | null;
+  rows_changed: number | null;
+  duration_seconds: number | null;
+}
+
+export interface RefreshStatus {
+  datasets: DatasetRefreshStatus[];
+  overall_last_updated: string | null;
+  any_stale: boolean;
+}
+
+export async function fetchRefreshStatus(): Promise<RefreshStatus> {
+  return fetchApi("/api/refresh-status");
+}
+
 export interface SearchFilters {
   includeSmallHomes?: boolean;
   borough?: string | null;
