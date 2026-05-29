@@ -1,17 +1,18 @@
-# Railway config for the DAILY data refresh cron service.
+# Railway config for the data refresh cron service.
 #
-# Runs the fast-moving datasets (complaints, violations, rodent inspections)
-# plus scoring every day at 04:00 UTC (~midnight ET). For slower datasets
-# (PLUTO, litigations, evictions, registrations) see railway.cron-weekly.toml.
+# Runs every registered puller plus scoring once per day at 04:00 UTC
+# (~midnight ET). One job is simpler to operate than a daily/weekly split;
+# the slow-moving pullers (PLUTO, litigations, etc.) add only a few minutes
+# per run. Split this out again only if a dataset starts dominating runtime
+# or you hit a Socrata rate limit.
 #
-# To use: create a new Railway service in this project, set its
-# "Config-as-code path" to railway.cron-daily.toml, and copy DATABASE_URL
-# (and any other puller env vars) from the backend service.
+# Wired in the Railway dashboard as the "refresh-daily" service with
+# Config-as-code path set to this file.
 
 [build]
 dockerfilePath = "Dockerfile.cron"
 
 [deploy]
-startCommand = "python data/refresh.py --datasets=311_complaints,hpd_violations,hpd_complaints,dob_violations,dob_complaints,rodent"
+startCommand = "python data/refresh.py"
 cronSchedule = "0 4 * * *"
 restartPolicyType = "never"
