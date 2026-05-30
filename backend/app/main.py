@@ -4,13 +4,14 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from sqlalchemy import text
 
+from app.core.config import settings
 from app.core.database import engine
+from app.core.rate_limit import limiter
 from app.api.analytics import router as analytics_router
 from app.api.buildings import router as buildings_router
 from app.api.neighborhoods import router as neighborhoods_router
@@ -24,8 +25,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("nyc_buildings")
 
-limiter = Limiter(key_func=get_remote_address)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -34,7 +33,9 @@ async def lifespan(app: FastAPI):
             await conn.execute(text("SELECT 1"))
         logger.info('"msg":"DB connection OK"')
     except Exception as e:
-        logger.error('"msg":"DB connection FAILED: %s"', str(e))
+        # Log only the exception class — full str(e) can include the DSN
+        # (host/port) on asyncpg connection failures.
+        logger.error('"msg":"DB connection FAILED: %s"', type(e).__name__)
     yield
 
 
@@ -48,18 +49,29 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "*",
+ALLOWED_ORIGINS = {o.strip() for o in settings.allowed_origins.split(",") if o.strip()}
+CORS_STATIC_HEADERS = {
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "*",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
     "Access-Control-Max-Age": "86400",
 }
 
+
+def _origin_headers(request_origin: str | None) -> dict[str, str]:
+    """Headers to set on responses. Echoes the request Origin if allowlisted; sets Vary so caches don't cross-serve."""
+    headers = {"Vary": "Origin", **CORS_STATIC_HEADERS}
+    if request_origin and request_origin in ALLOWED_ORIGINS:
+        headers["Access-Control-Allow-Origin"] = request_origin
+    return headers
+
+
 @app.middleware("http")
 async def handle_cors_and_logging(request: Request, call_next):
+    origin = request.headers.get("origin")
+
     if request.method == "OPTIONS":
         from starlette.responses import Response
-        return Response(status_code=204, headers=CORS_HEADERS)
+        return Response(status_code=204, headers=_origin_headers(origin))
 
     request_id = str(uuid.uuid4())[:8]
     start = time.monotonic()
@@ -75,7 +87,7 @@ async def handle_cors_and_logging(request: Request, call_next):
         request.client.host if request.client else "unknown",
     )
     response.headers["X-Request-Id"] = request_id
-    for k, v in CORS_HEADERS.items():
+    for k, v in _origin_headers(origin).items():
         response.headers[k] = v
     return response
 

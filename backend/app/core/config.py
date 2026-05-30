@@ -11,6 +11,11 @@ class Settings(BaseSettings):
 
     admin_token: str = ""
 
+    # Comma-separated allowlist of origins permitted to call the API.
+    # Default covers local dev; prod MUST set ALLOWED_ORIGINS to the deployed
+    # frontend URL(s), e.g. "https://nycbuildings.vercel.app".
+    allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+
     # Scoring weights
     weight_heat_hot_water: float = 0.20
     weight_pest_rodent: float = 0.15

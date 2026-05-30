@@ -75,6 +75,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-7">
             <a href="#about" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors sm:block">About</a>
             <a href="#scoring" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors sm:block">Scoring</a>
+            <a href="#limitations" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors sm:block">Limitations</a>
             <a href="#glossary" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors sm:block">Glossary</a>
             <Link href="/map" className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors">
               Open map
@@ -236,6 +237,54 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ── Limitations ── */}
+      <section id="limitations" className="px-8 py-24">
+        <div className="mx-auto max-w-6xl">
+          <div className="mx-auto mb-14 max-w-2xl text-center">
+            <div className="mb-3 text-xs font-semibold uppercase tracking-widest text-blue-400">Limitations</div>
+            <h2 className="text-4xl font-bold tracking-tight" style={{ letterSpacing: "-0.02em" }}>What this score doesn&apos;t tell you.</h2>
+            <p className="mt-4 text-[17px] leading-relaxed text-gray-400">
+              The data is real and the math is honest, but public records have gaps. Read the score as a
+              signal, not a verdict.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {[
+              {
+                title: "Reporting bias",
+                body: "311 complaints reflect who calls, not where the worst conditions are. Higher-income and English-fluent neighborhoods over-report; quieter buildings may simply have quieter tenants.",
+              },
+              {
+                title: "A heuristic, not a verdict",
+                body: "The score weights public records by severity and recency. It's a useful first pass, not a substitute for a walk-through, a tenant conversation, or a professional inspection.",
+              },
+              {
+                title: "Data lag",
+                body: "City datasets update on different cadences. A new HPD violation can take 2–6 weeks to appear, and litigation may take months. Very recent events aren't here yet.",
+              },
+              {
+                title: "Building changes happen offline",
+                body: "Ownership transfers, gut renovations, and new management don't immediately reflect in the score. A bad-grade building under new ownership may already be a different place.",
+              },
+              {
+                title: "Address matching is imperfect",
+                body: "Some city datasets attribute by address rather than BBL. When addresses are formatted inconsistently across sources, a small number of records may be misattributed.",
+              },
+              {
+                title: "No warranty",
+                body: "BeforeYouRent is a public-data tool, not legal, housing, or financial advice. Verify anything score-critical against the underlying NYC Open Data records before acting on it.",
+              },
+            ].map(({ title, body }) => (
+              <div key={title} className="rounded-xl border border-gray-700 bg-gray-800/60 p-5">
+                <h3 className="mb-1.5 text-[15px] font-semibold text-white">{title}</h3>
+                <p className="text-[13px] leading-snug text-gray-400">{body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ── Glossary ── */}
       <section id="glossary" className="px-8 py-24">
         <div className="mx-auto max-w-6xl">
@@ -290,12 +339,32 @@ export default function LandingPage() {
       {/* ── Footer ── */}
       <footer className="border-t border-gray-800 px-8 py-10">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 text-[13px] text-gray-500">
-          <div>© 2026 BeforeYouRent. Built on NYC Open Data.</div>
+          <div>
+            © 2026 BeforeYouRent. Built on{" "}
+            <a
+              href="https://opendata.cityofnewyork.us/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-gray-400 hover:text-white transition-colors underline-offset-2 hover:underline"
+            >
+              NYC Open Data
+            </a>
+            .
+          </div>
           <div className="flex gap-5">
             <a href="#about" className="text-gray-400 hover:text-white transition-colors">About</a>
             <a href="#scoring" className="text-gray-400 hover:text-white transition-colors">Scoring</a>
+            <a href="#limitations" className="text-gray-400 hover:text-white transition-colors">Limitations</a>
             <a href="#glossary" className="text-gray-400 hover:text-white transition-colors">Glossary</a>
             <Link href="/map" className="text-gray-400 hover:text-white transition-colors">Map</Link>
+            <a
+              href="https://github.com/SanjayBurugapalli/NYC_Housing_Project"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              Source
+            </a>
           </div>
         </div>
       </footer>

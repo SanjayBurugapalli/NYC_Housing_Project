@@ -81,8 +81,15 @@ function AboutTab() {
         <h3 className="mb-2 font-semibold text-white">Data Sources</h3>
         <p>
           All data comes from{" "}
-          <span className="text-blue-400">NYC Open Data</span> via the Socrata
-          API, including:
+          <a
+            href="https://opendata.cityofnewyork.us/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-400 hover:text-blue-300 underline-offset-2 hover:underline"
+          >
+            NYC Open Data
+          </a>{" "}
+          via the Socrata API, including:
         </p>
         <ul className="mt-1 list-disc space-y-1 pl-5">
           <li><span className="text-gray-200">PLUTO</span> &mdash; building characteristics (units, year built, class)</li>
@@ -101,6 +108,16 @@ function AboutTab() {
           <li><span className="text-gray-200">Zoom in</span> to see individual buildings color-coded by grade</li>
           <li><span className="text-gray-200">Click a building</span> to see its full detail and score breakdown</li>
           <li><span className="text-gray-200">Search</span> using natural language (e.g. &quot;buildings with rat problems in Brooklyn&quot;)</li>
+        </ul>
+      </div>
+
+      <div className="rounded border border-yellow-900/40 bg-yellow-900/10 p-3 text-xs leading-relaxed text-yellow-100/80">
+        <p className="mb-1 font-semibold text-yellow-300">Important caveats</p>
+        <ul className="list-disc space-y-1 pl-4">
+          <li>311 complaints reflect who reports, not where conditions are worst.</li>
+          <li>City datasets lag — new violations may take 2&ndash;6 weeks to appear.</li>
+          <li>Recent ownership or renovation changes are not yet reflected.</li>
+          <li>This score is a signal, not a verdict. Not legal or housing advice.</li>
         </ul>
       </div>
     </div>

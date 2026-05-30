@@ -1,14 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas import BuildingDetailResponse, BuildingListResponse, BuildingSummaryResponse
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.services.building_service import get_building_detail, get_buildings_in_viewport
 
 router = APIRouter(tags=["buildings"])
-limiter = Limiter(key_func=get_remote_address)
 
 # NYC geographic bounds — clamp bbox requests to prevent full-table scans
 NYC_BOUNDS = {"west": -74.3, "south": 40.45, "east": -73.65, "north": 40.95}

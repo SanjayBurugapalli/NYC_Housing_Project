@@ -2,17 +2,15 @@ import math
 import re
 
 from fastapi import APIRouter, Depends, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas import BuildingSummaryResponse, SearchRequest, SearchResponse
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.services.building_service import score_to_grade
 
 router = APIRouter(tags=["search"])
-limiter = Limiter(key_func=get_remote_address)
 
 
 def _sanitize_row(row: dict) -> dict:
