@@ -14,12 +14,14 @@ Usage:
 
 import argparse
 import logging
+import os
 import sys
 import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 
 from sqlalchemy import text
 
@@ -192,12 +194,43 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    _check_env_or_exit()
+
     filter_keys: set[str] | None = None
     if args.datasets:
         filter_keys = {k.strip() for k in args.datasets.split(",") if k.strip()}
 
     failures = run(filter_keys, skip_scoring=args.skip_scoring, limit=args.limit)
     sys.exit(1 if failures > 0 else 0)
+
+
+def _check_env_or_exit() -> None:
+    """Verify required env vars before attempting any DB or Socrata work.
+
+    Logs the *host* (never credentials) of the resolved DB URL so a Railway
+    operator can confirm at a glance that the cron container is pointing at
+    the prod Postgres and not the local default.
+    """
+    db_url = os.environ.get("DATABASE_URL_SYNC") or os.environ.get("DATABASE_URL")
+    if not db_url:
+        logger.error(
+            "Neither DATABASE_URL_SYNC nor DATABASE_URL is set — refusing to fall "
+            "back to the dev default (localhost:5432). Set DATABASE_URL on this "
+            "service in the Railway dashboard."
+        )
+        sys.exit(2)
+
+    try:
+        host = urlparse(db_url.replace("+asyncpg", "")).hostname or "<unknown>"
+    except Exception:
+        host = "<unparseable>"
+    logger.info("DB target host: %s", host)
+
+    if not os.environ.get("SOCRATA_APP_TOKEN"):
+        logger.warning(
+            "SOCRATA_APP_TOKEN is not set — Socrata will throttle anonymous "
+            "requests aggressively and large pullers will likely time out."
+        )
 
 
 if __name__ == "__main__":
