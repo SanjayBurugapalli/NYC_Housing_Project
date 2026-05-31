@@ -111,12 +111,18 @@ export default function MapPage() {
 
   const showBuildingPanel = !!selectedBuilding && (!showInfo || lastOpened === "building");
   const showInfoPanel = showInfo && (!selectedBuilding || lastOpened === "info");
-  // Search results now overlay above the building view when both are active.
-  const showSearchResults = isSearching || searchResults.length > 0;
-
+  // Keep the results panel open for the zero-result case so the clarification
+  // is visible — otherwise it'd flash open during search then close immediately.
+  const showSearchResults = isSearching || searchResults.length > 0 || !!searchClarification;
   const buildingSlide = useSlidePanel(showBuildingPanel);
   const infoSlide = useSlidePanel(showInfoPanel);
   const searchSlide = useSlidePanel(showSearchResults);
+
+  // When a building is selected while search results exist, the building panel
+  // should slide on top of the results — otherwise the user has to close the
+  // results to see what they just clicked. Keyed on shouldRender so the
+  // close-animation slides out *above* the search panel, not under it.
+  const buildingOverSearch = buildingSlide.shouldRender && searchSlide.shouldRender;
 
   // Hide the corner controls when any panel is rendered (including during exit).
   const anyPanelRendered = buildingSlide.shouldRender || infoSlide.shouldRender || searchSlide.shouldRender;
@@ -237,19 +243,20 @@ export default function MapPage() {
 
       {/*
         Right-side panel stacking (desktop):
-          z-10  building detail  (lowest — sits behind search results)
           z-20  info panel
-          z-30  search results   (overlays everything when search is active)
+          z-30  search results
+          building detail  — z-10 normally, z-40 when a result was clicked so
+                            it slides on top of the still-open results panel
         Mobile bottom sheets keep the same relative ordering.
       */}
 
       {/* Building detail panel */}
       {buildingSlide.shouldRender && lastBblRef.current && (
         <>
-          <div className={`absolute bottom-0 left-0 right-0 z-10 h-[70dvh] md:hidden ${buildingSlide.entering ? "animate-slide-in-bottom" : "animate-slide-out-bottom"}`}>
+          <div className={`absolute bottom-0 left-0 right-0 h-[70dvh] md:hidden ${buildingOverSearch ? "z-40" : "z-10"} ${buildingSlide.entering ? "animate-slide-in-bottom" : "animate-slide-out-bottom"}`}>
             <BuildingPanel bbl={lastBblRef.current} />
           </div>
-          <div className={`absolute top-0 right-0 z-10 hidden h-full w-96 md:block ${buildingSlide.entering ? "animate-slide-in-right" : "animate-slide-out-right"}`}>
+          <div className={`absolute top-0 right-0 hidden h-full w-96 md:block ${buildingOverSearch ? "z-40" : "z-10"} ${buildingSlide.entering ? "animate-slide-in-right" : "animate-slide-out-right"}`}>
             <BuildingPanel bbl={lastBblRef.current} />
           </div>
         </>
@@ -267,7 +274,7 @@ export default function MapPage() {
         </>
       )}
 
-      {/* Search results panel — overlays building/info when active */}
+      {/* Search results panel */}
       {searchSlide.shouldRender && (
         <>
           <div className={`absolute bottom-0 left-0 right-0 z-30 h-[50dvh] md:hidden ${searchSlide.entering ? "animate-slide-in-bottom" : "animate-slide-out-bottom"}`}>

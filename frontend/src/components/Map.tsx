@@ -122,8 +122,14 @@ export function Map() {
         fetchSubNeighborhoods(),
       ]);
 
+      // Exclude bubbles with a 0 or 100 score — those almost always indicate
+      // a CD with too little data (no buildings/complaints) and produce
+      // misleading "perfect" or "worst possible" patches on the heatmap.
+      const isMeaningfulScore = (s: number | null | undefined): boolean =>
+        s != null && s > 0 && s < 100;
+
       const valid = neighborhoodData.neighborhoods.filter(
-        (n) => n.centroid && n.centroid.length === 2
+        (n) => n.centroid && n.centroid.length === 2 && isMeaningfulScore(n.avg_score)
       );
 
       // Build a lookup from sub-neighborhood name → computed score/count
@@ -156,13 +162,15 @@ export function Map() {
           for (const sub of splits) {
             // Use computed score if available, fall back to parent CD score
             const computed = subScoreLookup[sub.name];
+            const score = computed?.avg_score ?? n.avg_score;
+            if (!isMeaningfulScore(score)) continue;
             detailFeatures.push({
               type: "Feature",
               geometry: { type: "Point", coordinates: [sub.lng, sub.lat] },
               properties: {
                 name: sub.name,
                 borough: n.borough,
-                avg_score: computed?.avg_score ?? n.avg_score,
+                avg_score: score,
                 building_count: computed?.building_count ?? Math.round(n.building_count / splits.length),
               },
             });
@@ -545,8 +553,16 @@ export function Map() {
     const source = m.getSource("search-results") as mapboxgl.GeoJSONSource | undefined;
     if (!source) return;
 
+    const setBuildingsVisibility = (visible: boolean) => {
+      if (m.getLayer("buildings-dots")) {
+        m.setLayoutProperty("buildings-dots", "visibility", visible ? "visible" : "none");
+      }
+    };
+
     if (searchResults.length === 0) {
       source.setData({ type: "FeatureCollection", features: [] });
+      // Restore the normal viewport buildings layer when the search is cleared.
+      setBuildingsVisibility(true);
       return;
     }
 
@@ -569,6 +585,9 @@ export function Map() {
       }));
 
     source.setData({ type: "FeatureCollection", features });
+    // Suppress the generic viewport-buildings layer so only the matched dots
+    // are visible while search results are on screen.
+    setBuildingsVisibility(false);
 
     // Fly to search results bounds
     if (features.length > 0) {
@@ -578,7 +597,7 @@ export function Map() {
       });
       m.fitBounds(bounds, {
         padding: { top: 80, bottom: 40, left: 40, right: 420 },
-        maxZoom: 16,
+        maxZoom: 14,
         duration: 1500,
       });
     }

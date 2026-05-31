@@ -158,8 +158,27 @@ export function SearchResultsPanel({ clarification }: SearchResultsPanelProps) {
         </div>
       )}
 
+      {/* Empty state — shown when the query returned zero matches. The
+          clarification banner above already explains why; this block just
+          keeps the panel from looking broken/blank. */}
+      {!isSearching && searchResults.length === 0 && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
+          <p className="text-sm font-medium text-gray-300">No buildings matched your search.</p>
+          <p className="text-xs text-gray-500">Try broadening the query or removing filters.</p>
+        </div>
+      )}
+
+      {/* Grade-filter empty state — search returned matches but the active
+          grade filter hides them all. */}
+      {!isSearching && visibleResults.length === 0 && searchResults.length > 0 && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
+          <p className="text-sm font-medium text-gray-300">No results match the current grade filter.</p>
+          <p className="text-xs text-gray-500">Clear the grade filter to see all {searchResults.length} matches.</p>
+        </div>
+      )}
+
       {/* Results list */}
-      {!isSearching && (
+      {!isSearching && visibleResults.length > 0 && (
         <div className="flex-1 overflow-y-auto">
           {visibleResults.map((b) => (
             <button
