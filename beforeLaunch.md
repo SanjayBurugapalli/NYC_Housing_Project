@@ -19,7 +19,7 @@ Track everything that needs to happen before this goes public. Check items off a
 
 ## Critical action required before deploying backend
 
-The CORS rework introduced a new env var — **set `ALLOWED_ORIGINS`** on the Railway backend service before redeploying, otherwise the prod frontend will get blocked on every request. Format: comma-separated, e.g. `https://nycbuildings.vercel.app,https://your-custom-domain.com`. The default only allows `http://localhost:3000` so dev keeps working.
+~~The CORS rework introduced a new env var — **set `ALLOWED_ORIGINS`** on the Railway backend service before redeploying, otherwise the prod frontend will get blocked on every request.~~ ✅ Set in production on the backend service. Frontend now loads buildings and bubbles correctly.
 
 ---
 
@@ -27,19 +27,17 @@ The CORS rework introduced a new env var — **set `ALLOWED_ORIGINS`** on the Ra
 
 | P | Owner | Item | Notes |
 |---|---|---|---|
-| P0 | 👤 | Anthropic API spending cap | console.anthropic.com → set monthly limit + 50%/80% email alerts. A buggy search loop can burn real money in hours. |
 | P0 | 🤖 | ✅ Rate-limit `/api/search` | Already wired (`60/minute`). I also consolidated the per-router `Limiter()` instances onto a shared one in [app/core/rate_limit.py](backend/app/core/rate_limit.py) so the counters and `app.state.limiter` reference the same storage. |
 | P0 | 🤖 | ✅ Rate-limit `/api/buildings` | Already wired (`300/minute` viewport, `120/minute` detail). Same shared-limiter cleanup applied. |
-| P0 | 👤 | Mapbox usage alert | account.mapbox.com → token settings → set load limit + alert. Free tier is ~50k loads/mo. |
-| P0 | 👤 | Railway usage alert | Railway → Settings → Usage → hard limit + email warning. |
+| P0 | 👤 | 🟡 Mapbox usage alert | Deferred — the in-dashboard notification UI doesn't surface for free-tier accounts with no charges yet. Revisit once first charges appear, or wire programmatic monitoring via UptimeRobot against the Mapbox Statistics API. URL restriction (Security row below) is the more important protection and is done. |
 
 ## Security
 
 | P | Owner | Item | Notes |
 |---|---|---|---|
-| P0 | 👤 | Rotate Postgres password | Was visible in a Claude session. Railway → Postgres → Variables → regenerate `POSTGRES_PASSWORD`. Linked services auto-update if you used "Add Reference". |
-| P0 | 🤖 | ✅ Restrict CORS to Vercel domain | Replaced wildcard with env-driven allowlist via new `ALLOWED_ORIGINS` setting. **You must set this var in Railway before deploying** — see the critical note at the top. |
-| P0 | 👤 | Restrict Mapbox token by URL | Mapbox token → URL restrictions → add `*.vercel.app` and custom domain only. |
+| P0 | 👤 | ✅ Rotate Postgres password | Rotated; linked services picked up the new value automatically via `${{Postgres.DATABASE_URL}}` references. |
+| P0 | 🤖 | ✅ Restrict CORS to Vercel domain | Replaced wildcard with env-driven allowlist via new `ALLOWED_ORIGINS` setting. Var is now set in production. |
+| P0 | 👤 | ✅ Restrict Mapbox token by URL | Token now restricted to Vercel + custom domain. |
 | P0 | 🤖 | ✅ Validate AI-search filters server-side | Audited [search_service.py](backend/app/services/search_service.py). `validate_filters()` whitelists borough, clamps numeric ranges, regex-checks building classes, and gates ORDER BY columns through a `_ALLOWED_SORT_COLUMNS` set. All SQL is parameterized. No changes needed. |
 | P1 | 👤 | HTTPS enforcement on Railway custom domain | Vercel is automatic. For Railway, verify HTTPS-only is on. |
 | P1 | 🤖 | ✅ Audit logs for secret leakage | DB connection failure in `lifespan()` now logs only `type(e).__name__` — `str(e)` from asyncpg can include host:port. No other paths log credentials. |
@@ -48,7 +46,7 @@ The CORS rework introduced a new env var — **set `ALLOWED_ORIGINS`** on the Ra
 
 | P | Owner | Item | Notes |
 |---|---|---|---|
-| P0 | 👤 | Trigger + verify first cron run | Railway → `refresh-daily` → manual redeploy. Confirm `data_refresh_status` has all ~10 datasets at `success` + `scoring` ran. |
+| P0 | 👤 | 🟡 Trigger + verify first cron run | In flight as of 2026-05-31 ~21:13 UTC. First 50k batch took ~3m 38s over the public proxy; full run expected 60-120 min. Confirm `data_refresh_status` has all ~10 datasets at `success` + `scoring` ran once it lands. |
 | P0 | 🤝 | Sentry on frontend + backend | I'll wire the SDKs and source maps. You create the Sentry project and provide the DSN. |
 | P1 | 👤 | Uptime monitoring on `/health` | UptimeRobot or healthchecks.io. 5-min interval, email alert. Free. |
 | P1 | 👤 | Refresh-staleness alert on `/api/refresh-status` | Same tool, daily ping, alert if `any_stale: true`. Catches broken pullers. |
@@ -94,15 +92,20 @@ The CORS rework introduced a new env var — **set `ALLOWED_ORIGINS`** on the Ra
 
 ## Suggested launch order
 
-Updated sequence based on what's already done. Items I already shipped are marked ✅:
+Updated sequence based on what's already done. Items already shipped are marked ✅, in-flight items 🟡:
 
-1. 👤 Set Anthropic spending cap (10 min)
-2. 👤 Rotate the prod DB password (10 min)
-3. ✅ 🤖 Rate limits, CORS allowlist, pool tuning, log sanitization, attribution, caveats — all merged in this branch. Review the diff before pushing.
-4. 👤 **Set `ALLOWED_ORIGINS` in Railway** to your Vercel URL before redeploying the backend (otherwise CORS blocks every frontend request) (5 min)
-5. 👤 Trigger today's cron and watch it complete; then ping me for the score sanity query (30 min)
-6. 🤝 Add Sentry to frontend + backend (30 min)
-7. 👤 UptimeRobot on `/health` + `/api/refresh-status` (15 min)
+1. ✅ 👤 Anthropic API spending cap
+2. ✅ 👤 Railway hard usage limit
+3. ✅ 👤 Rotated prod DB password
+4. ✅ 🤖 Rate limits, CORS allowlist, pool tuning, log sanitization, attribution, caveats — all merged.
+5. ✅ 👤 `ALLOWED_ORIGINS` set on Railway backend, frontend loads correctly.
+6. ✅ 👤 Mapbox token URL-restricted.
+7. 🟡 👤 First cron run in flight — watch it complete, then ping me for the score-distribution sanity query.
+8. **Next: 🤝 Add Sentry to frontend + backend** (30 min — I wire the SDKs and source maps once you create the project and give me the DSN).
+9. 👤 UptimeRobot on `/health` + `/api/refresh-status` (15 min — comes after Sentry so we don't double-handle the same alerts).
+10. 👤 Spot-check 5 known buildings (your apt, friend's, a notorious building) against the live UI.
+11. 🤖 Switch cron `DATABASE_URL` to `${{Postgres.DATABASE_PRIVATE_URL}}` (5 min in the Railway dashboard — speeds up future runs significantly).
+12. 🤝 Vector tile pipeline (tippecanoe) — biggest scale risk; deferrable until you start seeing real traffic.
 
 Everything else is fast-follow unless you're expecting press-level traffic on day one.
 
