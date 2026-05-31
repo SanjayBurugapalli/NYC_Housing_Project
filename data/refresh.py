@@ -23,6 +23,21 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
 
+import sentry_sdk
+
+# Initialize Sentry first so import-time failures in the puller modules are captured.
+# DSN unset (e.g. local dev) → SDK is a no-op.
+_sentry_dsn = os.environ.get("SENTRY_DSN")
+if _sentry_dsn:
+    sentry_sdk.init(
+        dsn=_sentry_dsn,
+        environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+        release=os.environ.get("RAILWAY_GIT_COMMIT_SHA"),
+        traces_sample_rate=0.0,  # batch jobs don't benefit from request tracing
+        send_default_pii=False,
+    )
+    sentry_sdk.set_tag("service", "cron-refresh")
+
 from sqlalchemy import text
 
 # Make `data.ingest.*` importable when running as `python -m data.refresh`.
@@ -128,6 +143,12 @@ def _run_task(engine, dataset: str, description: str, fn: Callable[[], int]) -> 
         message = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
         _set_finished(engine, dataset, "fail", None, duration, message[:4000])
         logger.exception("Failed %s after %ds", dataset, duration)
+        # Surface the failure as a tagged Sentry event so an alert fires per dataset,
+        # not just once per cron run. set_tag scopes the tag to this capture only.
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("dataset", dataset)
+            scope.set_tag("duration_seconds", str(duration))
+            sentry_sdk.capture_exception(exc)
         return False
 
 

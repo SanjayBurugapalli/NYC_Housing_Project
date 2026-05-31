@@ -1,9 +1,14 @@
 import logging
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
 
+import sentry_sdk
 from fastapi import FastAPI, Request
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -17,6 +22,25 @@ from app.api.buildings import router as buildings_router
 from app.api.neighborhoods import router as neighborhoods_router
 from app.api.refresh_status import router as refresh_status_router
 from app.api.search import router as search_router
+
+# Initialize Sentry before FastAPI() so lifespan and import-time errors are captured.
+# DSN unset (e.g. local dev) → SDK is a no-op.
+_sentry_dsn = os.environ.get("SENTRY_DSN")
+if _sentry_dsn:
+    sentry_sdk.init(
+        dsn=_sentry_dsn,
+        environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+        release=os.environ.get("RAILWAY_GIT_COMMIT_SHA"),
+        integrations=[
+            StarletteIntegration(),
+            FastApiIntegration(),
+            SqlalchemyIntegration(),
+        ],
+        # Capture 10% of transactions for perf tracing. Tune via SENTRY_TRACES_SAMPLE_RATE.
+        traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+        # Do NOT send PII (request headers, IPs) by default; flip on if needed for debugging.
+        send_default_pii=False,
+    )
 
 # Configure structured JSON-style logging
 logging.basicConfig(

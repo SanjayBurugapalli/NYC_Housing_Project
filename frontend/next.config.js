@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 
+const { withSentryConfig } = require("@sentry/nextjs");
+
 const CSP = [
   "default-src 'self'",
   // Next.js runtime + Mapbox GL require inline scripts and eval
@@ -10,16 +12,18 @@ const CSP = [
   "img-src 'self' data: blob: https://*.mapbox.com",
   // Mapbox GL uses web workers loaded as blobs
   "worker-src blob:",
-  // API calls + Mapbox tile/event endpoints
+  // API calls + Mapbox tile/event endpoints + Sentry browser SDK ingest
   [
     "connect-src",
     "'self'",
     "https://api.mapbox.com",
     "https://events.mapbox.com",
     "https://*.mapbox.com",
-    "http://localhost:8000",   // local dev backend
-    "https://*.railway.app",   // Railway-hosted backend
-    "https://*.onrender.com",  // Render-hosted backend
+    "http://localhost:8000",        // local dev backend
+    "https://*.railway.app",        // Railway-hosted backend
+    "https://*.onrender.com",       // Render-hosted backend
+    "https://*.ingest.sentry.io",   // Sentry SaaS ingest (sends errors + perf events)
+    "https://*.ingest.us.sentry.io",
   ].join(" "),
   // Disallow embedding in iframes
   "frame-ancestors 'none'",
@@ -45,4 +49,17 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+// Sentry build-time options: upload source maps so stack traces in the dashboard
+// point at original TS, not minified JS. Requires SENTRY_AUTH_TOKEN at build.
+module.exports = withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  // Silence the SDK's chatty build output unless we explicitly opt in.
+  silent: !process.env.CI,
+  // Strip source maps from the public bundle after upload so they're only available to Sentry.
+  hideSourceMaps: true,
+  // Disables logger statements at build time to reduce bundle size.
+  disableLogger: true,
+  // Skip uploading on local dev builds where SENTRY_AUTH_TOKEN is unset.
+  dryRun: !process.env.SENTRY_AUTH_TOKEN,
+});
