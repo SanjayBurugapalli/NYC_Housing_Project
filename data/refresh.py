@@ -24,6 +24,7 @@ from typing import Callable
 from urllib.parse import urlparse
 
 import sentry_sdk
+from sentry_sdk.crons import capture_checkin
 
 # Initialize Sentry first so import-time failures in the puller modules are captured.
 # DSN unset (e.g. local dev) → SDK is a no-op.
@@ -37,6 +38,19 @@ if _sentry_dsn:
         send_default_pii=False,
     )
     sentry_sdk.set_tag("service", "cron-refresh")
+
+# Sentry Cron Monitoring: the nightly run checks in at start + finish so Sentry
+# alerts if a scheduled run is missed entirely OR finishes with failures —
+# closing the "cron silently didn't run / didn't complete" gap that error
+# capture alone can't see (a job that never fires raises no exception). The
+# schedule mirrors the Railway cron service (04:00 UTC daily).
+_MONITOR_SLUG = "daily-refresh"
+_MONITOR_CONFIG = {
+    "schedule": {"type": "crontab", "value": "0 4 * * *"},
+    "timezone": "UTC",
+    "checkin_margin": 60,   # minutes a start may be late before it's "missed"
+    "max_runtime": 480,     # minutes before a still-running job is flagged timed out
+}
 
 from sqlalchemy import text
 
@@ -221,7 +235,33 @@ def main() -> None:
     if args.datasets:
         filter_keys = {k.strip() for k in args.datasets.split(",") if k.strip()}
 
-    failures = run(filter_keys, skip_scoring=args.skip_scoring, limit=args.limit)
+    # Only check in for the full nightly run — targeted smoke tests
+    # (--datasets / --limit / --skip-scoring) must not mark the monitor.
+    is_full_run = filter_keys is None and args.limit is None and not args.skip_scoring
+    check_in_id = None
+    if _sentry_dsn and is_full_run:
+        check_in_id = capture_checkin(
+            monitor_slug=_MONITOR_SLUG,
+            status="in_progress",
+            monitor_config=_MONITOR_CONFIG,
+        )
+
+    try:
+        failures = run(filter_keys, skip_scoring=args.skip_scoring, limit=args.limit)
+    except Exception:
+        if check_in_id is not None:
+            capture_checkin(monitor_slug=_MONITOR_SLUG, check_in_id=check_in_id, status="error")
+            sentry_sdk.flush(timeout=5)
+        raise
+
+    if check_in_id is not None:
+        capture_checkin(
+            monitor_slug=_MONITOR_SLUG,
+            check_in_id=check_in_id,
+            status="ok" if failures == 0 else "error",
+        )
+        sentry_sdk.flush(timeout=5)
+
     sys.exit(1 if failures > 0 else 0)
 
 
