@@ -126,3 +126,10 @@ app.include_router(search_router, prefix="/api")
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+# TEMPORARY: deliberately raise an unhandled error to verify Sentry captures
+# backend exceptions end-to-end. Returns 500. Remove once verified.
+@app.get("/api/debug/sentry-trigger")
+async def _sentry_trigger():
+    raise RuntimeError("sentry backend smoke test — safe to ignore")

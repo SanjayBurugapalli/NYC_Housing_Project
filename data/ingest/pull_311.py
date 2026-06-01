@@ -6,19 +6,17 @@ Categories: HEATING, PLUMBING, NOISE, PEST, WATER SYSTEM, etc.
 """
 
 import logging
-import time
 from datetime import datetime, timedelta
 
 import pandas as pd
 from sqlalchemy import text
 
-from base import get_socrata_client, get_db_engine, normalize_borough, clean_row_for_sql
+from base import paginate_socrata, get_db_engine, normalize_borough, clean_row_for_sql
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 ENDPOINT = "erm2-nwe9"
-BATCH_SIZE = 50000
 
 # Map 311 complaint types to scoring categories
 COMPLAINT_CATEGORY_MAP = {
@@ -46,8 +44,6 @@ COMPLAINT_CATEGORY_MAP = {
 
 def pull_311(limit: int | None = None, days_back: int = 365):
     """Pull 311 complaints. Incremental — only fetches since last sync."""
-    client = get_socrata_client()
-    client.timeout = 300
     engine = get_db_engine()
 
     since_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%dT00:00:00")
@@ -55,43 +51,16 @@ def pull_311(limit: int | None = None, days_back: int = 365):
     # Residential complaint types we care about
     relevant_types = list(COMPLAINT_CATEGORY_MAP.keys())
     type_filter = " OR ".join(f"complaint_type='{t}'" for t in relevant_types)
+    where = f"created_date > '{since_date}' AND ({type_filter})"
+    select = (
+        "unique_key,complaint_type,descriptor,status,"
+        "created_date,closed_date,incident_address,borough,"
+        "incident_zip,latitude,longitude"
+    )
 
-    offset = 0
     total_inserted = 0
-
-    while True:
-        batch_limit = min(BATCH_SIZE, limit - offset) if limit else BATCH_SIZE
-        if limit and offset >= limit:
-            break
-
-        logger.info(f"Fetching 311 records offset={offset}")
-        results = None
-        for attempt in range(3):
-            try:
-                results = client.get(
-                    ENDPOINT,
-                    limit=batch_limit,
-                    offset=offset,
-                    select="unique_key,complaint_type,descriptor,status,"
-                    "created_date,closed_date,incident_address,borough,"
-                    "incident_zip,latitude,longitude",
-                    where=f"created_date > '{since_date}' AND ({type_filter})",
-                    order="created_date DESC",
-                )
-                break
-            except Exception as e:
-                logger.warning(f"Attempt {attempt + 1} failed: {e}")
-                if attempt < 2:
-                    time.sleep(5 * (attempt + 1))
-                    client = get_socrata_client()
-                else:
-                    raise
-
-        if not results:
-            break
-
-        df = pd.DataFrame(results)
-        df = transform_311(df)
+    for results in paginate_socrata(ENDPOINT, select=select, where=where, limit=limit):
+        df = transform_311(pd.DataFrame(results))
 
         records = [clean_row_for_sql(row.to_dict()) for _, row in df.iterrows()]
         with engine.begin() as conn:
@@ -113,7 +82,6 @@ def pull_311(limit: int | None = None, days_back: int = 365):
             )
 
         total_inserted += len(df)
-        offset += batch_limit
         logger.info(f"Upserted {total_inserted} complaints so far")
 
     logger.info(f"311 ingestion complete. Total: {total_inserted}")

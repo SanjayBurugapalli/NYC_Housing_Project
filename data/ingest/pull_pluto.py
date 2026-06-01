@@ -8,46 +8,30 @@ import logging
 import pandas as pd
 from sqlalchemy import text
 
-from base import get_socrata_client, get_db_engine, normalize_borough
+from base import paginate_socrata, get_db_engine, normalize_borough
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 ENDPOINT = "64uk-42ks"
-BATCH_SIZE = 50000
 
 
 def pull_pluto(limit: int | None = None):
     """Pull PLUTO data and upsert into buildings table."""
-    client = get_socrata_client()
     engine = get_db_engine()
 
-    offset = 0
+    select = (
+        "bbl,borough,block,lot,address,zipcode,"
+        "unitsres,unitstotal,yearbuilt,yearalter1,"
+        "bldgclass,landuse,numfloors,lotarea,bldgarea,"
+        "ownername,latitude,longitude,cd"
+    )
+
     total_inserted = 0
-
-    while True:
-        batch_limit = min(BATCH_SIZE, limit - offset) if limit else BATCH_SIZE
-        if limit and offset >= limit:
-            break
-
-        logger.info(f"Fetching PLUTO records offset={offset}, limit={batch_limit}")
-        results = client.get(
-            ENDPOINT,
-            limit=batch_limit,
-            offset=offset,
-            select="bbl,borough,block,lot,address,zipcode,"
-            "unitsres,unitstotal,yearbuilt,yearalter1,"
-            "bldgclass,landuse,numfloors,lotarea,bldgarea,"
-            "ownername,latitude,longitude,cd",
-            where="unitsres > 0",  # Only residential buildings
-            order="bbl",
-        )
-
-        if not results:
-            break
-
-        df = pd.DataFrame(results)
-        df = transform_pluto(df)
+    for results in paginate_socrata(
+        ENDPOINT, select=select, where="unitsres > 0", limit=limit
+    ):
+        df = transform_pluto(pd.DataFrame(results))
 
         records = [row.to_dict() for _, row in df.iterrows()]
         with engine.begin() as conn:
@@ -83,7 +67,6 @@ def pull_pluto(limit: int | None = None):
             )
 
         total_inserted += len(df)
-        offset += batch_limit
         logger.info(f"Upserted {total_inserted} buildings so far")
 
     logger.info(f"PLUTO ingestion complete. Total: {total_inserted} buildings")

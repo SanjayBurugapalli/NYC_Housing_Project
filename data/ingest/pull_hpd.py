@@ -9,47 +9,29 @@ import logging
 import pandas as pd
 from sqlalchemy import text
 
-from base import get_socrata_client, get_db_engine, normalize_borough, clean_row_for_sql
+from base import paginate_socrata, get_db_engine, normalize_borough, clean_row_for_sql
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 HPD_VIOLATIONS_ENDPOINT = "wvxf-dwi5"
 HPD_COMPLAINTS_ENDPOINT = "uwyv-629c"
-BATCH_SIZE = 50000
 
 
 def pull_hpd_violations(limit: int | None = None):
     """Pull HPD violations with Class A/B/C severity."""
-    client = get_socrata_client()
-    client.timeout = 300
     engine = get_db_engine()
 
-    offset = 0
+    select = (
+        "violationid,boroid,block,lot,"
+        "class,inspectiondate,approveddate,"
+        "originalcertifybydate,originalcorrectbydate,"
+        "violationstatus,ordernumber,novdescription"
+    )
+
     total_inserted = 0
-
-    while True:
-        batch_limit = min(BATCH_SIZE, limit - offset) if limit else BATCH_SIZE
-        if limit and offset >= limit:
-            break
-
-        logger.info(f"Fetching HPD violations offset={offset}")
-        results = client.get(
-            HPD_VIOLATIONS_ENDPOINT,
-            limit=batch_limit,
-            offset=offset,
-            select="violationid,boroid,block,lot,"
-            "class,inspectiondate,approveddate,"
-            "originalcertifybydate,originalcorrectbydate,"
-            "violationstatus,ordernumber,novdescription",
-            order="inspectiondate DESC",
-        )
-
-        if not results:
-            break
-
-        df = pd.DataFrame(results)
-        df = transform_hpd_violations(df)
+    for results in paginate_socrata(HPD_VIOLATIONS_ENDPOINT, select=select, limit=limit):
+        df = transform_hpd_violations(pd.DataFrame(results))
 
         records = [clean_row_for_sql(row.to_dict()) for _, row in df.iterrows()]
         with engine.begin() as conn:
@@ -72,7 +54,6 @@ def pull_hpd_violations(limit: int | None = None):
             )
 
         total_inserted += len(df)
-        offset += batch_limit
         logger.info(f"Upserted {total_inserted} HPD violations so far")
 
     logger.info(f"HPD violations complete. Total: {total_inserted}")
@@ -117,34 +98,17 @@ def transform_hpd_violations(df: pd.DataFrame) -> pd.DataFrame:
 
 def pull_hpd_complaints(limit: int | None = None):
     """Pull HPD complaints."""
-    client = get_socrata_client()
-    client.timeout = 300
     engine = get_db_engine()
 
-    offset = 0
+    select = (
+        "complaintid,bbl,boroughid,block,lot,"
+        "statusid,statusdate,statusdescription,"
+        "majorcategory,minorcategory,receiveddate"
+    )
+
     total_inserted = 0
-
-    while True:
-        batch_limit = min(BATCH_SIZE, limit - offset) if limit else BATCH_SIZE
-        if limit and offset >= limit:
-            break
-
-        logger.info(f"Fetching HPD complaints offset={offset}")
-        results = client.get(
-            HPD_COMPLAINTS_ENDPOINT,
-            limit=batch_limit,
-            offset=offset,
-            select="complaintid,bbl,boroughid,block,lot,"
-            "statusid,statusdate,statusdescription,"
-            "majorcategory,minorcategory,receiveddate",
-            order="receiveddate DESC",
-        )
-
-        if not results:
-            break
-
-        df = pd.DataFrame(results)
-        df = transform_hpd_complaints(df)
+    for results in paginate_socrata(HPD_COMPLAINTS_ENDPOINT, select=select, limit=limit):
+        df = transform_hpd_complaints(pd.DataFrame(results))
 
         records = [clean_row_for_sql(row.to_dict()) for _, row in df.iterrows()]
         with engine.begin() as conn:
@@ -166,7 +130,6 @@ def pull_hpd_complaints(limit: int | None = None):
             )
 
         total_inserted += len(df)
-        offset += batch_limit
         logger.info(f"Upserted {total_inserted} HPD complaints so far")
 
     logger.info(f"HPD complaints complete. Total: {total_inserted}")

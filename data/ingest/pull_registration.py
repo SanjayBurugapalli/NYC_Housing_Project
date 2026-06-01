@@ -12,41 +12,27 @@ import logging
 import pandas as pd
 from sqlalchemy import text
 
-from base import get_socrata_client, get_db_engine
+from base import paginate_socrata, get_db_engine
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 REGISTRATIONS_ENDPOINT = "tesw-yqqr"
 CONTACTS_ENDPOINT = "feu5-w2e2"
-BATCH_SIZE = 50000
 
 
 def pull_registrations(limit: int | None = None) -> int:
-    client = get_socrata_client()
-    client.timeout = 300
     engine = get_db_engine()
 
     # --- Step 1: pull registrations (construct BBL from boroid+block+lot) ---
     logger.info("Fetching registrations...")
     all_regs: list[dict] = []
-    offset = 0
-    while True:
-        batch_limit = min(BATCH_SIZE, limit - offset) if limit else BATCH_SIZE
-        if limit and offset >= limit:
-            break
-        results = client.get(
-            REGISTRATIONS_ENDPOINT,
-            limit=batch_limit,
-            offset=offset,
-            select="registrationid,boroid,block,lot,registrationenddate",
-        )
-        if not results:
-            break
+    for results in paginate_socrata(
+        REGISTRATIONS_ENDPOINT,
+        select="registrationid,boroid,block,lot,registrationenddate",
+        limit=limit,
+    ):
         all_regs.extend(results)
-        offset += batch_limit
-        if len(results) < batch_limit:
-            break
 
     if not all_regs:
         logger.warning("No registrations returned.")
@@ -72,24 +58,13 @@ def pull_registrations(limit: int | None = None) -> int:
     # --- Step 2: pull agent contacts ---
     logger.info("Fetching agent contacts...")
     all_contacts: list[dict] = []
-    offset = 0
-    while True:
-        batch_limit = min(BATCH_SIZE, limit - offset) if limit else BATCH_SIZE
-        if limit and offset >= limit:
-            break
-        results = client.get(
-            CONTACTS_ENDPOINT,
-            limit=batch_limit,
-            offset=offset,
-            select="registrationid,type,corporationname",
-            where="type='Agent'",
-        )
-        if not results:
-            break
+    for results in paginate_socrata(
+        CONTACTS_ENDPOINT,
+        select="registrationid,type,corporationname",
+        where="type='Agent'",
+        limit=limit,
+    ):
         all_contacts.extend(results)
-        offset += batch_limit
-        if len(results) < batch_limit:
-            break
 
     if not all_contacts:
         logger.warning("No agent contacts returned.")

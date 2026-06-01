@@ -9,46 +9,29 @@ import logging
 import pandas as pd
 from sqlalchemy import text
 
-from base import get_socrata_client, get_db_engine, clean_row_for_sql
+from base import paginate_socrata, get_db_engine, clean_row_for_sql
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 DOB_VIOLATIONS_ENDPOINT = "3h2n-5cm9"
 DOB_COMPLAINTS_ENDPOINT = "eabe-havv"
-BATCH_SIZE = 50000
 
 
 def pull_dob_violations(limit: int | None = None):
     """Pull DOB violations (structural/safety)."""
-    client = get_socrata_client()
     engine = get_db_engine()
 
-    offset = 0
+    select = (
+        "isn_dob_bis_viol,boro,block,lot,violation_type,"
+        "violation_category,issue_date,"
+        "violation_type_code,description,"
+        "disposition_date,disposition_comments"
+    )
+
     total_inserted = 0
-
-    while True:
-        batch_limit = min(BATCH_SIZE, limit - offset) if limit else BATCH_SIZE
-        if limit and offset >= limit:
-            break
-
-        logger.info(f"Fetching DOB violations offset={offset}")
-        results = client.get(
-            DOB_VIOLATIONS_ENDPOINT,
-            limit=batch_limit,
-            offset=offset,
-            select="isn_dob_bis_viol,boro,block,lot,violation_type,"
-            "violation_category,issue_date,"
-            "violation_type_code,description,"
-            "disposition_date,disposition_comments",
-            order="issue_date DESC",
-        )
-
-        if not results:
-            break
-
-        df = pd.DataFrame(results)
-        df = transform_dob_violations(df)
+    for results in paginate_socrata(DOB_VIOLATIONS_ENDPOINT, select=select, limit=limit):
+        df = transform_dob_violations(pd.DataFrame(results))
 
         records = [clean_row_for_sql(row.to_dict()) for _, row in df.iterrows()]
         with engine.begin() as conn:
@@ -67,7 +50,6 @@ def pull_dob_violations(limit: int | None = None):
             )
 
         total_inserted += len(df)
-        offset += batch_limit
         logger.info(f"Upserted {total_inserted} DOB violations so far")
 
     logger.info(f"DOB violations complete. Total: {total_inserted}")
@@ -112,33 +94,17 @@ def transform_dob_violations(df: pd.DataFrame) -> pd.DataFrame:
 
 def pull_dob_complaints(limit: int | None = None):
     """Pull DOB complaints."""
-    client = get_socrata_client()
     engine = get_db_engine()
 
-    offset = 0
+    select = (
+        "complaint_number,bin,complaint_category,"
+        "status,date_entered,disposition_date,"
+        "disposition_code"
+    )
+
     total_inserted = 0
-
-    while True:
-        batch_limit = min(BATCH_SIZE, limit - offset) if limit else BATCH_SIZE
-        if limit and offset >= limit:
-            break
-
-        logger.info(f"Fetching DOB complaints offset={offset}")
-        results = client.get(
-            DOB_COMPLAINTS_ENDPOINT,
-            limit=batch_limit,
-            offset=offset,
-            select="complaint_number,bin,complaint_category,"
-            "status,date_entered,disposition_date,"
-            "disposition_code",
-            order="date_entered DESC",
-        )
-
-        if not results:
-            break
-
-        df = pd.DataFrame(results)
-        df = transform_dob_complaints(df)
+    for results in paginate_socrata(DOB_COMPLAINTS_ENDPOINT, select=select, limit=limit):
+        df = transform_dob_complaints(pd.DataFrame(results))
 
         records = [clean_row_for_sql(row.to_dict()) for _, row in df.iterrows()]
         with engine.begin() as conn:
@@ -158,7 +124,6 @@ def pull_dob_complaints(limit: int | None = None):
             )
 
         total_inserted += len(df)
-        offset += batch_limit
         logger.info(f"Upserted {total_inserted} DOB complaints so far")
 
     logger.info(f"DOB complaints complete. Total: {total_inserted}")
