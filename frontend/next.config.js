@@ -56,8 +56,11 @@ module.exports = withSentryConfig(nextConfig, {
   project: process.env.SENTRY_PROJECT,
   // Silence the SDK's chatty build output unless we explicitly opt in.
   silent: !process.env.CI,
-  // Strip source maps from the public bundle after upload so they're only available to Sentry.
-  hideSourceMaps: true,
+  // Generate source maps for Sentry upload, then delete them from the
+  // public output so the browser bundle stays opaque to end users.
+  sourcemaps: {
+    deleteSourcemapsAfterUpload: true,
+  },
   // Disables logger statements at build time to reduce bundle size.
   disableLogger: true,
   // Skip uploading on local dev builds where SENTRY_AUTH_TOKEN is unset.
