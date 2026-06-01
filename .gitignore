@@ -45,4 +45,3 @@ tiles/*.geojson
 
 # Generated / personal
 frontend/tsconfig.tsbuildinfo
-todo.md
