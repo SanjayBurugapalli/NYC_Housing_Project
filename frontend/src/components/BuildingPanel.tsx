@@ -178,9 +178,13 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
   }
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Move focus to close button when panel opens
+  // Move focus to close button when panel opens.
+  // preventScroll: true — the panel mounts mid-slide-in (translateX(100%)),
+  // so the close button is briefly off-screen right; without this the browser
+  // scrolls the document horizontally to reach it, shifting the page left
+  // until the animation completes.
   useEffect(() => {
-    closeButtonRef.current?.focus();
+    closeButtonRef.current?.focus({ preventScroll: true });
   }, [bbl]);
 
   // Escape key to close panel

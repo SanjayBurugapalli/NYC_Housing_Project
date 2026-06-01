@@ -383,10 +383,41 @@ export function Map() {
         },
       });
 
-      // --- Selected building highlight ring ---
+      // --- Selected building highlight (filled dot + white halo ring) ---
+      // The dot layer ensures the selected building is always visible even
+      // when the underlying buildings-dots layer omits it (e.g. backend
+      // prioritises lower-scoring buildings and drops higher-scoring ones,
+      // or buildings-dots is hidden because a search is active).
       m.addSource("selected-building", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
+      });
+
+      m.addLayer({
+        id: "selected-building-dot",
+        type: "circle",
+        source: "selected-building",
+        paint: {
+          "circle-radius": [
+            "interpolate", ["linear"], ["zoom"],
+            10, 4,
+            14, 7,
+            16, 9,
+          ],
+          "circle-color": [
+            "match",
+            ["get", "grade"],
+            "A", "#22c55e",
+            "B", "#84cc16",
+            "C", "#eab308",
+            "D", "#f97316",
+            "F", "#ef4444",
+            "#6b7280",
+          ],
+          "circle-opacity": 0.95,
+          "circle-stroke-width": 1,
+          "circle-stroke-color": "#1f2937",
+        },
       });
 
       m.addLayer({
@@ -525,22 +556,26 @@ export function Map() {
       return;
     }
 
-    // Look up coordinates from visible buildings or search results
+    // Look up coordinates + grade from visible buildings or search results.
+    // Grade is needed so the selected-building-dot layer can colour the dot.
     let coords: [number, number] | null = null;
+    let grade = "";
     const inRaw = rawBuildingsRef.current.find((f) => f.properties.bbl === selectedBbl);
     if (inRaw) {
       coords = inRaw.geometry.coordinates as [number, number];
+      grade = inRaw.properties.grade ?? "";
     } else {
       const inSearch = searchResults.find((b) => b.bbl === selectedBbl);
       if (inSearch && inSearch.longitude != null && inSearch.latitude != null) {
         coords = [inSearch.longitude, inSearch.latitude];
+        grade = inSearch.grade ?? "";
       }
     }
 
     source.setData({
       type: "FeatureCollection",
       features: coords
-        ? [{ type: "Feature", geometry: { type: "Point", coordinates: coords }, properties: {} }]
+        ? [{ type: "Feature", geometry: { type: "Point", coordinates: coords }, properties: { grade } }]
         : [],
     });
   }, [selectedBbl, searchResults]);
@@ -595,9 +630,19 @@ export function Map() {
       features.forEach((f) => {
         bounds.extend(f.geometry.coordinates as [number, number]);
       });
+      // Cap zoom well below the buildings-dots minzoom so the map zooms out
+      // enough to show as many result dots as possible at once. The result
+      // dots have no minzoom, so they remain visible at this wider view.
+      // Padding mirrors the panel layout: right-side panel on desktop,
+      // bottom sheet on mobile — otherwise the dots get squeezed off-screen
+      // on narrow viewports.
+      const isMobile = window.innerWidth < 768;
+      const padding = isMobile
+        ? { top: 80, bottom: Math.round(window.innerHeight * 0.55), left: 30, right: 30 }
+        : { top: 80, bottom: 40, left: 40, right: 420 };
       m.fitBounds(bounds, {
-        padding: { top: 80, bottom: 40, left: 40, right: 420 },
-        maxZoom: 14,
+        padding,
+        maxZoom: 12,
         duration: 1500,
       });
     }

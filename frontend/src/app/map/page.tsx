@@ -159,8 +159,11 @@ export default function MapPage() {
 
       {/* Grade filter + map filters.
           Desktop: always-open stack. Mobile: collapsed behind a compact pill
-          that grows the panel upward so it never runs off the bottom edge. */}
-      <div className="absolute bottom-1 left-28 md:bottom-14 md:left-4 z-20 flex w-44 max-w-[calc(100vw-1rem)] flex-col gap-2 pointer-events-auto">
+          that grows the panel upward so it never runs off the bottom edge.
+          Hidden on mobile when any side panel is open so it doesn't sit on
+          top of the building/info/search bottom sheets. Desktop stays visible
+          since the panels there only cover the right edge. */}
+      <div className={`absolute bottom-1 left-28 md:bottom-14 md:left-4 z-20 flex w-44 max-w-[calc(100vw-1rem)] flex-col gap-2 pointer-events-auto transition-opacity duration-150 ${anyPanelRendered ? "pointer-events-none opacity-0 md:pointer-events-auto md:opacity-100" : "opacity-100"}`}>
         <div className={`${showMobileFilters ? "block" : "hidden"} md:block`}>
           <GradeFilter />
           <MapFiltersPanel />
