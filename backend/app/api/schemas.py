@@ -168,6 +168,7 @@ class WorstLandlordsListResponse(BaseModel):
     landlords: list[WorstLandlordResponse]
     total: int
     borough: str | None = None
+    group_by: str = "owner"
 
 
 # --- Neighborhoods ---

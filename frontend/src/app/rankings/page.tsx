@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { fetchWorstBuildings, fetchWorstLandlords } from "@/lib/api";
+import { fetchWorstBuildings, fetchWorstLandlords, type LandlordGroupBy } from "@/lib/api";
 import type { Borough, Grade } from "@/types/building";
 
 type Tab = "buildings" | "landlords";
@@ -104,15 +104,16 @@ function BuildingsList({ borough }: { borough: Borough | null }) {
   );
 }
 
-function LandlordsList({ borough }: { borough: Borough | null }) {
+function LandlordsList({ borough, groupBy }: { borough: Borough | null; groupBy: LandlordGroupBy }) {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["worst-landlords", borough],
-    queryFn: () => fetchWorstLandlords(borough),
+    queryKey: ["worst-landlords", borough, groupBy],
+    queryFn: () => fetchWorstLandlords(borough, groupBy),
   });
 
   if (isLoading) return <ListSkeleton />;
   if (isError) return <ErrorState />;
-  if (!data || data.landlords.length === 0) return <EmptyState label="landlords" />;
+  if (!data || data.landlords.length === 0)
+    return <EmptyState label={groupBy === "manager" ? "managing agents" : "landlords"} />;
 
   return (
     <ul className="divide-y divide-gray-800 overflow-hidden rounded-xl border border-gray-800 bg-gray-900/40">
@@ -190,6 +191,7 @@ function EmptyState({ label }: { label: string }) {
 export default function RankingsPage() {
   const [tab, setTab] = useState<Tab>("buildings");
   const [borough, setBorough] = useState<Borough | null>(null);
+  const [groupBy, setGroupBy] = useState<LandlordGroupBy>("owner");
 
   return (
     <div
@@ -276,13 +278,43 @@ export default function RankingsPage() {
           </div>
         </div>
 
+        {/* Landlords-only: group by owner vs managing agent */}
+        {tab === "landlords" && (
+          <div className="mb-4 flex items-center gap-2 text-[13px]">
+            <span className="text-gray-500">Group by</span>
+            <div className="inline-flex rounded-lg border border-gray-700 bg-gray-800/60 p-0.5">
+              {([
+                { label: "Owner", value: "owner" as const },
+                { label: "Managing agent", value: "manager" as const },
+              ]).map(({ label, value }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setGroupBy(value)}
+                  className={`rounded-md px-3 py-1 font-medium transition-colors ${
+                    groupBy === value ? "bg-gray-700 text-white" : "text-gray-400 hover:text-gray-200"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* List */}
-        {tab === "buildings" ? <BuildingsList borough={borough} /> : <LandlordsList borough={borough} />}
+        {tab === "buildings" ? (
+          <BuildingsList borough={borough} />
+        ) : (
+          <LandlordsList borough={borough} groupBy={groupBy} />
+        )}
 
         <p className="mt-6 text-[12px] leading-relaxed text-gray-500">
           {tab === "buildings"
             ? "Lowest composite health scores first. 1–2 family homes are excluded. Click a building to view its full record on the map."
-            : "Owners ranked by average health score across portfolios of 3+ buildings. Owner names come from PLUTO registration data and may include LLCs or management entities. Click a landlord to view their worst building."}
+            : groupBy === "manager"
+              ? "Managing agents ranked by average health score across portfolios of 3+ buildings. Agent names come from HPD registration data; legal-entity suffixes (LLC, Corp, …) are normalized so spelling variants group together. Click a row to view that portfolio's worst building."
+              : "Owners ranked by average health score across portfolios of 3+ buildings. Owner names come from PLUTO; legal-entity suffixes (LLC, Corp, …) are normalized so spelling variants like “ABC Realty LLC” and “ABC Realty Corp” group together. Click a landlord to view their worst building."}
         </p>
       </main>
     </div>

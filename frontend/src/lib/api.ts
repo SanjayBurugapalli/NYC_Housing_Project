@@ -117,11 +117,14 @@ export async function fetchWorstBuildings(
   return fetchApi(`/api/rankings/buildings?${params.toString()}`);
 }
 
+export type LandlordGroupBy = "owner" | "manager";
+
 export async function fetchWorstLandlords(
   borough?: string | null,
+  groupBy: LandlordGroupBy = "owner",
   limit = 50
-): Promise<{ landlords: WorstLandlord[]; total: number; borough: string | null }> {
-  const params = new URLSearchParams({ limit: String(limit) });
+): Promise<{ landlords: WorstLandlord[]; total: number; borough: string | null; group_by: LandlordGroupBy }> {
+  const params = new URLSearchParams({ limit: String(limit), group_by: groupBy });
   if (borough) params.set("borough", borough);
   return fetchApi(`/api/rankings/landlords?${params.toString()}`);
 }

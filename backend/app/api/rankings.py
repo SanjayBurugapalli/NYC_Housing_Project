@@ -18,11 +18,18 @@ from app.api.schemas import (
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.services.building_service import score_to_grade
+from app.services.entity_matching import normalized_entity_sql
 
 router = APIRouter(tags=["rankings"])
 
 # DB stores borough names uppercase (e.g. "STATEN ISLAND").
 VALID_BOROUGHS = {"MANHATTAN", "BRONX", "BROOKLYN", "QUEENS", "STATEN ISLAND"}
+
+# Landlord grouping: which name column identifies the portfolio.
+# Owner names come from PLUTO; managing agents from HPD registration. A landlord
+# that registers a separate LLC per building often routes them all through one
+# managing agent, so the agent view can reveal portfolios the owner view splits.
+GROUP_COLUMNS = {"owner": "b.owner_name", "manager": "b.managing_agent"}
 
 # Exclude 1-2 family homes (PLUTO class A/B) — same convention as the map/search.
 EXCLUDE_SMALL_HOMES = "b.building_class NOT LIKE 'A%' AND b.building_class NOT LIKE 'B%'"
@@ -99,17 +106,28 @@ async def worst_buildings(
 async def worst_landlords(
     request: Request,
     borough: str | None = Query(None, description="Filter to one borough"),
+    group_by: str = Query("owner", description="Group portfolios by 'owner' or 'manager'"),
     limit: int = Query(50, ge=1, le=100),
     min_buildings: int = Query(3, ge=1, le=50, description="Min buildings in a portfolio to rank"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Owners with the worst average health score across their portfolio.
+    """Landlords with the worst average health score across their portfolio.
 
-    Owners are grouped case-insensitively. Only portfolios with at least
-    `min_buildings` scored buildings are ranked, so a single bad building
-    doesn't dominate the list.
+    Names are normalized (legal-entity suffixes and punctuation stripped) so
+    variants like "ABC Realty LLC" and "ABC Realty Corp" group together. Only
+    portfolios with at least `min_buildings` scored buildings are ranked, so a
+    single bad building doesn't dominate the list. Set `group_by=manager` to
+    group by HPD managing agent instead of PLUTO owner.
     """
     norm_borough = _normalize_borough(borough)
+
+    col = GROUP_COLUMNS.get(group_by)
+    if col is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid group_by. Use one of: {', '.join(sorted(GROUP_COLUMNS))}",
+        )
+    entity_key_sql = normalized_entity_sql(col)
 
     borough_clause = "AND b.borough = :borough" if norm_borough else ""
     params: dict = {"limit": limit, "min_buildings": min_buildings}
@@ -120,8 +138,8 @@ async def worst_landlords(
         text(f"""
             WITH scored AS (
                 SELECT
-                    UPPER(TRIM(b.owner_name)) AS owner_key,
-                    b.owner_name,
+                    {entity_key_sql} AS entity_key,
+                    {col} AS entity_name,
                     b.borough,
                     b.bbl,
                     hs.composite_score,
@@ -130,13 +148,13 @@ async def worst_landlords(
                     COALESCE(b.residential_units, 0) AS residential_units
                 FROM buildings b
                 JOIN health_scores hs ON hs.building_id = b.id
-                WHERE b.owner_name IS NOT NULL
-                    AND TRIM(b.owner_name) <> ''
+                WHERE {col} IS NOT NULL
+                    AND TRIM({col}) <> ''
                     AND {EXCLUDE_SMALL_HOMES}
                     {borough_clause}
             )
             SELECT
-                MIN(owner_name) AS owner_name,
+                MIN(entity_name) AS owner_name,
                 COUNT(*) AS building_count,
                 AVG(composite_score) AS avg_score,
                 SUM(total_violations) AS total_violations,
@@ -145,7 +163,8 @@ async def worst_landlords(
                 ARRAY_AGG(DISTINCT borough) AS boroughs,
                 (ARRAY_AGG(bbl ORDER BY composite_score ASC))[1] AS worst_bbl
             FROM scored
-            GROUP BY owner_key
+            WHERE entity_key IS NOT NULL
+            GROUP BY entity_key
             HAVING COUNT(*) >= :min_buildings
             ORDER BY avg_score ASC, SUM(total_violations) DESC
             LIMIT :limit
@@ -172,5 +191,5 @@ async def worst_landlords(
         )
 
     return WorstLandlordsListResponse(
-        landlords=landlords, total=len(landlords), borough=norm_borough
+        landlords=landlords, total=len(landlords), borough=norm_borough, group_by=group_by
     )
