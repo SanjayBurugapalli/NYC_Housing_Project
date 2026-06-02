@@ -63,22 +63,22 @@ const GLOSSARY = [
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-gray-900 text-white" style={{ fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" }}>
+    <div className="min-h-screen bg-gray-900 text-white" style={{ fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", overflowX: "clip" }}>
 
       {/* ── Nav ── */}
       <nav className="sticky top-0 z-50 border-b border-gray-700/50 bg-gray-900/85 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-8">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-8">
           <Link href="/" className="flex items-center gap-2.5 text-white no-underline">
             <img src="/logo-mark.svg" alt="" className="h-8 w-8" aria-hidden="true" />
-            <span className="text-[15px] font-semibold tracking-tight">BeforeYouRent</span>
+            <span className="hidden text-[15px] font-semibold tracking-tight sm:inline">BeforeYouRent</span>
           </Link>
-          <div className="flex items-center gap-7">
+          <div className="flex items-center gap-4 sm:gap-7">
             <a href="#about" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors sm:block">About</a>
             <a href="#scoring" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors sm:block">Scoring</a>
             <a href="#limitations" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors lg:block">Limitations</a>
             <a href="#glossary" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors lg:block">Glossary</a>
-            <Link href="/rankings" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors sm:block">Worst landlords</Link>
-            <Link href="/map" className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors">
+            <Link href="/rankings" className="whitespace-nowrap text-sm font-medium text-gray-300 hover:text-white transition-colors">Worst landlords</Link>
+            <Link href="/map" className="whitespace-nowrap rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors sm:px-4">
               Open map
             </Link>
           </div>
@@ -148,7 +148,7 @@ export default function LandingPage() {
 
       {/* ── Stats ── */}
       <div className="border-b border-t border-gray-800 py-8">
-        <div className="mx-auto grid max-w-6xl grid-cols-2 gap-8 px-8 text-center sm:grid-cols-4">
+        <div className="mx-auto grid max-w-6xl grid-cols-2 gap-4 px-4 text-center sm:grid-cols-4 sm:gap-8 sm:px-8">
           {[
             { num: "859,000+", label: "Residential buildings indexed" },
             { num: "6", label: "Public datasets combined" },
@@ -156,7 +156,7 @@ export default function LandingPage() {
             { num: "Free", label: "No login, no paywall" },
           ].map(({ num, label }) => (
             <div key={label}>
-              <div className="text-4xl font-bold tracking-tight" style={{ letterSpacing: "-0.02em" }}>{num}</div>
+              <div className="text-3xl font-bold tracking-tight sm:text-4xl" style={{ letterSpacing: "-0.02em" }}>{num}</div>
               <div className="mt-2 text-sm text-gray-400">{label}</div>
             </div>
           ))}
@@ -221,7 +221,7 @@ export default function LandingPage() {
             <h3 className="mb-4 text-base font-semibold text-white">Category weights</h3>
             <div className="space-y-2.5">
               {WEIGHTS.map(({ label, pct, color }) => (
-                <div key={label} className="grid items-center gap-3" style={{ gridTemplateColumns: "180px 1fr 40px" }}>
+                <div key={label} className="grid items-center gap-3 grid-cols-[100px_1fr_34px] sm:grid-cols-[180px_1fr_40px]">
                   <div className="text-[13px] text-gray-300">{label}</div>
                   <div className="h-2.5 overflow-hidden rounded-full bg-gray-700">
                     <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
