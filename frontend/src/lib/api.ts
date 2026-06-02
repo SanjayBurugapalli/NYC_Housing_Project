@@ -4,6 +4,8 @@ import type {
   NeighborhoodAggregate,
   SearchResult,
   ViewportBounds,
+  WorstBuilding,
+  WorstLandlord,
 } from "@/types/building";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -104,6 +106,27 @@ export async function searchBuildings(query: string, filters: SearchFilters = {}
       min_units: filters.minUnits ?? null,
     }),
   });
+}
+
+export async function fetchWorstBuildings(
+  borough?: string | null,
+  limit = 50
+): Promise<{ buildings: WorstBuilding[]; total: number; borough: string | null }> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (borough) params.set("borough", borough);
+  return fetchApi(`/api/rankings/buildings?${params.toString()}`);
+}
+
+export type LandlordGroupBy = "owner" | "manager";
+
+export async function fetchWorstLandlords(
+  borough?: string | null,
+  groupBy: LandlordGroupBy = "owner",
+  limit = 50
+): Promise<{ landlords: WorstLandlord[]; total: number; borough: string | null; group_by: LandlordGroupBy }> {
+  const params = new URLSearchParams({ limit: String(limit), group_by: groupBy });
+  if (borough) params.set("borough", borough);
+  return fetchApi(`/api/rankings/landlords?${params.toString()}`);
 }
 
 export async function searchByOwner(name: string): Promise<SearchResult> {

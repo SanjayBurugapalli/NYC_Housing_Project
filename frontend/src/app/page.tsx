@@ -75,8 +75,9 @@ export default function LandingPage() {
           <div className="flex items-center gap-7">
             <a href="#about" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors sm:block">About</a>
             <a href="#scoring" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors sm:block">Scoring</a>
-            <a href="#limitations" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors sm:block">Limitations</a>
-            <a href="#glossary" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors sm:block">Glossary</a>
+            <a href="#limitations" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors lg:block">Limitations</a>
+            <a href="#glossary" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors lg:block">Glossary</a>
+            <Link href="/rankings" className="hidden text-sm font-medium text-gray-300 hover:text-white transition-colors sm:block">Worst landlords</Link>
             <Link href="/map" className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors">
               Open map
             </Link>
@@ -356,6 +357,7 @@ export default function LandingPage() {
             <a href="#scoring" className="text-gray-400 hover:text-white transition-colors">Scoring</a>
             <a href="#limitations" className="text-gray-400 hover:text-white transition-colors">Limitations</a>
             <a href="#glossary" className="text-gray-400 hover:text-white transition-colors">Glossary</a>
+            <Link href="/rankings" className="text-gray-400 hover:text-white transition-colors">Worst landlords</Link>
             <Link href="/map" className="text-gray-400 hover:text-white transition-colors">Map</Link>
             <a
               href="https://github.com/SanjayBurugapalli/NYC_Housing_Project"

@@ -137,6 +137,40 @@ class BuildingListResponse(BaseModel):
     total: int
 
 
+# --- Rankings (worst landlords & buildings) ---
+
+class WorstBuildingResponse(BuildingSummaryResponse):
+    owner_name: str | None = None
+    managing_agent: str | None = None
+    total_violations: int = 0
+    total_complaints: int = 0
+
+
+class WorstBuildingsListResponse(BaseModel):
+    buildings: list[WorstBuildingResponse]
+    total: int
+    borough: str | None = None
+
+
+class WorstLandlordResponse(BaseModel):
+    owner_name: str
+    building_count: int
+    avg_score: float
+    grade: str
+    total_violations: int
+    total_complaints: int
+    total_units: int
+    boroughs: list[str] = []
+    worst_bbl: str | None = None
+
+
+class WorstLandlordsListResponse(BaseModel):
+    landlords: list[WorstLandlordResponse]
+    total: int
+    borough: str | None = None
+    group_by: str = "owner"
+
+
 # --- Neighborhoods ---
 
 class NeighborhoodResponse(BaseModel):
