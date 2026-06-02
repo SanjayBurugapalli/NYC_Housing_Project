@@ -196,7 +196,7 @@ export default function RankingsPage() {
   return (
     <div
       className="min-h-screen bg-gray-900 text-white"
-      style={{ fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" }}
+      style={{ fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", overflowX: "clip" }}
     >
       {/* Nav */}
       <nav className="sticky top-0 z-50 border-b border-gray-700/50 bg-gray-900/85 backdrop-blur-md">
