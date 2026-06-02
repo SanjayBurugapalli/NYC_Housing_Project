@@ -141,3 +141,22 @@ export interface ViewportBounds {
   east: number;
   north: number;
 }
+
+export interface WorstBuilding extends BuildingSummary {
+  owner_name: string | null;
+  managing_agent: string | null;
+  total_violations: number;
+  total_complaints: number;
+}
+
+export interface WorstLandlord {
+  owner_name: string;
+  building_count: number;
+  avg_score: number;
+  grade: Grade;
+  total_violations: number;
+  total_complaints: number;
+  total_units: number;
+  boroughs: Borough[];
+  worst_bbl: string | null;
+}
