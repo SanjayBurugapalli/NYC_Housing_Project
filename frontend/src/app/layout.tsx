@@ -3,18 +3,29 @@ import { Analytics } from "@vercel/analytics/react";
 import { Providers } from "@/components/Providers";
 import "./globals.css";
 
+// Absolute base for OG/Twitter image URLs. Set NEXT_PUBLIC_SITE_URL to the
+// production domain; falls back to the Vercel deployment URL, then localhost.
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+
+const description =
+  "Health scores for every NYC residential building, based on complaints, violations, and inspections.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: "BeforeYouRent",
-  description: "Health scores for every NYC residential building, based on complaints, violations, and inspections.",
+  description,
   openGraph: {
     title: "BeforeYouRent",
-    description: "Health scores for every NYC residential building, based on complaints, violations, and inspections.",
+    description,
     type: "website",
+    siteName: "BeforeYouRent",
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: "BeforeYouRent",
-    description: "Health scores for every NYC residential building, based on complaints, violations, and inspections.",
+    description,
   },
 };
 
