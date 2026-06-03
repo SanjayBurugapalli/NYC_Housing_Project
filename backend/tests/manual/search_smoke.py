@@ -1,4 +1,8 @@
-"""Manual search integration tests — run against a live backend on localhost:8000."""
+"""Manual search smoke test — run against a live backend on localhost:8000.
+
+Not collected by pytest (no test_ prefix, no test_ functions). Invoke directly:
+    python tests/manual/search_smoke.py
+"""
 
 import json
 import sys
