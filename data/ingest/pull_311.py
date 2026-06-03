@@ -52,10 +52,14 @@ def pull_311(limit: int | None = None, days_back: int = 365):
     relevant_types = list(COMPLAINT_CATEGORY_MAP.keys())
     type_filter = " OR ".join(f"complaint_type='{t}'" for t in relevant_types)
     where = f"created_date > '{since_date}' AND ({type_filter})"
+    # NOTE: the 311 dataset exposes `bbl` directly — select it so complaints
+    # link to buildings without relying on address normalization. ~36% of
+    # building-routed types (HEAT/HOT WATER, PLUMBING, UNSANITARY) were
+    # previously dropped from scoring for lack of a BBL.
     select = (
         "unique_key,complaint_type,descriptor,status,"
         "created_date,closed_date,incident_address,borough,"
-        "incident_zip,latitude,longitude"
+        "incident_zip,latitude,longitude,bbl"
     )
 
     total_inserted = 0
@@ -69,14 +73,17 @@ def pull_311(limit: int | None = None, days_back: int = 365):
                     INSERT INTO complaints (
                         external_id, source, complaint_type, descriptor,
                         status, description, address, borough, category,
-                        created_date, closed_date
+                        created_date, closed_date, bbl
                     ) VALUES (
                         :external_id, '311', :complaint_type, :descriptor,
                         :status, :description, :address, :borough, :category,
-                        :created_date, :closed_date
+                        :created_date, :closed_date, :bbl
                     ) ON CONFLICT (external_id) DO UPDATE SET
                         status = EXCLUDED.status,
-                        closed_date = EXCLUDED.closed_date
+                        closed_date = EXCLUDED.closed_date,
+                        -- Backfill BBL on re-pull; keep an existing value if the
+                        -- source row no longer carries one.
+                        bbl = COALESCE(EXCLUDED.bbl, complaints.bbl)
                 """),
                 records,
             )
@@ -110,6 +117,17 @@ def transform_311(df: pd.DataFrame) -> pd.DataFrame:
     # Normalize address for later matching
     if "address" in df.columns:
         df["address"] = df["address"].str.upper().str.strip()
+
+    # Normalize BBL to a 10-digit string (Socrata returns it as a float-ish
+    # string like "1000570001.0"); blank/zero/NaN become None so they don't
+    # masquerade as a real lot.
+    if "bbl" in df.columns:
+        bbl = pd.to_numeric(df["bbl"], errors="coerce")
+        df["bbl"] = bbl.apply(
+            lambda v: str(int(v)).zfill(10) if pd.notna(v) and v > 0 else None
+        )
+    else:
+        df["bbl"] = None
 
     return df
 
