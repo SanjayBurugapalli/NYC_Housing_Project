@@ -46,8 +46,8 @@ Track everything that needs to happen before this goes public. Check items off a
 
 | P | Owner | Item | Notes |
 |---|---|---|---|
-| P0 | 👤 | 🟡 Trigger + verify first cron run | In flight as of 2026-05-31 ~21:13 UTC. First 50k batch took ~3m 38s over the public proxy; full run expected 60-120 min. Confirm `data_refresh_status` has all ~10 datasets at `success` + `scoring` ran once it lands. |
-| P0 | 🤝 | Sentry on frontend + backend | I'll wire the SDKs and source maps. You create the Sentry project and provide the DSN. |
+| P0 | 👤 | ✅ Trigger + verify first cron run | Confirmed complete — all datasets ran and scoring populated `health_scores`. |
+| P0 | 🤝 | ✅ Sentry on frontend + backend | SDKs + source maps wired across frontend, backend, and the cron orchestrator (with cron check-ins); React render errors surfaced. |
 | P1 | 👤 | Uptime monitoring on `/health` | UptimeRobot or healthchecks.io. 5-min interval, email alert. Free. |
 | P1 | 👤 | Refresh-staleness alert on `/api/refresh-status` | Same tool, daily ping, alert if `any_stale: true`. Catches broken pullers. |
 | P2 | 🤖 | ✅ Review backend restart policy | `on_failure` + 3 retries in [railway.toml](railway.toml) is appropriate for this traffic profile. No change. |
@@ -67,8 +67,8 @@ Track everything that needs to happen before this goes public. Check items off a
 
 | P | Owner | Item | Notes |
 |---|---|---|---|
-| P0 | 👤 | Spot-check 5 known buildings | Pick addresses you can verify externally (your apt, a friend's, a notorious building). Sanity-check counts + grade. |
-| P0 | 🤖 | 🟡 Score distribution sanity check | Blocked on first cron run completing. Ping me after and I'll run `SELECT grade, COUNT(*) GROUP BY` and flag if any grade dominates >70%. |
+| P0 | 👤 | ✅ Spot-check 5 known buildings | Done — verified externally against the live UI. |
+| P0 | 🤖 | ⚠️ Score distribution sanity check | **Flagged.** Excluding 1–2 family homes: **A 78.4%**, B 12.3%, C 6.6%, D 2.2%, F 0.5% — A exceeds the >70% concern threshold. Median score 99.5; 39% score exactly 100; **41% have zero complaints AND zero violations**. Likely a join-coverage gap (311 joins on normalized address, DOB on BIN — unmatched records leave buildings looking pristine) and/or an overly lenient curve. Needs a calibration decision: tighten the curve and/or audit complaint→building join coverage before launch so the grade is meaningful. |
 | P1 | 🤖 | ✅ Confirm per-unit normalization in scoring | Verified in [compute.py](data/scoring/compute.py): all per-building scoring functions divide `weighted_count / residential_units` (lines 270, 319, 363, 397). Litigation is intentionally per-building. `residential_units` clipped to ≥1 to avoid divide-by-zero. |
 
 ## UX / launch polish
@@ -100,12 +100,13 @@ Updated sequence based on what's already done. Items already shipped are marked 
 4. ✅ 🤖 Rate limits, CORS allowlist, pool tuning, log sanitization, attribution, caveats — all merged.
 5. ✅ 👤 `ALLOWED_ORIGINS` set on Railway backend, frontend loads correctly.
 6. ✅ 👤 Mapbox token URL-restricted.
-7. 🟡 👤 First cron run in flight — watch it complete, then ping me for the score-distribution sanity query.
-8. **Next: 🤝 Add Sentry to frontend + backend** (30 min — I wire the SDKs and source maps once you create the project and give me the DSN).
-9. 👤 UptimeRobot on `/health` + `/api/refresh-status` (15 min — comes after Sentry so we don't double-handle the same alerts).
-10. 👤 Spot-check 5 known buildings (your apt, friend's, a notorious building) against the live UI.
-11. 🤖 Switch cron `DATABASE_URL` to `${{Postgres.DATABASE_PRIVATE_URL}}` (5 min in the Railway dashboard — speeds up future runs significantly).
-12. 🤝 Vector tile pipeline (tippecanoe) — biggest scale risk; deferrable until you start seeing real traffic.
+7. ✅ 👤 First cron run complete.
+8. ✅ 🤝 Sentry on frontend + backend + cron.
+9. ✅ 👤 Spot-check 5 known buildings against the live UI.
+10. **Next: ⚠️ 🤖 Score-distribution calibration** — 78% of buildings grade A; decide whether to tighten the curve and/or audit complaint→building join coverage so the grade discriminates. Launch blocker for a credible product.
+11. 👤 UptimeRobot on `/health` + `/api/refresh-status` (15 min).
+12. 🤖 Switch cron `DATABASE_URL` to `${{Postgres.DATABASE_PRIVATE_URL}}` (5 min in the Railway dashboard — speeds up future runs significantly).
+13. 🤝 Vector tile pipeline (tippecanoe) — biggest scale risk; deferrable until you start seeing real traffic.
 
 Everything else is fast-follow unless you're expecting press-level traffic on day one.
 
