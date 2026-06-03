@@ -385,12 +385,21 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
     )
     dob_count = dob_count_result.scalar() or 0
 
+    # Prefer the NTA name; otherwise derive a display name from the community
+    # district code. With no community district at all, fall back to NTA again.
+    if b.get("neighborhood"):
+        neighborhood_label = b.get("nta_name") or get_neighborhood_name(
+            b["neighborhood"] or "", b["borough"] or ""
+        )
+    else:
+        neighborhood_label = b.get("nta_name")
+
     return {
         "bbl": b["bbl"],
         "bin": b["bin"],
         "address": b["address"],
         "borough": b["borough"],
-        "neighborhood": b.get("nta_name") or get_neighborhood_name(b["neighborhood"] or "", b["borough"] or "") if b.get("neighborhood") else b.get("nta_name"),
+        "neighborhood": neighborhood_label,
         "nta_name": b.get("nta_name"),
         "sub_neighborhood": None,
         "latitude": b["latitude"],
