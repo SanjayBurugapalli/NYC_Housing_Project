@@ -21,7 +21,7 @@ from typing import Any
 import anthropic
 from anthropic import AsyncAnthropic
 
-from app.core.config import settings
+from app.core.config import MAX_RESULTS, settings
 
 logger = logging.getLogger(__name__)
 
@@ -139,8 +139,8 @@ SEARCH_TOOL = {
                 ),
             },
             "limit": {
-                "type": "integer", "minimum": 1, "maximum": 100,
-                "description": "Result limit. 'top 5' → 5. Default 100 if omitted.",
+                "type": "integer", "minimum": 1, "maximum": MAX_RESULTS,
+                "description": f"Result limit. 'top 5' → 5. Default {MAX_RESULTS} if omitted.",
             },
         },
         "additionalProperties": False,

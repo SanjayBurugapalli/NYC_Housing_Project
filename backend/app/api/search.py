@@ -1,3 +1,4 @@
+import logging
 import math
 import re
 
@@ -6,11 +7,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas import BuildingSummaryResponse, SearchRequest, SearchResponse
+from app.core.config import MAX_RESULTS
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.services.building_service import score_to_grade
 
 router = APIRouter(tags=["search"])
+
+logger = logging.getLogger(__name__)
 
 
 def _sanitize_row(row: dict) -> dict:
@@ -25,8 +29,6 @@ def _sanitize_row(row: dict) -> dict:
 
 # BBL pattern: 10 digits (or 1-digit borough + block + lot)
 BBL_PATTERN = re.compile(r"^\d{10}$")
-
-MAX_RESULTS = 100
 
 # Direction word ↔ abbreviation mappings (applied with \b word boundaries)
 _DIR_CONTRACT = [("EAST", "E"), ("WEST", "W"), ("NORTH", "N"), ("SOUTH", "S")]
@@ -244,13 +246,12 @@ async def search_buildings(
     try:
         from app.services.search_service import search_buildings_ai
         result = await search_buildings_ai(db, query, extra_filters=extra_filters if extra_filters else None)
-        buildings = [
-            BuildingSummaryResponse(
-                **_sanitize_row(b),
-                grade=score_to_grade(b.get("health_score", 0) if not (isinstance(b.get("health_score"), float) and math.isnan(b.get("health_score", 0))) else 0),
+        buildings = []
+        for b in result["results"]:
+            row = _sanitize_row(b)  # already coerces NaN/Inf health_score → 0.0
+            buildings.append(
+                BuildingSummaryResponse(**row, grade=score_to_grade(row.get("health_score", 0)))
             )
-            for b in result["results"]
-        ]
         return SearchResponse(
             results=buildings,
             total=result["total"],
@@ -260,6 +261,7 @@ async def search_buildings(
             needs_fallback=result.get("needs_fallback", False),
         )
     except Exception:
+        logger.exception("AI search failed for query=%r; returning empty results", query)
         return SearchResponse(
             results=[],
             total=0,

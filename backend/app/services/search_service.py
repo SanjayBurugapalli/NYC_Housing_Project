@@ -22,6 +22,8 @@ from typing import TypedDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import MAX_RESULTS
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -429,7 +431,6 @@ BUILDING_CLASS_KEYWORDS: list[tuple[str, list[str]]] = sorted([
 ], key=lambda x: -len(x[0]))
 
 VALID_BOROUGHS = {"MANHATTAN", "BRONX", "BROOKLYN", "QUEENS", "STATEN ISLAND"}
-MAX_RESULTS = 100
 
 # ---------------------------------------------------------------------------
 # Concept definitions

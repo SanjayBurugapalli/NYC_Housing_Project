@@ -1,5 +1,10 @@
 from pydantic_settings import BaseSettings
 
+# Hard cap on rows returned by any search path (guardrail, not a tunable
+# setting). Single source for the API route, the rule-based parser, and the
+# Claude tool schema.
+MAX_RESULTS = 100
+
 
 class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://nyc_buildings:devpassword@localhost:5432/nyc_buildings"
