@@ -152,8 +152,8 @@ export default function MapPage() {
         ) : null}
       </div>
 
-      {/* Data freshness pill — display only. */}
-      <div className="absolute top-20 left-4 z-10">
+      {/* Data freshness pill — display only. Anchored to the top-left corner. */}
+      <div className="absolute top-4 left-4 z-10">
         <FreshnessPill />
       </div>
 
