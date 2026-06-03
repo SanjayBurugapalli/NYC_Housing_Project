@@ -359,6 +359,7 @@ export default function LandingPage() {
             <a href="#glossary" className="text-gray-400 hover:text-white transition-colors">Glossary</a>
             <Link href="/rankings" className="text-gray-400 hover:text-white transition-colors">Worst landlords</Link>
             <Link href="/map" className="text-gray-400 hover:text-white transition-colors">Map</Link>
+            <Link href="/privacy" className="text-gray-400 hover:text-white transition-colors">Privacy</Link>
             <a
               href="https://github.com/SanjayBurugapalli/NYC_Housing_Project"
               target="_blank"
