@@ -6,7 +6,7 @@ Concise audit of redundancies, dead code, and complexity worth addressing.
 
 - **Celery is unused.** [backend/app/services/celery_app.py](backend/app/services/celery_app.py) + [tasks.py](backend/app/services/tasks.py) define a beat schedule with two `# TODO` empty bodies. Scheduling is actually done by [data/refresh.py](data/refresh.py) via Railway cron (commit `fc0b6ca`). Delete both files; `docker-compose.yml` already has the Celery services commented out. Drop `celery`/`redis` from requirements and from CLAUDE.md's tech-stack line.
 - **`age_maintenance_score` is deprecated but lingers.** [data/scoring/compute.py:203](data/scoring/compute.py#L203) writes a hardcoded `0.0` "kept for DB compatibility"; column is also SELECTed in [building_service.py:171](backend/app/services/building_service.py#L171) and listed in CLAUDE.md as a 10% weight. Either drop the column via Alembic migration, or revive the metric — half-removed state is worse than either.
-- **`GRADE_MAP` constant is dead.** [building_service.py:67](backend/app/services/building_service.py#L67) — defined but never read; only `score_to_grade()` is used.
+- ~~**`GRADE_MAP` constant is dead.** [building_service.py:67](backend/app/services/building_service.py#L67) — defined but never read; only `score_to_grade()` is used.~~ **Done** — removed.
 - **`backend/test_search.py`** is a manual `urllib`-based localhost smoke test sitting outside `tests/`. Move into `tests/manual/` or delete.
 - **`data/listings/` is not wired in.** No imports from `backend/`, `refresh.py`, or any Docker/cron config reference it. ~600 lines of fetcher/store/aggregator/playwright code is either dead or in-progress; mark it clearly.
 
@@ -21,15 +21,15 @@ Three different weight tables exist:
 | [page.tsx:44](frontend/src/app/page.tsx#L44) (landing) | **30** | 20 | **15** | **15** | **12** | **8** | — |
 | CLAUDE.md | 20 | 20 | 15 | 20 | 10 | 5 | 10 |
 
-The landing-page weights are wrong and will mislead users. Single-source the weights (export from one TS file, generate the marketing copy from it; ideally fetch from API or share via a JSON constant the backend also reads).
+**Partially done** — landing-page `WEIGHTS` in [page.tsx:44](frontend/src/app/page.tsx#L44) corrected to match the truth (Pest 22, Heat 20, HPD 20, Struct 20, Lit 13, Noise 5). Still not single-sourced: the values remain hand-copied across compute.py / store.ts / page.tsx. CLAUDE.md's table is also stale (lists a 10% "age" weight that compute.py no longer applies). Next step: export the weights from one place and generate the rest.
 
 ## Duplicated Definitions (single-source-of-truth violations)
 
-- **`score_to_grade` defined twice** with identical thresholds: [building_service.py:70](backend/app/services/building_service.py#L70) and [schemas.py:8](backend/app/api/schemas.py#L8). Only the building_service version is imported anywhere. Delete the schemas.py copy.
+- ~~**`score_to_grade` defined twice** with identical thresholds: [building_service.py:70](backend/app/services/building_service.py#L70) and [schemas.py:8](backend/app/api/schemas.py#L8). Only the building_service version is imported anywhere. Delete the schemas.py copy.~~ **Done** — schemas.py copy removed.
 - **CD → neighborhood name map exists twice with different values.** [compute.py:33-98 `CD_NAMES`](data/scoring/compute.py#L33) vs [neighborhood_names.py `NEIGHBORHOOD_NAMES`](backend/app/api/neighborhood_names.py) — e.g. CD 104 is `"Chelsea/Clinton"` in one, `"Chelsea/Hell's Kitchen"` in the other. compute.py writes the row, the API reads via a different dict. Import the API dict in compute.py.
 - **Sub-neighborhood centroids duplicated between languages.** [sub_neighborhood_splits.py](backend/app/api/sub_neighborhood_splits.py) (Python, keyed by CD) and [neighborhoodSplits.ts](frontend/src/lib/neighborhoodSplits.ts) (TS, keyed by compound name) carry the same lat/lng pairs. Serve from `/api/neighborhoods/splits` and drop the frontend copy, or generate the TS file from the Python source.
 - **Address suffix maps in three places** with overlapping but non-identical entries: [search.py:32-42](backend/app/api/search.py#L32) (`_DIR_CONTRACT`/`_SFX_CONTRACT`), [normalize.py:20-37](data/transform/normalize.py#L20) (`SUFFIX_MAP`), and [BuildingPanel.tsx:13-17](frontend/src/components/BuildingPanel.tsx#L13) (`STREET_SUFFIX_EXPANSIONS`). Promote to one shared mapping per side (Python + TS) and keep them in sync via a generator or shared JSON.
-- **Grade→color map in 3 spots inside [Map.tsx](frontend/src/components/Map.tsx).** `GRADE_COLORS` at line 13 (unused), then inline `match` expressions at lines 362-370 and 422-430. Use the top-level constant in both paint specs.
+- ~~**Grade→color map in 3 spots inside [Map.tsx](frontend/src/components/Map.tsx).** `GRADE_COLORS` at line 13 (unused), then inline `match` expressions at lines 362-370 and 422-430. Use the top-level constant in both paint specs.~~ **Done** — the three inline `match` expressions now use a single `GRADE_COLOR_EXPRESSION` derived from `GRADE_COLORS`.
 
 ## search_service.py (1,299 lines) — Largest File in the Repo
 
@@ -70,6 +70,6 @@ Unpack into a multi-line `if/else`.
 
 ## Minor
 
-- [search_service.py:209](backend/app/services/search_service.py#L209) declares `"east williamsburg"` twice in `NTA_ALIASES` (also at line 155). Harmless but noisy.
+- ~~[search_service.py:209](backend/app/services/search_service.py#L209) declares `"east williamsburg"` twice in `NTA_ALIASES` (also at line 155). Harmless but noisy.~~ **Done** — duplicate removed.
 - `data/refresh.py:_load_tasks` ([line 65](data/refresh.py#L65)) assumes every puller accepts a `limit=` kwarg. Pullers added later may not; either enforce a `Protocol` or guard with `inspect.signature`.
 - `MAX_RESULTS = 100` is defined in 3 places ([search.py:29](backend/app/api/search.py#L29), [search_service.py:433](backend/app/services/search_service.py#L433), [claude_search_parser.py SEARCH_TOOL](backend/app/services/claude_search_parser.py#L142)). Centralize.
