@@ -58,6 +58,11 @@ DECAY_RATES = {
 DATA_CUTOFF_YEARS = 5
 
 
+def _data_since_iso() -> str:
+    """ISO date (YYYY-MM-DD) marking the oldest data we still consider."""
+    return (datetime.now(timezone.utc) - timedelta(days=DATA_CUTOFF_YEARS * 365)).strftime("%Y-%m-%d")
+
+
 def time_weight(dates: pd.Series) -> pd.Series:
     """Gradual time decay: recent issues matter more, old ones fade.
 
@@ -195,7 +200,7 @@ def compute_complaint_score(
     engine, buildings: pd.DataFrame, category: str, decay_rate: float
 ) -> pd.Series:
     """Compute a sub-score based on complaint counts per unit with time decay."""
-    since = (datetime.now(timezone.utc) - timedelta(days=DATA_CUTOFF_YEARS * 365)).strftime("%Y-%m-%d")
+    since = _data_since_iso()
     complaints = pd.read_sql(
         text(
             "SELECT bbl, created_date FROM complaints "
@@ -225,7 +230,7 @@ def compute_pest_score(
     engine, buildings: pd.DataFrame, decay_rate: float
 ) -> pd.Series:
     """Combine pest complaints and rodent inspections."""
-    since = (datetime.now(timezone.utc) - timedelta(days=DATA_CUTOFF_YEARS * 365)).strftime("%Y-%m-%d")
+    since = _data_since_iso()
     pest_complaints = pd.read_sql(
         text(
             "SELECT bbl, created_date FROM complaints "
@@ -274,7 +279,7 @@ def compute_structural_score(
     engine, buildings: pd.DataFrame, decay_rate: float
 ) -> pd.Series:
     """Score based on DOB violations/complaints (excluding administrative/filing violations)."""
-    since = (datetime.now(timezone.utc) - timedelta(days=DATA_CUTOFF_YEARS * 365)).strftime("%Y-%m-%d")
+    since = _data_since_iso()
     violations = pd.read_sql(
         text(
             "SELECT bbl, inspection_date FROM violations "
@@ -318,7 +323,7 @@ def compute_hpd_severity_score(
     engine, buildings: pd.DataFrame, decay_rate: float
 ) -> pd.Series:
     """Score based on HPD violation severity (Class A/B/C). C is worst."""
-    since = (datetime.now(timezone.utc) - timedelta(days=DATA_CUTOFF_YEARS * 365)).strftime("%Y-%m-%d")
+    since = _data_since_iso()
     violations = pd.read_sql(
         text(
             "SELECT bbl, severity, inspection_date FROM violations "
@@ -350,7 +355,7 @@ def compute_hpd_severity_score(
 
 def compute_litigation_score(engine, buildings: pd.DataFrame) -> pd.Series:
     """Score based on litigation history with time decay."""
-    since = (datetime.now(timezone.utc) - timedelta(days=DATA_CUTOFF_YEARS * 365)).strftime("%Y-%m-%d")
+    since = _data_since_iso()
     litigations = pd.read_sql(
         text(
             "SELECT bbl, case_open_date FROM litigations "
@@ -377,7 +382,7 @@ def compute_litigation_score(engine, buildings: pd.DataFrame) -> pd.Series:
 
 def get_raw_counts(engine, buildings: pd.DataFrame) -> pd.DataFrame:
     """Get raw complaint/violation/rodent/litigation counts per building (within cutoff)."""
-    since = (datetime.now(timezone.utc) - timedelta(days=DATA_CUTOFF_YEARS * 365)).strftime("%Y-%m-%d")
+    since = _data_since_iso()
 
     complaint_counts = pd.read_sql(
         text(
