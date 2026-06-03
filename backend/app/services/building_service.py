@@ -64,9 +64,6 @@ def _resolve_sub_neighborhood(cd_code: str, lat: float | None, lng: float | None
         return None
     return min(candidates, key=lambda s: (s["lat"] - lat) ** 2 + (s["lng"] - lng) ** 2)["name"]
 
-GRADE_MAP = {100: "A", 80: "B", 60: "C", 40: "D", 20: "F"}
-
-
 def score_to_grade(score: float) -> str:
     if score >= 97:
         return "A"

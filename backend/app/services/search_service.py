@@ -206,7 +206,6 @@ NTA_ALIASES: dict[str, str] = {
     "prospect lefferts": "Prospect Lefferts Gardens",
     "plg": "Prospect Lefferts Gardens",
     "spring creek": "Spring Creek",
-    "east williamsburg": "East Williamsburg",
     # Queens
     "astoria": "Astoria",
     "ditmars": "Astoria",

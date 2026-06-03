@@ -5,19 +5,6 @@ from pydantic import BaseModel, Field
 
 # --- Buildings ---
 
-def score_to_grade(score: float) -> str:
-    """Convert numeric composite score to letter grade."""
-    if score >= 97:
-        return "A"
-    if score >= 90:
-        return "B"
-    if score >= 75:
-        return "C"
-    if score >= 55:
-        return "D"
-    return "F"
-
-
 class BuildingSummaryResponse(BaseModel):
     bbl: str
     bin: str | None = None
