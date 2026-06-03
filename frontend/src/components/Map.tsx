@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
-import mapboxgl from "mapbox-gl";
+import mapboxgl, { type ExpressionSpecification } from "mapbox-gl";
 // Imported from the prebuilt dist (the package's `main` is raw TS which Next
 // won't transpile from node_modules). mapbox-gl has no MapLibre-style
 // addProtocol, so PMTiles is wired in as a custom mapbox-gl *source type*.
@@ -92,6 +92,16 @@ const GRADE_COLORS: Record<string, string> = {
   D: "#f97316",
   F: "#ef4444",
 };
+
+// Mapbox "match" expression that colors a feature by its `grade` property,
+// derived from GRADE_COLORS so the dot layers stay in sync with the single
+// source. Falls back to a neutral grey for ungraded features.
+const GRADE_COLOR_EXPRESSION = [
+  "match",
+  ["get", "grade"],
+  ...Object.entries(GRADE_COLORS).flatMap(([grade, color]) => [grade, color]),
+  "#6b7280",
+] as unknown as ExpressionSpecification;
 
 export function Map() {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -483,16 +493,7 @@ export function Map() {
             13, 3,
             16, 6,
           ],
-          "circle-color": [
-            "match",
-            ["get", "grade"],
-            "A", "#22c55e",
-            "B", "#84cc16",
-            "C", "#eab308",
-            "D", "#f97316",
-            "F", "#ef4444",
-            "#6b7280",
-          ],
+          "circle-color": GRADE_COLOR_EXPRESSION,
           "circle-opacity": 0.8,
           "circle-stroke-width": 1,
           "circle-stroke-color": "#1f2937",
@@ -531,16 +532,7 @@ export function Map() {
             14, 7,
             16, 9,
           ],
-          "circle-color": [
-            "match",
-            ["get", "grade"],
-            "A", "#22c55e",
-            "B", "#84cc16",
-            "C", "#eab308",
-            "D", "#f97316",
-            "F", "#ef4444",
-            "#6b7280",
-          ],
+          "circle-color": GRADE_COLOR_EXPRESSION,
           "circle-opacity": 0.95,
           "circle-stroke-width": 1,
           "circle-stroke-color": "#1f2937",
@@ -585,16 +577,7 @@ export function Map() {
             14, 8,
             16, 10,
           ],
-          "circle-color": [
-            "match",
-            ["get", "grade"],
-            "A", "#22c55e",
-            "B", "#84cc16",
-            "C", "#eab308",
-            "D", "#f97316",
-            "F", "#ef4444",
-            "#6b7280",
-          ],
+          "circle-color": GRADE_COLOR_EXPRESSION,
           "circle-opacity": 0.95,
           "circle-stroke-width": 2.5,
           "circle-stroke-color": "#ffffff",

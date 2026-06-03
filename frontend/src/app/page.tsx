@@ -42,12 +42,12 @@ const GRADES = [
 ];
 
 const WEIGHTS = [
-  { label: "HPD Violations", pct: 30, color: "#ef4444" },
+  { label: "Pest & Rodent", pct: 22, color: "#eab308" },
   { label: "Heat & Hot Water", pct: 20, color: "#f97316" },
-  { label: "Pest & Rodent", pct: 15, color: "#eab308" },
-  { label: "Structural Safety (DOB)", pct: 15, color: "#84cc16" },
-  { label: "Litigation", pct: 12, color: "#22c55e" },
-  { label: "Noise", pct: 8, color: "#3b82f6" },
+  { label: "HPD Violations", pct: 20, color: "#ef4444" },
+  { label: "Structural Safety (DOB)", pct: 20, color: "#84cc16" },
+  { label: "Litigation", pct: 13, color: "#22c55e" },
+  { label: "Noise", pct: 5, color: "#3b82f6" },
 ];
 
 const GLOSSARY = [
