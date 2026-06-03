@@ -606,6 +606,24 @@ def normalize(query: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+_NEGATION_RE = re.compile(
+    r"\b(?:without|no|not having|not any|not|free from|lacking)\b"
+)
+
+# How many characters after a negation word it is considered to scope over.
+_NEGATION_WINDOW = 60
+
+
+def _negation_spans(q: str) -> list[tuple[int, int]]:
+    """(start, start+window) span for each negation word in the query.
+
+    A keyword whose start index falls inside any span is treated as negated
+    (e.g. "without rats", "no heat"). The "X-free" pattern is handled
+    separately by the caller.
+    """
+    return [(m.start(), m.start() + _NEGATION_WINDOW) for m in _NEGATION_RE.finditer(q)]
+
+
 def match_concepts(q: str) -> list[SortClause]:
     """Identify health-score concepts mentioned in the query.
 
@@ -618,9 +636,7 @@ def match_concepts(q: str) -> list[SortClause]:
     matched_columns: set[str] = set()
     result: list[SortClause] = []
 
-    # Pre-compute negation spans: (start, start+60) for each negation word found
-    neg_re = re.compile(r"\b(?:without|no\s+|not having|not any|not|free from|lacking)\b")
-    neg_spans = [(m.start(), m.start() + 60) for m in neg_re.finditer(q)]
+    neg_spans = _negation_spans(q)
 
     def _in_negation(pos: int) -> bool:
         return any(s <= pos <= e for s, e in neg_spans)
@@ -780,14 +796,9 @@ def _extract_neighborhood(q: str, filters: dict) -> None:
             return
 
 
-_NEGATION_RE = re.compile(
-    r"\b(?:without|no|not having|not any|not|free from|lacking)\b"
-)
-
-
 def _extract_complaint_types(q: str, filters: dict) -> None:
-    # Find negation spans: from the negation word up to 60 chars ahead
-    neg_spans = [(m.start(), m.start() + 60) for m in _NEGATION_RE.finditer(q)]
+    # Keywords inside a negation span are excluded rather than required.
+    neg_spans = _negation_spans(q)
 
     found: set[str] = set()
     excluded: set[str] = set()
