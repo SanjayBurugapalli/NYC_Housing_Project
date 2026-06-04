@@ -22,6 +22,7 @@ const CSP = [
     "http://localhost:8000",        // local dev backend
     "https://*.railway.app",        // Railway-hosted backend
     "https://*.onrender.com",       // Render-hosted backend
+    "https://*.public.blob.vercel-storage.com", // PMTiles building tiles (range requests)
     "https://*.ingest.sentry.io",   // Sentry SaaS ingest (sends errors + perf events)
     "https://*.ingest.us.sentry.io",
   ].join(" "),
