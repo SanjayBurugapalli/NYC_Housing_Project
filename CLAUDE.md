@@ -60,14 +60,14 @@ before-you-rent/
 | MapPLUTO Shapefiles | NYC DCP download | BBL | Building footprint geometries |
 
 ### Health Score Formula
-Composite score 0-100 (higher = healthier). Weighted sub-scores:
+Composite score 0-100 (higher = healthier). Weighted sub-scores (canonical
+weights live in `data/scoring/compute.py` `WEIGHTS`):
 - Heat/hot water complaints (311 + HPD): 20%
-- Pest/rodent (311 + rodent inspections): 15%
+- Pest/rodent (311 + rodent inspections): 22%
 - Structural/safety violations (DOB): 20%
 - HPD violation severity (Class A/B/C): 20%
+- Litigation history (HPD): 13%
 - Noise complaints (311): 5%
-- Litigation history (HPD): 10%
-- Building age & maintenance (PLUTO + DOB): 10%
 
 **Important scoring rules:**
 - Normalize all complaint counts PER RESIDENTIAL UNIT (a 200-unit building naturally gets more complaints)

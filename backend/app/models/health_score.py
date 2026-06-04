@@ -25,7 +25,6 @@ class HealthScore(Base):
     hpd_severity_score: Mapped[float] = mapped_column(Float, default=100.0)
     noise_score: Mapped[float] = mapped_column(Float, default=100.0)
     litigation_score: Mapped[float] = mapped_column(Float, default=100.0)
-    age_maintenance_score: Mapped[float] = mapped_column(Float, default=100.0)
 
     # Percentile rank within building class
     percentile_rank: Mapped[float | None] = mapped_column(Float)

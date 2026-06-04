@@ -174,7 +174,7 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
                 hs.composite_score,
                 hs.heat_hot_water_score, hs.pest_rodent_score,
                 hs.structural_safety_score, hs.hpd_severity_score,
-                hs.noise_score, hs.litigation_score, hs.age_maintenance_score,
+                hs.noise_score, hs.litigation_score,
                 hs.percentile_rank, hs.total_complaints, hs.total_violations,
                 hs.complaints_per_unit, hs.violations_per_unit
             FROM buildings b

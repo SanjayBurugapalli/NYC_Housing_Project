@@ -154,7 +154,6 @@ def compute_all_scores():
     scores["hpd_severity_score"] = hpd_scores
     scores["noise_score"] = noise_scores
     scores["litigation_score"] = litigation_scores
-    scores["age_maintenance_score"] = 0.0  # Deprecated, kept for DB compatibility
 
     # Get complaint/violation counts
     counts = get_raw_counts(engine, buildings)
@@ -457,7 +456,7 @@ def upsert_scores(engine, scores: pd.DataFrame):
                             building_id, bbl, composite_score,
                             heat_hot_water_score, pest_rodent_score,
                             structural_safety_score, hpd_severity_score,
-                            noise_score, litigation_score, age_maintenance_score,
+                            noise_score, litigation_score,
                             percentile_rank, building_class,
                             total_complaints, total_violations,
                             complaints_per_unit, violations_per_unit,
@@ -466,7 +465,7 @@ def upsert_scores(engine, scores: pd.DataFrame):
                             :id, :bbl, :composite_score,
                             :heat_hot_water_score, :pest_rodent_score,
                             :structural_safety_score, :hpd_severity_score,
-                            :noise_score, :litigation_score, :age_maintenance_score,
+                            :noise_score, :litigation_score,
                             :percentile_rank, :building_class,
                             :total_complaints, :total_violations,
                             :complaints_per_unit, :violations_per_unit,
@@ -479,7 +478,6 @@ def upsert_scores(engine, scores: pd.DataFrame):
                             hpd_severity_score = EXCLUDED.hpd_severity_score,
                             noise_score = EXCLUDED.noise_score,
                             litigation_score = EXCLUDED.litigation_score,
-                            age_maintenance_score = EXCLUDED.age_maintenance_score,
                             percentile_rank = EXCLUDED.percentile_rank,
                             total_complaints = EXCLUDED.total_complaints,
                             total_violations = EXCLUDED.total_violations,
