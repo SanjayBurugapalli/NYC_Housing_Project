@@ -46,7 +46,7 @@ Three different weight tables exist:
 
 ## Repeated SELECT Block (4 places)
 
-The 12-column buildings + composite_score projection is duplicated verbatim in [building_service.py:107](backend/app/services/building_service.py#L107), [building_service.py:165](backend/app/services/building_service.py#L165), [search.py:99](backend/app/api/search.py#L99), [search.py:152](backend/app/api/search.py#L152), and [search_service.py:1176](backend/app/services/search_service.py#L1176). Either factor into a string constant or create a Postgres view `v_building_summary`.
+~~The 12-column buildings + composite_score projection is duplicated verbatim in five queries. Either factor into a string constant or create a Postgres view `v_building_summary`.~~ **Done** — extracted `BUILDING_SUMMARY_SELECT` in building_service.py, imported by search.py and search_service.py. (Note: the `building_service.py:165` detail query is a *wider* projection and intentionally left separate.)
 
 ## get_building_detail — 9 Sequential Round-trips
 
@@ -57,15 +57,15 @@ The 12-column buildings + composite_score projection is duplicated verbatim in [
 ## Map.tsx (588 lines) — Effect Soup
 
 - The "store grade/mapFilters in refs so callbacks don't tear down the map" pattern ([lines 38-41](frontend/src/components/Map.tsx#L38)) is a workaround. Split the one giant `useEffect` (lines 195-497) into: (a) one-time setup, (b) viewport-fetch effect, (c) filter-apply effect — then you can depend on `gradeFilter`/`mapFilters` directly and drop the refs.
-- Two `m.on("mouseenter"/"mouseleave"...)` pairs ([472-486](frontend/src/components/Map.tsx#L472)) for `buildings-dots` and `search-results-dots` are identical cursor toggles; loop over the layer ids.
+- ~~Two `m.on("mouseenter"/"mouseleave"...)` pairs for `buildings-dots` and `search-results-dots` are identical cursor toggles; loop over the layer ids.~~ **Done** — looped over the dot-layer ids.
 
 ## BuildingPanel.tsx (729 lines)
 
 - File contains 5 sub-components (Skeleton, FDNYViolationsList, EvictionsList, ViolationsList, ComplaintsList) plus StreetEasy URL builders. Split into `components/building/` directory — each ~100 lines, each independently testable.
-- Rent-status rendering is a 5-arm `&&` chain ([lines 358-372](frontend/src/components/BuildingPanel.tsx#L358)). Use a `{ [status]: { label, className } }` lookup.
+- ~~Rent-status rendering is a 5-arm `&&` chain ([lines 358-372](frontend/src/components/BuildingPanel.tsx#L358)). Use a `{ [status]: { label, className } }` lookup.~~ **Done** — replaced with the typed `RENT_STATUS_DISPLAY` lookup. (Splitting the file's 5 sub-components into `components/building/` is still open.)
 
 ## Minor
 
 - ~~[search_service.py:209](backend/app/services/search_service.py#L209) declares `"east williamsburg"` twice in `NTA_ALIASES` (also at line 155). Harmless but noisy.~~ **Done** — duplicate removed.
-- `data/refresh.py:_load_tasks` ([line 65](data/refresh.py#L65)) assumes every puller accepts a `limit=` kwarg. Pullers added later may not; either enforce a `Protocol` or guard with `inspect.signature`.
+- ~~`data/refresh.py:_load_tasks` assumes every puller accepts a `limit=` kwarg. Pullers added later may not; either enforce a `Protocol` or guard with `inspect.signature`.~~ **Done** — `_accepts_limit()` guards via `inspect.signature`; unsupported pullers run unbounded with a warning.
 - ~~`MAX_RESULTS = 100` is defined in 3 places ([search.py:29](backend/app/api/search.py#L29), [search_service.py:433](backend/app/services/search_service.py#L433), [claude_search_parser.py SEARCH_TOOL](backend/app/services/claude_search_parser.py#L142)). Centralize.~~ **Done** — single definition in `core/config.py`, imported everywhere.
