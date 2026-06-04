@@ -15,16 +15,6 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   backend:
     build: ./backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -37,11 +27,8 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://nyc_buildings:${POSTGRES_PASSWORD:-devpassword}@db:5432/nyc_buildings
-      REDIS_URL: redis://redis:6379/0
     depends_on:
       db:
-        condition: service_healthy
-      redis:
         condition: service_healthy
 
   frontend:
@@ -58,39 +45,6 @@ services:
       NEXT_PUBLIC_API_URL: http://localhost:8000
     depends_on:
       - backend
-
-  # Celery workers (uncomment when needed for scheduled tasks):
-  # celery-worker:
-  #   build: ./backend
-  #   command: celery -A app.services.celery_app worker --loglevel=info
-  #   volumes:
-  #     - ./backend:/app
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     DATABASE_URL: postgresql+asyncpg://nyc_buildings:${POSTGRES_PASSWORD:-devpassword}@db:5432/nyc_buildings
-  #     REDIS_URL: redis://redis:6379/0
-  #   depends_on:
-  #     db:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-
-  # celery-beat:
-  #   build: ./backend
-  #   command: celery -A app.services.celery_app beat --loglevel=info
-  #   volumes:
-  #     - ./backend:/app
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     DATABASE_URL: postgresql+asyncpg://nyc_buildings:${POSTGRES_PASSWORD:-devpassword}@db:5432/nyc_buildings
-  #     REDIS_URL: redis://redis:6379/0
-  #   depends_on:
-  #     db:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
 
 volumes:
   pgdata:

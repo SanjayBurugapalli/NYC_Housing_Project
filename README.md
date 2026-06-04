@@ -17,13 +17,13 @@ An interactive full-stack map application that analyzes NYC residential building
 
 - **Frontend:** Next.js (TypeScript), Mapbox GL JS, Tailwind CSS, shadcn/ui, React Query, Zustand
 - **Backend:** FastAPI (Python), PostgreSQL + PostGIS, SQLAlchemy/asyncpg
-- **Data Pipeline:** sodapy (Socrata), pandas, Celery + Redis
+- **Data Pipeline:** sodapy (Socrata), pandas; scheduled refresh via `data/refresh.py` (Railway cron)
 - **Infra:** Docker Compose (local), Vercel (frontend), Railway/Render (backend)
 
 ## Getting Started
 
 ```bash
-docker-compose up                    # Start Postgres, Redis, backend, frontend
+docker-compose up                    # Start Postgres, backend, frontend
 cd backend && uvicorn app.main:app --reload  # Backend dev server (port 8000)
 cd frontend && npm run dev           # Frontend dev server (port 3000)
 ```
@@ -54,7 +54,7 @@ Items below are known improvements that have not yet been implemented, along wit
 
 - **Vector tile serving** — Pre-generate `.mbtiles` with tippecanoe and serve them via `martin` or `pg_tileserv` instead of returning building GeoJSON from the API. This requires running tippecanoe (external CLI tool), deploying a tile server sidecar, and updating the Mapbox source configuration. Deferred because it requires infrastructure changes outside the application codebase.
 
-- **Materialized view refresh job (task body)** — `celery_app.py` already schedules `refresh_health_scores` nightly at 2 AM. The Celery beat schedule is wired. However, `tasks.py` bodies are stubs (`pass`) because the scoring pipeline (`data/scoring/compute.py`) is not yet integrated into the FastAPI process. Once `compute.py` is importable from the backend, replace the stub with: `from data.scoring.compute import run_scoring; run_scoring()`.
+- **Scheduled refresh** — Handled by `data/refresh.py`, run nightly on Railway cron (04:00 UTC), with Sentry cron monitoring for missed/failed runs. The earlier Celery beat scaffold was unused (empty stub task bodies) and has been removed.
 
 - **Frontend bundle analysis** — Run `ANALYZE=true npm run build` (after adding `@next/bundle-analyzer` to `devDependencies`) to identify large chunks and apply `next/dynamic` imports. This is a one-time developer analysis task, not a code change with a clear outcome until profiling is done.
 

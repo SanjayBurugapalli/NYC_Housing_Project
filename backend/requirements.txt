@@ -10,8 +10,6 @@ pydantic-settings==2.7.0
 sodapy==2.2.0
 pandas==2.2.3
 polars==1.17.1
-celery[redis]==5.4.0
-redis==5.2.1
 anthropic==0.40.0
 httpx==0.28.1
 python-dotenv==1.0.1

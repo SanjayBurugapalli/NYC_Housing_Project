@@ -9,7 +9,6 @@ MAX_RESULTS = 100
 class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://nyc_buildings:devpassword@localhost:5432/nyc_buildings"
     database_url_sync: str = "postgresql://nyc_buildings:devpassword@localhost:5432/nyc_buildings"
-    redis_url: str = "redis://localhost:6379/0"
 
     anthropic_api_key: str = ""
     socrata_app_token: str = ""

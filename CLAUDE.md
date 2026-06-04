@@ -6,7 +6,7 @@ BeforeYouRent is a full-stack application that analyzes NYC residential building
 ## Tech Stack
 - **Frontend:** Next.js (TypeScript), Mapbox GL JS, Tailwind CSS, shadcn/ui, React Query, Zustand
 - **Backend:** FastAPI (Python), PostgreSQL + PostGIS, SQLAlchemy/asyncpg
-- **Data Pipeline:** sodapy (Socrata client), pandas/polars, Celery + Redis for scheduled refresh
+- **Data Pipeline:** sodapy (Socrata client), pandas/polars; scheduled refresh via `data/refresh.py` (Railway cron)
 - **AI Search:** Claude API with tool-use pattern (natural language → structured DB query)
 - **Geospatial Tooling:** tippecanoe (vector tiles), GDAL/ogr2ogr, GeoAlchemy2
 - **Infra:** Docker Compose for local dev, Vercel (frontend), Railway or Render (backend)
