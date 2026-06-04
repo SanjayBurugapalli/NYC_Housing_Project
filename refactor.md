@@ -26,7 +26,7 @@ Three different weight tables exist:
 ## Duplicated Definitions (single-source-of-truth violations)
 
 - ~~**`score_to_grade` defined twice** with identical thresholds: [building_service.py:70](backend/app/services/building_service.py#L70) and [schemas.py:8](backend/app/api/schemas.py#L8). Only the building_service version is imported anywhere. Delete the schemas.py copy.~~ **Done** — schemas.py copy removed.
-- **CD → neighborhood name map exists twice with different values.** [compute.py:33-98 `CD_NAMES`](data/scoring/compute.py#L33) vs [neighborhood_names.py `NEIGHBORHOOD_NAMES`](backend/app/api/neighborhood_names.py) — e.g. CD 104 is `"Chelsea/Clinton"` in one, `"Chelsea/Hell's Kitchen"` in the other. compute.py writes the row, the API reads via a different dict. Import the API dict in compute.py.
+- ~~**CD → neighborhood name map exists twice with different values.** `CD_NAMES` in compute.py vs `NEIGHBORHOOD_NAMES` in the API.~~ **Obsolete** — `CD_NAMES` no longer exists in compute.py; it now stores the raw CD code (e.g. `"106"`) and the API resolves the display name via `NEIGHBORHOOD_NAMES`/`get_neighborhood_name` at read time. Single source already.
 - **Sub-neighborhood centroids duplicated between languages.** [sub_neighborhood_splits.py](backend/app/api/sub_neighborhood_splits.py) (Python, keyed by CD) and [neighborhoodSplits.ts](frontend/src/lib/neighborhoodSplits.ts) (TS, keyed by compound name) carry the same lat/lng pairs. Serve from `/api/neighborhoods/splits` and drop the frontend copy, or generate the TS file from the Python source.
 - **Address suffix maps in three places** with overlapping but non-identical entries: [search.py:32-42](backend/app/api/search.py#L32) (`_DIR_CONTRACT`/`_SFX_CONTRACT`), [normalize.py:20-37](data/transform/normalize.py#L20) (`SUFFIX_MAP`), and [BuildingPanel.tsx:13-17](frontend/src/components/BuildingPanel.tsx#L13) (`STREET_SUFFIX_EXPANSIONS`). Promote to one shared mapping per side (Python + TS) and keep them in sync via a generator or shared JSON.
 - ~~**Grade→color map in 3 spots inside [Map.tsx](frontend/src/components/Map.tsx).** `GRADE_COLORS` at line 13 (unused), then inline `match` expressions at lines 362-370 and 422-430. Use the top-level constant in both paint specs.~~ **Done** — the three inline `match` expressions now use a single `GRADE_COLOR_EXPRESSION` derived from `GRADE_COLORS`.
@@ -42,7 +42,7 @@ Three different weight tables exist:
 - **5 near-identical sub-score functions.** `compute_complaint_score`, `compute_pest_score`, `compute_structural_score`, `compute_hpd_severity_score`, `compute_litigation_score` all follow: load rows → `time_weight` → groupby/sum → merge → per-unit → `absolute_score`. The only meaningful variation is the SQL and (for HPD) a severity multiplier. Collapse into one helper `_score_from_rows(rows_df, decay_rate, per_unit=True)`.
 - ~~**`since = (datetime.now... - timedelta).strftime(...)` repeated 6 times**. Extract `_data_since_iso()` once.~~ **Done** — `_data_since_iso()` helper.
 - **`upsert_scores` runs one INSERT per row** ([line 500](data/scoring/compute.py#L500)) inside a transaction. For ~860k buildings this is the slow path. Use `executemany` with a single VALUES batch, or stage to a temp table + single `INSERT … SELECT … ON CONFLICT`.
-- **`update_neighborhood_aggregates` builds SQL via f-string interpolation** over `CD_NAMES` ([line 549](data/scoring/compute.py#L549)). Currently safe because the values are hardcoded, but it will break the moment a neighborhood name contains an apostrophe. Replace with a `VALUES (...) AS m(cd, name)` join.
+- ~~**`update_neighborhood_aggregates` builds SQL via f-string interpolation** over `CD_NAMES`. ... Replace with a `VALUES (...) AS m(cd, name)` join.~~ **Obsolete** — the function was rewritten; it now does `INSERT ... SELECT CONCAT(b.neighborhood,'-',b.borough) ... GROUP BY b.neighborhood, b.borough` with no name interpolation, so there is no apostrophe-injection risk.
 
 ## Repeated SELECT Block (4 places)
 
@@ -50,7 +50,9 @@ Three different weight tables exist:
 
 ## get_building_detail — 9 Sequential Round-trips
 
-[building_service.py:158-389](backend/app/services/building_service.py#L158) awaits 9 independent queries one-after-the-other (complaints, violations, lit count, lit list, rodent, FDNY, evictions, category counts, HPD severity, DOB count). They have no inter-dependencies past the first; wrap 2–N in `asyncio.gather` to cut latency roughly in half.
+[building_service.py:158-389](backend/app/services/building_service.py#L158) awaits 9 independent queries one-after-the-other (complaints, violations, lit count, lit list, rodent, FDNY, evictions, category counts, HPD severity, DOB count). They have no inter-dependencies past the first.
+
+> **Caveat (not safe as written):** a plain `asyncio.gather` over the *same* `AsyncSession` will raise — asyncpg/SQLAlchemy cannot multiplex concurrent operations on one connection ("another operation is in progress"). To parallelize, each concurrent query needs its own connection (e.g. `async with engine.connect()` per query / `asyncio.gather` over separate sessions), which trades latency for connection-pool pressure. Worth doing, but it's a deliberate connection-management change, not a one-line wrap.
 
 ~~Also the neighborhood-derivation expression at line 396 is unparseable (mixed `or` + ternary). Unpack into a multi-line `if/else`.~~ **Done** — unpacked into an explicit `if/else` computing `neighborhood_label` before the response dict. (The 9-round-trip `asyncio.gather` optimization above is still open.)
 
