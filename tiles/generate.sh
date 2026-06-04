@@ -26,6 +26,13 @@ set -euo pipefail
 OUTPUT_DIR="${OUTPUT_DIR:-tiles}"
 OUTPUT_FORMAT="${OUTPUT_FORMAT:-mbtiles}"   # mbtiles | pmtiles
 
+# Decode %XX escapes in a URL-encoded URI component (e.g. a password with
+# special chars). Does NOT treat '+' as space — that's form-encoding, which is
+# invalid for a URI userinfo component. Plain strings pass through unchanged.
+urldecode() {
+    printf '%b' "${1//%/\\x}"
+}
+
 # --- Resolve DB connection -------------------------------------------------
 # Prefer DATABASE_URL; strip any +asyncpg driver suffix the backend uses.
 if [[ -n "${DATABASE_URL:-}" ]]; then
@@ -36,6 +43,10 @@ if [[ -n "${DATABASE_URL:-}" ]]; then
     hostpart="${proto_removed#*@}"
     DB_USER="${creds%%:*}"
     DB_PASS="${creds#*:}"; [[ "$DB_PASS" == "$creds" ]] && DB_PASS=""
+    # Credentials in DATABASE_URL are URL-encoded; decode %XX so passwords with
+    # special characters (e.g. ';' written as %3B) authenticate correctly.
+    DB_USER="$(urldecode "$DB_USER")"
+    DB_PASS="$(urldecode "$DB_PASS")"
     hostport="${hostpart%%/*}"
     DB_HOST="${hostport%%:*}"
     DB_PORT="${hostport#*:}"; [[ "$DB_PORT" == "$hostport" ]] && DB_PORT=5432
