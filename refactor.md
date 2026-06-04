@@ -21,7 +21,7 @@ Three different weight tables exist:
 | [page.tsx:44](frontend/src/app/page.tsx#L44) (landing) | **30** | 20 | **15** | **15** | **12** | **8** | — |
 | CLAUDE.md | 20 | 20 | 15 | 20 | 10 | 5 | 10 |
 
-**Partially done** — landing-page `WEIGHTS` in [page.tsx:44](frontend/src/app/page.tsx#L44) corrected to match the truth (Pest 22, Heat 20, HPD 20, Struct 20, Lit 13, Noise 5). Still not single-sourced: the values remain hand-copied across compute.py / store.ts / page.tsx. CLAUDE.md's table is also stale (lists a 10% "age" weight that compute.py no longer applies). Next step: export the weights from one place and generate the rest.
+**Frontend single-sourced; cross-language sync still manual.** Landing-page weights corrected (Pest 22, Heat 20, HPD 20, Struct 20, Lit 13, Noise 5) and the frontend now derives both the slider defaults and the landing bars from one `lib/scoringWeights.ts` (`DEFAULT_WEIGHTS` → `SCORING_WEIGHTS`), so they can't drift again. **Still open:** the Python source (`compute.py` WEIGHTS) and the TS source are hand-kept in sync — a shared JSON / generator would close that. CLAUDE.md's table is also stale (lists a 10% "age" weight compute.py no longer applies; being addressed by the age-column removal).
 
 ## Duplicated Definitions (single-source-of-truth violations)
 
@@ -63,7 +63,7 @@ Three different weight tables exist:
 
 ## BuildingPanel.tsx (729 lines)
 
-- File contains 5 sub-components (Skeleton, FDNYViolationsList, EvictionsList, ViolationsList, ComplaintsList) plus StreetEasy URL builders. Split into `components/building/` directory — each ~100 lines, each independently testable.
+- ~~File contains 5 sub-components (Skeleton, FDNYViolationsList, EvictionsList, ViolationsList, ComplaintsList) plus StreetEasy URL builders. Split into `components/building/` directory.~~ **Done** — extracted to `components/building/` (streetEasy.ts + the 5 components); BuildingPanel.tsx dropped from ~738 to ~390 lines. Dead `SkeletonRow` removed.
 - ~~Rent-status rendering is a 5-arm `&&` chain ([lines 358-372](frontend/src/components/BuildingPanel.tsx#L358)). Use a `{ [status]: { label, className } }` lookup.~~ **Done** — replaced with the typed `RENT_STATUS_DISPLAY` lookup. (Splitting the file's 5 sub-components into `components/building/` is still open.)
 
 ## Minor
