@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchBuildingDetail, searchByOwner, searchByManager, trackEvent } from "@/lib/api";
-import type { ViolationRecord, ComplaintRecord, FDNYViolationRecord, EvictionRecord } from "@/types/building";
+import type { BuildingDetail, ViolationRecord, ComplaintRecord, FDNYViolationRecord, EvictionRecord } from "@/types/building";
 import { useStore } from "@/lib/store";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { getBuildingClassLabel } from "@/lib/buildingClasses";
@@ -14,6 +14,19 @@ const STREET_SUFFIX_EXPANSIONS: Record<string, string> = {
   ave: "avenue", blvd: "boulevard", st: "street", dr: "drive",
   rd: "road", ln: "lane", ct: "court", pl: "place", ter: "terrace",
   pkwy: "parkway", pky: "parkway", hwy: "highway", cir: "circle",
+};
+
+// Display label + text color for each rent-regulation status (exhaustive over
+// the BuildingDetail["rent_status"] union).
+const RENT_STATUS_DISPLAY: Record<
+  BuildingDetail["rent_status"],
+  { label: string; className: string }
+> = {
+  likely_stabilized: { label: "Rent Stabilized", className: "text-teal-400" },
+  condo: { label: "Condo", className: "text-blue-400" },
+  coop: { label: "Co-op", className: "text-purple-400" },
+  not_regulated: { label: "Not Regulated", className: "text-gray-300" },
+  unknown: { label: "—", className: "text-gray-500" },
 };
 
 function addressToSlug(address: string, queensStyle: boolean): string {
@@ -359,21 +372,12 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
               </div>
               <div className="rounded bg-gray-700/50 p-2">
                 <p className="text-gray-400">Rent Status</p>
-                {data.rent_status === "likely_stabilized" && (
-                  <p className="font-medium text-xs leading-snug text-teal-400">Rent Stabilized</p>
-                )}
-                {data.rent_status === "condo" && (
-                  <p className="font-medium text-xs leading-snug text-blue-400">Condo</p>
-                )}
-                {data.rent_status === "coop" && (
-                  <p className="font-medium text-xs leading-snug text-purple-400">Co-op</p>
-                )}
-                {data.rent_status === "not_regulated" && (
-                  <p className="font-medium text-xs leading-snug text-gray-300">Not Regulated</p>
-                )}
-                {data.rent_status === "unknown" && (
-                  <p className="font-medium text-xs leading-snug text-gray-500">—</p>
-                )}
+                {(() => {
+                  const rs = RENT_STATUS_DISPLAY[data.rent_status] ?? RENT_STATUS_DISPLAY.unknown;
+                  return (
+                    <p className={`font-medium text-xs leading-snug ${rs.className}`}>{rs.label}</p>
+                  );
+                })()}
               </div>
             </div>
 

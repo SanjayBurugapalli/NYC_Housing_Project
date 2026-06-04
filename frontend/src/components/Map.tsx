@@ -618,21 +618,15 @@ export function Map() {
         }
       });
 
-      m.on("mouseenter", "buildings-dots", () => {
-        m.getCanvas().style.cursor = "pointer";
-      });
-
-      m.on("mouseleave", "buildings-dots", () => {
-        m.getCanvas().style.cursor = "";
-      });
-
-      m.on("mouseenter", "search-results-dots", () => {
-        m.getCanvas().style.cursor = "pointer";
-      });
-
-      m.on("mouseleave", "search-results-dots", () => {
-        m.getCanvas().style.cursor = "";
-      });
+      // Pointer cursor on hover for every clickable dot layer.
+      for (const layerId of ["buildings-dots", "search-results-dots"]) {
+        m.on("mouseenter", layerId, () => {
+          m.getCanvas().style.cursor = "pointer";
+        });
+        m.on("mouseleave", layerId, () => {
+          m.getCanvas().style.cursor = "";
+        });
+      }
 
       // Initial viewport: vector tiles stream on their own (count updates via
       // the sourcedata listener above), so only the API path fetches here.
