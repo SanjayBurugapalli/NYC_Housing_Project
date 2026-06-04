@@ -206,6 +206,7 @@ def run(
         if not ok:
             failures += 1
 
+    scoring_ok = False
     if skip_scoring:
         logger.info("Skipping scoring step.")
     else:
@@ -218,11 +219,35 @@ def run(
             # compute_all_scores doesn't return a count; report 0 so we still record duration/status.
             return 0
 
-        _run_task(engine, "scoring", "Health score computation", _scoring_wrapper)
+        scoring_ok = _run_task(engine, "scoring", "Health score computation", _scoring_wrapper)
+
+    # Republish the static vector tiles so the map's high-zoom dots reflect the
+    # scores just computed. Only on a full production run — a smoke test
+    # (--datasets/--limit) or a --skip-scoring run must NOT overwrite the prod
+    # tiles — only if scoring succeeded (don't publish tiles built from failed/
+    # partial scores), and only where a Blob write token is configured (the
+    # Railway cron; local dev has neither the token nor the tile toolchain).
+    is_full_run = filter_keys is None and limit is None and not skip_scoring
+    tiles_ran = False
+    if is_full_run and not scoring_ok:
+        logger.warning("Skipping tile regeneration: scoring did not succeed.")
+    elif is_full_run and os.environ.get("BLOB_READ_WRITE_TOKEN"):
+        logger.info("Scoring done; regenerating + publishing vector tiles.")
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from publish_tiles import publish as publish_tiles  # noqa: E402
+
+        def _tiles_wrapper() -> int:
+            return publish_tiles()
+
+        _run_task(engine, "tiles", "Vector tile regeneration + upload", _tiles_wrapper)
+        tiles_ran = True
+    elif is_full_run:
+        logger.info("Skipping tile regeneration (BLOB_READ_WRITE_TOKEN not set).")
 
     logger.info(
         "Refresh complete. failures=%d total_tasks=%d",
-        failures, len(tasks) + (0 if skip_scoring else 1),
+        failures,
+        len(tasks) + (0 if skip_scoring else 1) + (1 if tiles_ran else 0),
     )
     return failures
 

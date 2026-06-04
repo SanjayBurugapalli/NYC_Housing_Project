@@ -10,12 +10,28 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdal-dev \
     libgeos-dev \
     libproj-dev \
+    gdal-bin \
     gcc \
     && rm -rf /var/lib/apt/lists/*
+
+# Tile toolchain for tiles/generate.sh (invoked by the nightly run to rebuild
+# buildings.pmtiles after scoring): ogr2ogr comes from gdal-bin above; tippecanoe
+# is built from the maintained felt fork; the pmtiles CLI is a pinned release
+# binary. Build deps are kept (not purged) so the later pip layer can still
+# compile; a multi-stage build could slim this down later.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git build-essential libsqlite3-dev zlib1g-dev curl ca-certificates && \
+    git clone --depth 1 https://github.com/felt/tippecanoe.git /tmp/tippecanoe && \
+    make -C /tmp/tippecanoe -j"$(nproc)" && \
+    make -C /tmp/tippecanoe install && \
+    rm -rf /tmp/tippecanoe && \
+    curl -fsSL https://github.com/protomaps/go-pmtiles/releases/download/v1.30.3/go-pmtiles_1.30.3_Linux_x86_64.tar.gz | \
+        tar -xz -C /usr/local/bin pmtiles && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install Python deps first so the layer can be cached across code changes.
 COPY backend/requirements.txt /app/requirements.txt
@@ -26,6 +42,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # at /app (matching the API container's layout) and data/ lands at /app/data.
 COPY backend/ /app/
 COPY data/ /app/data/
+COPY tiles/ /app/tiles/
 
 # Default to a full refresh of every dataset + scoring. Override via the
 # Railway service's "Start Command" if you want to schedule a subset

@@ -8,6 +8,16 @@
 #
 # Wired in the Railway dashboard as the "refresh-daily" service with
 # Config-as-code path set to this file.
+#
+# Required env vars on this service (set in the Railway dashboard):
+#   DATABASE_URL (or DATABASE_URL_SYNC) — prod Postgres; targeted by ingest,
+#       scoring, AND tile regeneration.
+#   SOCRATA_APP_TOKEN — avoids aggressive anonymous throttling on the pullers.
+#   BLOB_READ_WRITE_TOKEN — Vercel Blob write token. After scoring, the run
+#       rebuilds tiles/buildings.pmtiles and overwrites it in the Blob store so
+#       the map's high-zoom dots track fresh scores. If UNSET, the tile step is
+#       skipped (ingest + scoring still run); set it to enable nightly tiles.
+#   SENTRY_DSN (optional) — cron check-ins + per-dataset error capture.
 
 [build]
 dockerfilePath = "Dockerfile.cron"
