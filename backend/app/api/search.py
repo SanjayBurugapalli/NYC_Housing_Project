@@ -10,7 +10,7 @@ from app.api.schemas import BuildingSummaryResponse, SearchRequest, SearchRespon
 from app.core.config import MAX_RESULTS
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.services.building_service import score_to_grade
+from app.services.building_service import BUILDING_SUMMARY_SELECT, score_to_grade
 
 router = APIRouter(tags=["search"])
 
@@ -100,13 +100,7 @@ async def search_by_address(db: AsyncSession, query: str, include_small_homes: b
 
     result = await db.execute(
         text(f"""
-            SELECT
-                b.bbl, b.bin, b.address, b.borough, b.neighborhood, b.nta_name,
-                COALESCE(hs.composite_score, 0) as health_score,
-                b.latitude, b.longitude,
-                b.residential_units, b.year_built, b.building_class
-            FROM buildings b
-            LEFT JOIN health_scores hs ON hs.building_id = b.id
+            {BUILDING_SUMMARY_SELECT}
             WHERE ({like_clauses}) {size_clause}
             ORDER BY hs.composite_score DESC NULLS LAST
             LIMIT :limit
@@ -119,14 +113,8 @@ async def search_by_address(db: AsyncSession, query: str, include_small_homes: b
 async def search_by_bbl(db: AsyncSession, bbl: str) -> list[dict]:
     """Search for a specific building by BBL."""
     result = await db.execute(
-        text("""
-            SELECT
-                b.bbl, b.bin, b.address, b.borough, b.neighborhood, b.nta_name,
-                COALESCE(hs.composite_score, 0) as health_score,
-                b.latitude, b.longitude,
-                b.residential_units, b.year_built, b.building_class
-            FROM buildings b
-            LEFT JOIN health_scores hs ON hs.building_id = b.id
+        text(f"""
+            {BUILDING_SUMMARY_SELECT}
             WHERE b.bbl = :bbl
         """),
         {"bbl": bbl},
@@ -150,13 +138,7 @@ async def _search_by_field(db: AsyncSession, field: str, value: str) -> list[dic
     """Return buildings matching a specific owner_name or managing_agent (exact, case-insensitive)."""
     result = await db.execute(
         text(f"""
-            SELECT
-                b.bbl, b.bin, b.address, b.borough, b.neighborhood, b.nta_name,
-                COALESCE(hs.composite_score, 0) as health_score,
-                b.latitude, b.longitude,
-                b.residential_units, b.year_built, b.building_class
-            FROM buildings b
-            LEFT JOIN health_scores hs ON hs.building_id = b.id
+            {BUILDING_SUMMARY_SELECT}
             WHERE LOWER(b.{field}) = LOWER(:value)
               AND b.latitude IS NOT NULL
             ORDER BY hs.composite_score ASC NULLS LAST

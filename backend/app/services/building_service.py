@@ -7,6 +7,21 @@ from app.api.neighborhood_names import get_neighborhood_name
 from app.api.sub_neighborhood_splits import SUB_NEIGHBORHOOD_SPLITS
 
 
+# Shared SELECT-list + FROM/JOIN for the building "summary" projection used by
+# the viewport, search, and lookup queries. Callers append their own WHERE /
+# ORDER BY / LIMIT. The 12 columns map 1:1 to BuildingSummaryResponse, so keep
+# them in sync with that schema.
+BUILDING_SUMMARY_SELECT = """
+    SELECT
+        b.bbl, b.bin, b.address, b.borough, b.neighborhood, b.nta_name,
+        COALESCE(hs.composite_score, 0) as health_score,
+        b.latitude, b.longitude,
+        b.residential_units, b.year_built, b.building_class
+    FROM buildings b
+    LEFT JOIN health_scores hs ON hs.building_id = b.id
+"""
+
+
 _CONDO_CLASSES = {"C6", "D5"}
 _COOP_CLASSES = {"C0", "D0", "D4"}
 
@@ -100,13 +115,7 @@ async def get_buildings_in_viewport(
     )
     result = await db.execute(
         text(f"""
-            SELECT
-                b.bbl, b.bin, b.address, b.borough, b.neighborhood, b.nta_name,
-                COALESCE(hs.composite_score, 0) as health_score,
-                b.latitude, b.longitude,
-                b.residential_units, b.year_built, b.building_class
-            FROM buildings b
-            LEFT JOIN health_scores hs ON hs.building_id = b.id
+            {BUILDING_SUMMARY_SELECT}
             WHERE b.geom IS NOT NULL
                 AND ST_Intersects(
                     b.geom,

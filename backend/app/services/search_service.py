@@ -23,6 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import MAX_RESULTS
+from app.services.building_service import BUILDING_SUMMARY_SELECT
 
 logger = logging.getLogger(__name__)
 
@@ -1185,13 +1186,7 @@ async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
     where_clause = " AND ".join(conditions) if conditions else "TRUE"
 
     query = text(f"""
-        SELECT
-            b.bbl, b.bin, b.address, b.borough, b.neighborhood, b.nta_name,
-            COALESCE(hs.composite_score, 0) as health_score,
-            b.latitude, b.longitude,
-            b.residential_units, b.year_built, b.building_class
-        FROM buildings b
-        LEFT JOIN health_scores hs ON hs.building_id = b.id
+        {BUILDING_SUMMARY_SELECT}
         WHERE {where_clause}
         ORDER BY {order_by}
         LIMIT :limit
