@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import inspect
 import logging
 import os
 import sys
@@ -79,13 +80,25 @@ TASK_DEFINITIONS: list[tuple[str, str, str, str]] = [
 ]
 
 
+def _accepts_limit(fn: Callable) -> bool:
+    """True if `fn` can be called with a `limit=` kwarg (named param or **kwargs)."""
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return True
+    return "limit" in params
+
+
 def _load_tasks(
     filter_keys: set[str] | None, limit: int | None = None,
 ) -> list[tuple[str, str, Callable[[], int]]]:
     """Resolve task callables, optionally filtered by a set of dataset keys.
 
-    `limit`, if set, is forwarded to each puller as the `limit` kwarg — every
-    puller in this project accepts it. Useful for smoke tests and previews.
+    `limit`, if set, is forwarded as the `limit` kwarg to each puller that
+    accepts one; pullers without a `limit` parameter run unbounded (with a
+    warning) rather than raising. Useful for smoke tests and previews.
     """
     tasks: list[tuple[str, str, Callable[[], int]]] = []
     for key, module_name, fn_name, description in TASK_DEFINITIONS:
@@ -93,7 +106,14 @@ def _load_tasks(
             continue
         module = __import__(module_name)
         fn = getattr(module, fn_name)
-        bound: Callable[[], int] = (lambda f=fn, l=limit: f(limit=l)) if limit is not None else fn
+        if limit is not None and _accepts_limit(fn):
+            bound: Callable[[], int] = lambda f=fn, l=limit: f(limit=l)
+        else:
+            if limit is not None:
+                logger.warning(
+                    "Puller %s does not accept limit=; running unbounded", fn_name
+                )
+            bound = fn
         tasks.append((key, description, bound))
     return tasks
 
