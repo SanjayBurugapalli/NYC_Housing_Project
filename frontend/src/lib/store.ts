@@ -1,24 +1,12 @@
 import { create } from "zustand";
 import type { BuildingSummary, ViewportBounds } from "@/types/building";
 import type mapboxgl from "mapbox-gl";
+import { DEFAULT_WEIGHTS, type CategoryWeights } from "@/lib/scoringWeights";
 
-export interface CategoryWeights {
-  heat_hot_water: number;
-  pest_rodent: number;
-  structural_safety: number;
-  hpd_severity: number;
-  noise: number;
-  litigation: number;
-}
-
-export const DEFAULT_WEIGHTS: CategoryWeights = {
-  heat_hot_water: 0.20,
-  pest_rodent: 0.22,
-  structural_safety: 0.20,
-  hpd_severity: 0.20,
-  noise: 0.05,
-  litigation: 0.13,
-};
+// Re-exported so existing `@/lib/store` importers keep working; the canonical
+// definition now lives in scoringWeights.ts.
+export { DEFAULT_WEIGHTS };
+export type { CategoryWeights };
 
 interface AppState {
   // Map viewport

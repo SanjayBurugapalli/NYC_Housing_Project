@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SCORING_WEIGHTS } from "@/lib/scoringWeights";
 
 const SOURCES = [
   {
@@ -39,15 +40,6 @@ const GRADES = [
   { grade: "C", range: "75–89", color: "#eab308", meaning: "Moderate issues. Notable complaint or violation history worth reviewing." },
   { grade: "D", range: "55–74", color: "#f97316", meaning: "Significant issues. Recurring hazardous violations or active litigation." },
   { grade: "F", range: "0–54", color: "#ef4444", meaning: "Critical issues. Class C violations, systemic neglect, or pattern of harm." },
-];
-
-const WEIGHTS = [
-  { label: "Pest & Rodent", pct: 22, color: "#eab308" },
-  { label: "Heat & Hot Water", pct: 20, color: "#f97316" },
-  { label: "HPD Violations", pct: 20, color: "#ef4444" },
-  { label: "Structural Safety (DOB)", pct: 20, color: "#84cc16" },
-  { label: "Litigation", pct: 13, color: "#22c55e" },
-  { label: "Noise", pct: 5, color: "#3b82f6" },
 ];
 
 const GLOSSARY = [
@@ -220,7 +212,7 @@ export default function LandingPage() {
           <div className="mt-12 rounded-xl border border-gray-700 bg-gray-900/60 p-6">
             <h3 className="mb-4 text-base font-semibold text-white">Category weights</h3>
             <div className="space-y-2.5">
-              {WEIGHTS.map(({ label, pct, color }) => (
+              {SCORING_WEIGHTS.map(({ label, pct, color }) => (
                 <div key={label} className="grid items-center gap-3 grid-cols-[100px_1fr_34px] sm:grid-cols-[180px_1fr_40px]">
                   <div className="text-[13px] text-gray-300">{label}</div>
                   <div className="h-2.5 overflow-hidden rounded-full bg-gray-700">
