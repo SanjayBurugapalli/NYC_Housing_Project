@@ -39,15 +39,18 @@ WEIGHTS = {
     "litigation": 0.13,
 }
 
-# Decay rates per category (higher = harsher penalty per issue-per-unit)
-# Calibrated so ~1 weighted issue/unit ≈ score 70, ~3/unit ≈ 35, ~5/unit ≈ 15
+# Decay rates per category (higher = harsher penalty per normalized issue count).
+# Steepened from the original calibration because the old linear per-unit
+# divisor made grades too lenient (78% of buildings scored A). Note these now
+# act on a sqrt(units)-normalized count (see normalized_per_unit), so a given
+# rate bites harder than under the old per-unit scale.
 DECAY_RATES = {
-    "heat": 0.35,
-    "pest": 0.40,
-    "structural": 0.50,  # structural issues are more serious
-    "hpd": 0.12,         # HPD already has severity multiplier built in
-    "noise": 0.25,
-    "litigation": 0.45,
+    "heat": 0.45,
+    "pest": 0.55,
+    "structural": 0.65,  # structural issues are more serious
+    "hpd": 0.20,         # HPD already has severity multiplier built in
+    "noise": 0.30,
+    "litigation": 0.60,  # per-building (not unit-normalized), so rate applies directly
 }
 
 
@@ -84,6 +87,20 @@ def absolute_score(weighted_per_unit: pd.Series, decay_rate: float) -> pd.Series
     0 issues → 100, more issues → smoothly approaches 0
     """
     return (100 * np.exp(-decay_rate * weighted_per_unit)).clip(0, 100)
+
+
+def normalized_per_unit(
+    weighted_count: pd.Series, residential_units: pd.Series
+) -> pd.Series:
+    """Normalize a weighted issue count by sqrt(units) rather than raw unit count.
+
+    A linear divisor made large buildings nearly impossible to penalize — a
+    200-unit building with 40 complaints scored like a 5-unit building with 1.
+    sqrt(units) preserves the intent (bigger buildings legitimately see more
+    issues) without letting size alone guarantee an A. units is already clipped
+    to ≥1 upstream, so the denominator is always ≥1.
+    """
+    return weighted_count / np.sqrt(residential_units)
 
 
 def compute_all_scores():
@@ -199,7 +216,7 @@ def compute_complaint_score(
 
     merged = buildings.merge(weighted_counts, on="bbl", how="left")
     merged["weighted_count"] = merged["weighted_count"].fillna(0)
-    merged["per_unit"] = merged["weighted_count"] / merged["residential_units"]
+    merged["per_unit"] = normalized_per_unit(merged["weighted_count"], merged["residential_units"])
 
     return absolute_score(merged["per_unit"], decay_rate)
 
@@ -248,7 +265,7 @@ def compute_pest_score(
 
     merged = buildings.merge(weighted_counts, on="bbl", how="left")
     merged["weighted_count"] = merged["weighted_count"].fillna(0)
-    merged["per_unit"] = merged["weighted_count"] / merged["residential_units"]
+    merged["per_unit"] = normalized_per_unit(merged["weighted_count"], merged["residential_units"])
 
     return absolute_score(merged["per_unit"], decay_rate)
 
@@ -292,7 +309,7 @@ def compute_structural_score(
 
     merged = buildings.merge(weighted_counts, on="bbl", how="left")
     merged["weighted_count"] = merged["weighted_count"].fillna(0)
-    merged["per_unit"] = merged["weighted_count"] / merged["residential_units"]
+    merged["per_unit"] = normalized_per_unit(merged["weighted_count"], merged["residential_units"])
 
     return absolute_score(merged["per_unit"], decay_rate)
 
@@ -326,7 +343,7 @@ def compute_hpd_severity_score(
 
     merged = buildings.merge(weighted_counts, on="bbl", how="left")
     merged["weighted_count"] = merged["weighted_count"].fillna(0)
-    merged["per_unit"] = merged["weighted_count"] / merged["residential_units"]
+    merged["per_unit"] = normalized_per_unit(merged["weighted_count"], merged["residential_units"])
 
     return absolute_score(merged["per_unit"], decay_rate)
 
