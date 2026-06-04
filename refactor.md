@@ -7,8 +7,8 @@ Concise audit of redundancies, dead code, and complexity worth addressing.
 - **Celery is unused.** [backend/app/services/celery_app.py](backend/app/services/celery_app.py) + [tasks.py](backend/app/services/tasks.py) define a beat schedule with two `# TODO` empty bodies. Scheduling is actually done by [data/refresh.py](data/refresh.py) via Railway cron (commit `fc0b6ca`). Delete both files; `docker-compose.yml` already has the Celery services commented out. Drop `celery`/`redis` from requirements and from CLAUDE.md's tech-stack line.
 - **`age_maintenance_score` is deprecated but lingers.** [data/scoring/compute.py:203](data/scoring/compute.py#L203) writes a hardcoded `0.0` "kept for DB compatibility"; column is also SELECTed in [building_service.py:171](backend/app/services/building_service.py#L171) and listed in CLAUDE.md as a 10% weight. Either drop the column via Alembic migration, or revive the metric — half-removed state is worse than either.
 - ~~**`GRADE_MAP` constant is dead.** [building_service.py:67](backend/app/services/building_service.py#L67) — defined but never read; only `score_to_grade()` is used.~~ **Done** — removed.
-- **`backend/test_search.py`** is a manual `urllib`-based localhost smoke test sitting outside `tests/`. Move into `tests/manual/` or delete.
-- **`data/listings/` is not wired in.** No imports from `backend/`, `refresh.py`, or any Docker/cron config reference it. ~600 lines of fetcher/store/aggregator/playwright code is either dead or in-progress; mark it clearly.
+- ~~**`backend/test_search.py`** is a manual `urllib`-based localhost smoke test sitting outside `tests/`. Move into `tests/manual/` or delete.~~ **Done** — moved to `backend/tests/manual/search_smoke.py` (renamed so pytest won't collect it).
+- ~~**`data/listings/` is not wired in.** No imports from `backend/`, `refresh.py`, or any Docker/cron config reference it. ~600 lines of fetcher/store/aggregator/playwright code is either dead or in-progress; mark it clearly.~~ **Done (marked)** — added `data/listings/README.md` + package docstring stating it is not wired in (only the Alembic 003 schema is). Whether to schedule or remove it is still an open decision.
 
 ## Triplicated Scoring Weights — User-Facing Inconsistency
 
@@ -33,14 +33,14 @@ Three different weight tables exist:
 
 ## search_service.py (1,299 lines) — Largest File in the Repo
 
-- **Negation detection is implemented twice.** Once in `match_concepts` ([line 622](backend/app/services/search_service.py#L622)) and once in `_extract_complaint_types` ([line 783](backend/app/services/search_service.py#L783)) with subtly different regexes (`no\s+` vs `no`). Factor into one `_negation_spans(q)` helper.
-- **`search.py:250` re-checks NaN that was already stripped.** `_sanitize_row` (line 16) already replaced NaN with 0.0, so the inline `isinstance(...float) and math.isnan(...)` on line 250 is redundant. Just call `score_to_grade(b["health_score"])`.
-- **Bare `except Exception` returns silent empty results** ([search.py:262](backend/app/api/search.py#L262)). Mask real failures (DB outage, schema drift). At minimum, log the exception.
+- ~~**Negation detection is implemented twice.** Once in `match_concepts` and once in `_extract_complaint_types` with subtly different regexes (`no\s+` vs `no`). Factor into one `_negation_spans(q)` helper.~~ **Done** — unified on a single `_NEGATION_RE` + `_negation_spans()`.
+- ~~**`search.py:250` re-checks NaN that was already stripped.** `_sanitize_row` (line 16) already replaced NaN with 0.0, so the inline `isinstance(...float) and math.isnan(...)` on line 250 is redundant. Just call `score_to_grade(b["health_score"])`.~~ **Done** — grade now derived from the sanitized row.
+- ~~**Bare `except Exception` returns silent empty results** ([search.py:262](backend/app/api/search.py#L262)). Mask real failures (DB outage, schema drift). At minimum, log the exception.~~ **Done** — `logger.exception(...)` before the fallback response.
 
 ## compute.py (583 lines) — Copy-Paste Score Computation
 
 - **5 near-identical sub-score functions.** `compute_complaint_score`, `compute_pest_score`, `compute_structural_score`, `compute_hpd_severity_score`, `compute_litigation_score` all follow: load rows → `time_weight` → groupby/sum → merge → per-unit → `absolute_score`. The only meaningful variation is the SQL and (for HPD) a severity multiplier. Collapse into one helper `_score_from_rows(rows_df, decay_rate, per_unit=True)`.
-- **`since = (datetime.now... - timedelta).strftime(...)` repeated 6 times** (lines 249, 279, 328, 372, 404, 431). Extract `_data_since_iso()` once.
+- ~~**`since = (datetime.now... - timedelta).strftime(...)` repeated 6 times**. Extract `_data_since_iso()` once.~~ **Done** — `_data_since_iso()` helper.
 - **`upsert_scores` runs one INSERT per row** ([line 500](data/scoring/compute.py#L500)) inside a transaction. For ~860k buildings this is the slow path. Use `executemany` with a single VALUES batch, or stage to a temp table + single `INSERT … SELECT … ON CONFLICT`.
 - **`update_neighborhood_aggregates` builds SQL via f-string interpolation** over `CD_NAMES` ([line 549](data/scoring/compute.py#L549)). Currently safe because the values are hardcoded, but it will break the moment a neighborhood name contains an apostrophe. Replace with a `VALUES (...) AS m(cd, name)` join.
 
@@ -52,11 +52,7 @@ The 12-column buildings + composite_score projection is duplicated verbatim in [
 
 [building_service.py:158-389](backend/app/services/building_service.py#L158) awaits 9 independent queries one-after-the-other (complaints, violations, lit count, lit list, rodent, FDNY, evictions, category counts, HPD severity, DOB count). They have no inter-dependencies past the first; wrap 2–N in `asyncio.gather` to cut latency roughly in half.
 
-Also the neighborhood-derivation expression at [line 396](backend/app/services/building_service.py#L396) is unparseable:
-```python
-"neighborhood": b.get("nta_name") or get_neighborhood_name(b["neighborhood"] or "", b["borough"] or "") if b.get("neighborhood") else b.get("nta_name"),
-```
-Unpack into a multi-line `if/else`.
+~~Also the neighborhood-derivation expression at line 396 is unparseable (mixed `or` + ternary). Unpack into a multi-line `if/else`.~~ **Done** — unpacked into an explicit `if/else` computing `neighborhood_label` before the response dict. (The 9-round-trip `asyncio.gather` optimization above is still open.)
 
 ## Map.tsx (588 lines) — Effect Soup
 
@@ -72,4 +68,4 @@ Unpack into a multi-line `if/else`.
 
 - ~~[search_service.py:209](backend/app/services/search_service.py#L209) declares `"east williamsburg"` twice in `NTA_ALIASES` (also at line 155). Harmless but noisy.~~ **Done** — duplicate removed.
 - `data/refresh.py:_load_tasks` ([line 65](data/refresh.py#L65)) assumes every puller accepts a `limit=` kwarg. Pullers added later may not; either enforce a `Protocol` or guard with `inspect.signature`.
-- `MAX_RESULTS = 100` is defined in 3 places ([search.py:29](backend/app/api/search.py#L29), [search_service.py:433](backend/app/services/search_service.py#L433), [claude_search_parser.py SEARCH_TOOL](backend/app/services/claude_search_parser.py#L142)). Centralize.
+- ~~`MAX_RESULTS = 100` is defined in 3 places ([search.py:29](backend/app/api/search.py#L29), [search_service.py:433](backend/app/services/search_service.py#L433), [claude_search_parser.py SEARCH_TOOL](backend/app/services/claude_search_parser.py#L142)). Centralize.~~ **Done** — single definition in `core/config.py`, imported everywhere.
