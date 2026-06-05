@@ -93,6 +93,9 @@ export default function MapPage() {
   const [showFeedback, setShowFeedback] = useState(false);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [lastOpened, setLastOpened] = useState<"building" | "info">("building");
+  // Which of {building detail, search results} the user opened most recently —
+  // decides which slides on top when both are visible (see buildingOverSearch).
+  const [topPanel, setTopPanel] = useState<"building" | "search">("building");
 
   const activeFilterCount =
     gradeFilter.length +
@@ -109,6 +112,16 @@ export default function MapPage() {
     if (selectedBuilding) setLastOpened("building");
   }, [selectedBuilding]);
 
+  // Selecting a building (including clicking a search result) brings the
+  // building panel forward; kicking off a search brings the results forward,
+  // even over an already-open building panel.
+  useEffect(() => {
+    if (selectedBuilding) setTopPanel("building");
+  }, [selectedBuilding]);
+  useEffect(() => {
+    if (isSearching) setTopPanel("search");
+  }, [isSearching]);
+
   const showBuildingPanel = !!selectedBuilding && (!showInfo || lastOpened === "building");
   const showInfoPanel = showInfo && (!selectedBuilding || lastOpened === "info");
   // Keep the results panel open for the zero-result case so the clarification
@@ -118,11 +131,13 @@ export default function MapPage() {
   const infoSlide = useSlidePanel(showInfoPanel);
   const searchSlide = useSlidePanel(showSearchResults);
 
-  // When a building is selected while search results exist, the building panel
-  // should slide on top of the results — otherwise the user has to close the
-  // results to see what they just clicked. Keyed on shouldRender so the
-  // close-animation slides out *above* the search panel, not under it.
-  const buildingOverSearch = buildingSlide.shouldRender && searchSlide.shouldRender;
+  // When both the building detail and the search results are visible, the more
+  // recently opened one slides on top: clicking a result raises the building
+  // panel (so you see what you clicked), while running a new search raises the
+  // results above an already-open building panel. Keyed on shouldRender so the
+  // close-animation slides out in the same relative order.
+  const buildingOverSearch =
+    buildingSlide.shouldRender && searchSlide.shouldRender && topPanel === "building";
 
   // Hide the corner controls when any panel is rendered (including during exit).
   const anyPanelRendered = buildingSlide.shouldRender || infoSlide.shouldRender || searchSlide.shouldRender;
