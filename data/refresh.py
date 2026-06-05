@@ -5,6 +5,15 @@ Each registered task runs in sequence, writes its start/end state to the
 in one task does not abort the rest — the next task still runs and the failure
 is surfaced via `last_status='fail'` plus `error_message` on that row.
 
+Process exit code (what the Railway cron banner reflects): the run exits
+non-zero ONLY when the core mission failed — the scoring step errored, or every
+ingestion task failed (e.g. DB/network down). A *partial* puller failure (say,
+a transient Socrata timeout on one dataset while the others and scoring
+succeed) is recorded per-dataset in `data_refresh_status` and reported to Sentry
+as its own tagged event, but it does NOT fail the whole nightly job. That
+all-or-nothing exit code was why a single hiccup made an otherwise-healthy run
+show up red. See RefreshResult.is_fatal.
+
 Usage:
     python data/refresh.py                              # run every registered task
     python data/refresh.py --datasets=rodent            # run a subset
@@ -21,7 +30,7 @@ import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
 from urllib.parse import urlparse
 
 import sentry_sdk
@@ -186,17 +195,42 @@ def _run_task(engine, dataset: str, description: str, fn: Callable[[], int]) -> 
         return False
 
 
+class RefreshResult(NamedTuple):
+    """Outcome of a refresh run, used to decide the process exit code."""
+
+    puller_failures: int   # ingestion tasks that raised
+    puller_total: int      # ingestion tasks attempted
+    scoring_attempted: bool
+    scoring_ok: bool
+
+    @property
+    def all_pullers_failed(self) -> bool:
+        return self.puller_total > 0 and self.puller_failures == self.puller_total
+
+    @property
+    def is_fatal(self) -> bool:
+        """True when the run failed at its core mission and an operator should
+        be paged. Partial puller failures are intentionally NOT fatal — they are
+        already recorded per-dataset (data_refresh_status + a tagged Sentry
+        event), so failing the whole job on one transient timeout just produces
+        a misleading red banner over an otherwise-healthy refresh.
+        """
+        if self.scoring_attempted and not self.scoring_ok:
+            return True
+        return self.all_pullers_failed
+
+
 def run(
     filter_keys: set[str] | None = None,
     skip_scoring: bool = False,
     limit: int | None = None,
-) -> int:
-    """Run all (or filtered) refresh tasks. Returns count of failed tasks."""
+) -> RefreshResult:
+    """Run all (or filtered) refresh tasks and report the aggregate outcome."""
     engine = get_db_engine()
     tasks = _load_tasks(filter_keys, limit=limit)
     if not tasks:
         logger.warning("No tasks matched filter; nothing to do.")
-        return 0
+        return RefreshResult(0, 0, False, False)
 
     failures = 0
     overall_start = datetime.now(timezone.utc)
@@ -206,10 +240,12 @@ def run(
         if not ok:
             failures += 1
 
+    scoring_attempted = False
     scoring_ok = False
     if skip_scoring:
         logger.info("Skipping scoring step.")
     else:
+        scoring_attempted = True
         logger.info("All ingest tasks done; running scoring.")
         sys.path.insert(0, str(Path(__file__).resolve().parent / "scoring"))
         from compute import compute_all_scores  # noqa: E402
@@ -244,12 +280,16 @@ def run(
     elif is_full_run:
         logger.info("Skipping tile regeneration (BLOB_READ_WRITE_TOKEN not set).")
 
+    result = RefreshResult(failures, len(tasks), scoring_attempted, scoring_ok)
     logger.info(
-        "Refresh complete. failures=%d total_tasks=%d",
-        failures,
-        len(tasks) + (0 if skip_scoring else 1) + (1 if tiles_ran else 0),
+        "Refresh complete. puller_failures=%d/%d scoring=%s tiles=%s fatal=%s",
+        result.puller_failures,
+        result.puller_total,
+        ("ok" if result.scoring_ok else "FAILED") if scoring_attempted else "skipped",
+        "yes" if tiles_ran else "no",
+        result.is_fatal,
     )
-    return failures
+    return result
 
 
 def main() -> None:
@@ -292,22 +332,24 @@ def main() -> None:
         )
 
     try:
-        failures = run(filter_keys, skip_scoring=args.skip_scoring, limit=args.limit)
+        result = run(filter_keys, skip_scoring=args.skip_scoring, limit=args.limit)
     except Exception:
         if check_in_id is not None:
             capture_checkin(monitor_slug=_MONITOR_SLUG, check_in_id=check_in_id, status="error")
             sentry_sdk.flush(timeout=5)
         raise
 
+    # Only a fatal run flips the cron monitor / exit code. Partial puller
+    # failures still surface as their own tagged Sentry events (see _run_task).
     if check_in_id is not None:
         capture_checkin(
             monitor_slug=_MONITOR_SLUG,
             check_in_id=check_in_id,
-            status="ok" if failures == 0 else "error",
+            status="error" if result.is_fatal else "ok",
         )
         sentry_sdk.flush(timeout=5)
 
-    sys.exit(1 if failures > 0 else 0)
+    sys.exit(1 if result.is_fatal else 0)
 
 
 def _check_env_or_exit() -> None:
