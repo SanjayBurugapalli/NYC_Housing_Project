@@ -23,6 +23,16 @@
 dockerfilePath = "Dockerfile.cron"
 
 [deploy]
-startCommand = "python data/refresh.py"
-cronSchedule = "0 4 * * *"
+# ⚠️ TEMPORARY one-off override — branch `chore/prod-311-repull` ONLY. DO NOT
+# MERGE TO MAIN. Runs a single wide 311 re-pull (5-year window, to backfill BBLs
+# across the full scoring window) followed by a rescore. cronSchedule is removed
+# so the service runs immediately on deploy instead of waiting for 04:00 UTC;
+# restartPolicyType="never" keeps it to exactly one run.
+#
+# To use: deploy this branch on the refresh-daily service, watch the logs to
+# completion ("Refresh complete. ... fatal=False"), then point the service back
+# to `main` and redeploy to restore the nightly cron. main keeps the canonical
+# config, so there is nothing to revert here.
+startCommand = "python data/refresh.py --datasets=311_complaints --days-back=1825"
+# cronSchedule = "0 4 * * *"
 restartPolicyType = "never"
