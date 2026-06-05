@@ -4,7 +4,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.neighborhood_names import get_neighborhood_name
-from app.api.sub_neighborhood_splits import SUB_NEIGHBORHOOD_SPLITS
 
 
 # Shared SELECT-list + FROM/JOIN for the building "summary" projection used by
@@ -47,37 +46,6 @@ def _compute_rent_status(building_class: str | None, year_built: int | None, res
         return "not_regulated"
     return "unknown"
 
-
-_BOROUGH_CD_PREFIX: dict[str, str] = {
-    "MANHATTAN": "1", "BRONX": "2", "BROOKLYN": "3", "QUEENS": "4", "STATEN ISLAND": "5",
-}
-
-
-def _resolve_sub_neighborhood(cd_code: str, lat: float | None, lng: float | None, borough: str = "") -> str | None:
-    """Return the nearest sub-neighborhood name for a building using its coordinates.
-
-    Uses a borough-wide nearest-centroid search (ignoring the building's assigned CD)
-    so that buildings near CD boundaries resolve to the geographically correct name.
-    Falls back to within-CD lookup if borough is unknown.
-    """
-    if lat is None or lng is None:
-        return None
-
-    prefix = _BOROUGH_CD_PREFIX.get(borough.upper(), "")
-    if prefix:
-        # Search all sub-neighborhoods in this borough
-        candidates = [
-            s
-            for cd, splits in SUB_NEIGHBORHOOD_SPLITS.items()
-            if cd.startswith(prefix)
-            for s in splits
-        ]
-    else:
-        candidates = SUB_NEIGHBORHOOD_SPLITS.get(cd_code, [])
-
-    if not candidates:
-        return None
-    return min(candidates, key=lambda s: (s["lat"] - lat) ** 2 + (s["lng"] - lng) ** 2)["name"]
 
 def score_to_grade(score: float) -> str:
     if score >= 97:

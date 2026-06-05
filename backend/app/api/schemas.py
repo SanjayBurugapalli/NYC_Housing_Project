@@ -158,20 +158,6 @@ class WorstLandlordsListResponse(BaseModel):
     group_by: str = "owner"
 
 
-# --- Neighborhoods ---
-
-class NeighborhoodResponse(BaseModel):
-    name: str
-    borough: str
-    avg_score: float = 0.0
-    building_count: int = 0
-    centroid: list[float] = []  # [lng, lat]
-
-
-class NeighborhoodListResponse(BaseModel):
-    neighborhoods: list[NeighborhoodResponse]
-
-
 # --- Search ---
 
 class SearchRequest(BaseModel):

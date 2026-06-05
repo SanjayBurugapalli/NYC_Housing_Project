@@ -120,14 +120,6 @@ export interface BuildingDetail extends BuildingSummary {
   rent_status: "likely_stabilized" | "condo" | "coop" | "not_regulated" | "unknown";
 }
 
-export interface NeighborhoodAggregate {
-  name: string;
-  borough: Borough;
-  avg_score: number;
-  building_count: number;
-  centroid: [number, number];
-}
-
 export interface SearchResult {
   results: BuildingSummary[];
   total: number;

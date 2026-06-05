@@ -1,7 +1,6 @@
 import type {
   BuildingDetail,
   BuildingSummary,
-  NeighborhoodAggregate,
   SearchResult,
   ViewportBounds,
   WorstBuilding,
@@ -51,25 +50,6 @@ export async function fetchBuildingDetail(
   bbl: string
 ): Promise<BuildingDetail> {
   return fetchApi(`/api/buildings/${bbl}`);
-}
-
-export async function fetchNeighborhoods(): Promise<{
-  neighborhoods: NeighborhoodAggregate[];
-}> {
-  return fetchApi("/api/neighborhoods");
-}
-
-export interface SubNeighborhoodScore {
-  name: string;
-  avg_score: number;
-  building_count: number;
-  centroid: [number, number];
-}
-
-export async function fetchSubNeighborhoods(): Promise<{
-  sub_neighborhoods: SubNeighborhoodScore[];
-}> {
-  return fetchApi("/api/neighborhoods/detail");
 }
 
 export interface NeighborhoodPolygonProperties {

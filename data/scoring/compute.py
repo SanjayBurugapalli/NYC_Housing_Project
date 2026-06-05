@@ -516,14 +516,15 @@ def upsert_scores(engine, scores: pd.DataFrame):
 
 
 def update_neighborhood_aggregates(engine):
-    """Recompute neighborhood-level aggregate scores.
+    """Recompute community-district aggregate scores into the ``neighborhoods``
+    table, consumed by the ``/api/buildings`` viewport endpoint's low-zoom
+    aggregate branch (``get_neighborhood_aggregates_in_bbox``).
 
     The ``name`` column stores the raw ``"<cd>-<BOROUGH>"`` code (e.g.
     ``"105-MANHATTAN"``). Human-readable resolution happens at read time in the
-    API via ``app.api.neighborhood_names.get_neighborhood_name`` — that dict is
-    the single source of truth and is what the frontend's NEIGHBORHOOD_SPLITS
-    keys are aligned to. Do NOT resolve names here: storing a resolved name
-    ("Midtown") makes the API re-resolve it and emit "District Midtown".
+    API via ``app.api.neighborhood_names.get_neighborhood_name``. Do NOT resolve
+    names here: storing a resolved name ("Midtown") makes the API re-resolve it
+    and emit "District Midtown".
     """
     with engine.begin() as conn:
         conn.execute(text("TRUNCATE neighborhoods RESTART IDENTITY"))
