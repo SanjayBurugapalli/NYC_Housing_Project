@@ -38,6 +38,16 @@ python data/transform/normalize.py   # Address normalization + BBL joining
 python data/scoring/compute.py       # Recompute health scores
 ```
 
+### Wide re-pull / backfill
+
+The nightly refresh pulls 311 with a 365-day window, but scoring considers 5 years (`DATA_CUTOFF_YEARS`). To backfill the full window in one command — e.g. after a scoring change, or to recover complaint→building links dropped for a missing BBL — pass `--days-back`:
+
+```bash
+python data/refresh.py --datasets=311_complaints --days-back=1825  # wide 311 re-pull, then rescore
+```
+
+In prod, run it with `railway run` against the cron service, or temporarily point the cron service at a one-off branch that overrides its start command (drop `cronSchedule` so it runs on deploy), then switch the service back to `main`.
+
 ---
 
 ## TODO
