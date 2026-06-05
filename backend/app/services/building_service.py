@@ -217,7 +217,8 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         for row in complaints_result
     ]
 
-    # Recent violations (last 50, excluding admin filings, dismissed, and blank entries)
+    # Recent violations (last 50, excluding admin filings, dismissed, blank
+    # entries, and HPD Class I administrative/informational violations)
     violations_result = await db.execute(
         text("""
             SELECT id, source, violation_type, severity, inspection_date, status, description,
@@ -227,6 +228,7 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
             WHERE bbl = :bbl
                 AND (description IS NULL OR description NOT ILIKE :filing_pattern)
                 AND (violation_type NOT ILIKE :dismissed_pattern)
+                AND NOT (source = 'HPD' AND severity = 'I')
                 AND (description IS NOT NULL OR (severity IS NOT NULL AND severity != ''))
             ORDER BY inspection_date DESC NULLS LAST
             LIMIT 50
@@ -374,10 +376,12 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
     )
     category_counts = {row.category: row.cnt for row in category_counts_result}
 
+    # Only Class A/B/C count toward the HPD severity sub-score; Class I is
+    # administrative and excluded (mirrors compute_hpd_severity_score).
     hpd_severity_result = await db.execute(
         text("""
             SELECT severity, COUNT(*) as cnt FROM violations
-            WHERE bbl = :bbl AND source = 'HPD' AND severity IS NOT NULL
+            WHERE bbl = :bbl AND source = 'HPD' AND severity IN ('A', 'B', 'C')
             GROUP BY severity
         """),
         {"bbl": bbl},

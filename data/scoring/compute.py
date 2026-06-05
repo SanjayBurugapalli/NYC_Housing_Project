@@ -9,9 +9,12 @@ Composite score 0-100 (higher = healthier). Weighted sub-scores:
 - Litigation history: 13%
 
 Rules:
-- Normalize per residential unit
+- Normalize per residential unit (units ** UNIT_NORMALIZATION_EXPONENT)
 - Gradual time decay: 0-6mo=2x, 6-12mo=1.5x, 1-2yr=1x, 2+yr=0.5x
 - Absolute scoring via exponential decay (not percentile)
+- HPD severity scoring counts only Class A/B/C violations. Class I
+  ("Information"/administrative) violations are excluded — they're filing
+  artifacts, not habitability conditions. Severity weight C > B > A.
 """
 
 import logging
@@ -41,9 +44,9 @@ WEIGHTS = {
 
 # Decay rates per category (higher = harsher penalty per normalized issue count).
 # Steepened from the original calibration because the old linear per-unit
-# divisor made grades too lenient (78% of buildings scored A). Note these now
-# act on a sqrt(units)-normalized count (see normalized_per_unit), so a given
-# rate bites harder than under the old per-unit scale.
+# divisor made grades too lenient (78% of buildings scored A). These act on a
+# units**UNIT_NORMALIZATION_EXPONENT-normalized count (see normalized_per_unit),
+# so a given rate bites harder than under the old raw per-unit scale.
 DECAY_RATES = {
     "heat": 0.45,
     "pest": 0.55,
@@ -56,6 +59,16 @@ DECAY_RATES = {
 
 # Hard cutoff: only consider data from the last 5 years
 DATA_CUTOFF_YEARS = 5
+
+# Exponent for per-unit normalization (see normalized_per_unit).
+#   1.0  → divide by raw unit count. Big buildings become almost impossible to
+#          penalize (the original bug: a 200-unit building with 40 complaints
+#          scored like a 5-unit building with 1).
+#   0.5  → divide by sqrt(units). Harsh on big buildings.
+#   0.75 → the middle ground we use now: large buildings are still held
+#          accountable, but issue counts aren't assumed to scale linearly with
+#          size, so a big building isn't doomed by raw volume alone.
+UNIT_NORMALIZATION_EXPONENT = 0.75
 
 
 def _data_since_iso() -> str:
@@ -97,15 +110,17 @@ def absolute_score(weighted_per_unit: pd.Series, decay_rate: float) -> pd.Series
 def normalized_per_unit(
     weighted_count: pd.Series, residential_units: pd.Series
 ) -> pd.Series:
-    """Normalize a weighted issue count by sqrt(units) rather than raw unit count.
+    """Normalize a weighted issue count by units ** UNIT_NORMALIZATION_EXPONENT.
 
-    A linear divisor made large buildings nearly impossible to penalize — a
-    200-unit building with 40 complaints scored like a 5-unit building with 1.
-    sqrt(units) preserves the intent (bigger buildings legitimately see more
-    issues) without letting size alone guarantee an A. units is already clipped
-    to ≥1 upstream, so the denominator is always ≥1.
+    A pure linear divisor (exponent 1.0) made large buildings nearly impossible
+    to penalize — a 200-unit building with 40 complaints scored like a 5-unit
+    building with 1. Pure sqrt (0.5) over-corrected and punished big buildings
+    too hard. The 0.75 exponent sits between the two: bigger buildings
+    legitimately see more issues, but size alone no longer guarantees an A nor
+    dooms a large building to an F. units is already clipped to ≥1 upstream, so
+    the denominator is always ≥1.
     """
-    return weighted_count / np.sqrt(residential_units)
+    return weighted_count / np.power(residential_units, UNIT_NORMALIZATION_EXPONENT)
 
 
 def compute_all_scores():
@@ -321,12 +336,18 @@ def compute_structural_score(
 def compute_hpd_severity_score(
     engine, buildings: pd.DataFrame, decay_rate: float
 ) -> pd.Series:
-    """Score based on HPD violation severity (Class A/B/C). C is worst."""
+    """Score based on HPD violation severity (Class A/B/C). C is worst.
+
+    Class I ("Information") violations are excluded at the SQL level — they are
+    administrative filing records, not habitability conditions, so they must not
+    drag down a building's score.
+    """
     since = _data_since_iso()
     violations = pd.read_sql(
         text(
             "SELECT bbl, severity, inspection_date FROM violations "
             "WHERE source = 'HPD' AND bbl IS NOT NULL "
+            "AND severity IN ('A', 'B', 'C') "
             "AND inspection_date >= :since"
         ),
         engine,
@@ -338,8 +359,10 @@ def compute_hpd_severity_score(
 
     tw = time_weight(violations["inspection_date"])
 
-    # Severity weights: C (immediately hazardous) = 5, B (hazardous) = 3, A (non-hazardous) = 1
-    severity_weight = violations["severity"].map({"C": 5, "B": 3, "A": 1}).fillna(1)
+    # Severity weights: C (immediately hazardous, 24h to fix) is weighted most
+    # heavily, B (hazardous, 30 days) less, A (non-hazardous nuisance) least.
+    # fillna(0) is a defensive no-op since the SQL already restricts to A/B/C.
+    severity_weight = violations["severity"].map({"C": 5, "B": 3, "A": 1}).fillna(0)
     violations["weight"] = tw * severity_weight
 
     weighted_counts = violations.groupby("bbl")["weight"].sum().reset_index()
@@ -398,6 +421,8 @@ def get_raw_counts(engine, buildings: pd.DataFrame) -> pd.DataFrame:
             "WHERE bbl IS NOT NULL "
             "AND (description IS NULL OR description NOT ILIKE :filing_pattern) "
             "AND (violation_type NOT ILIKE :dismissed_pattern) "
+            # Exclude HPD Class I (administrative/informational) from the count
+            "AND NOT (source = 'HPD' AND severity = 'I') "
             "AND inspection_date >= :since "
             "GROUP BY bbl"
         ),
