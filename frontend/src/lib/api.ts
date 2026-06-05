@@ -72,6 +72,24 @@ export async function fetchSubNeighborhoods(): Promise<{
   return fetchApi("/api/neighborhoods/detail");
 }
 
+export interface NeighborhoodPolygonProperties {
+  nta_code: string;
+  name: string;
+  borough: string;
+  avg_score: number;
+  building_count: number;
+}
+
+export type NeighborhoodPolygonCollection = GeoJSON.FeatureCollection<
+  GeoJSON.Polygon | GeoJSON.MultiPolygon,
+  NeighborhoodPolygonProperties
+>;
+
+/** NTA neighborhood outline polygons with aggregated health scores (GeoJSON). */
+export async function fetchNeighborhoodPolygons(): Promise<NeighborhoodPolygonCollection> {
+  return fetchApi("/api/neighborhoods/polygons");
+}
+
 export interface DatasetRefreshStatus {
   dataset: string;
   last_completed_at: string | null;

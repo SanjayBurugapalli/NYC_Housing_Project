@@ -7,8 +7,7 @@ import mapboxgl, { type ExpressionSpecification } from "mapbox-gl";
 // addProtocol, so PMTiles is wired in as a custom mapbox-gl *source type*.
 import { PmTilesSource } from "mapbox-pmtiles/dist/mapbox-pmtiles.js";
 import { useStore } from "@/lib/store";
-import { fetchNeighborhoods, fetchSubNeighborhoods } from "@/lib/api";
-import { NEIGHBORHOOD_SPLITS } from "@/lib/neighborhoodSplits";
+import { fetchNeighborhoodPolygons } from "@/lib/api";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -220,84 +219,11 @@ export function Map() {
 
   const loadNeighborhoods = useCallback(async (m: mapboxgl.Map) => {
     try {
-      const [neighborhoodData, subData] = await Promise.all([
-        fetchNeighborhoods(),
-        fetchSubNeighborhoods(),
-      ]);
-
-      // Exclude bubbles with a 0 or 100 score — those almost always indicate
-      // a CD with too little data (no buildings/complaints) and produce
-      // misleading "perfect" or "worst possible" patches on the heatmap.
-      const isMeaningfulScore = (s: number | null | undefined): boolean =>
-        s != null && s > 0 && s < 100;
-
-      const valid = neighborhoodData.neighborhoods.filter(
-        (n) => n.centroid && n.centroid.length === 2 && isMeaningfulScore(n.avg_score)
-      );
-
-      // Build a lookup from sub-neighborhood name → computed score/count
-      const subScoreLookup = Object.fromEntries(
-        subData.sub_neighborhoods.map((s) => [s.name, s])
-      ) as Record<string, (typeof subData.sub_neighborhoods)[0]>;
-
-      // Combined features — one bubble per community district (zoom < 11)
-      const combinedFeatures = valid.map((n) => ({
-        type: "Feature" as const,
-        geometry: { type: "Point" as const, coordinates: n.centroid },
-        properties: {
-          name: n.name,
-          borough: n.borough,
-          avg_score: n.avg_score,
-          building_count: n.building_count,
-        },
-      }));
-
-      // Detail features — individual sub-neighborhood bubbles (zoom 11–13)
-      const detailFeatures: Array<{
-        type: "Feature";
-        geometry: { type: "Point"; coordinates: [number, number] };
-        properties: Record<string, unknown>;
-      }> = [];
-
-      for (const n of valid) {
-        const splits = NEIGHBORHOOD_SPLITS[n.name];
-        if (splits && splits.length > 0) {
-          for (const sub of splits) {
-            // Use computed score if available, fall back to parent CD score
-            const computed = subScoreLookup[sub.name];
-            const score = computed?.avg_score ?? n.avg_score;
-            if (!isMeaningfulScore(score)) continue;
-            detailFeatures.push({
-              type: "Feature",
-              geometry: { type: "Point", coordinates: [sub.lng, sub.lat] },
-              properties: {
-                name: sub.name,
-                borough: n.borough,
-                avg_score: score,
-                building_count: computed?.building_count ?? Math.round(n.building_count / splits.length),
-              },
-            });
-          }
-        } else {
-          // No split — show at detail level with same data
-          detailFeatures.push({
-            type: "Feature",
-            geometry: { type: "Point", coordinates: n.centroid as [number, number] },
-            properties: {
-              name: n.name,
-              borough: n.borough,
-              avg_score: n.avg_score,
-              building_count: n.building_count,
-            },
-          });
-        }
-      }
-
-      const combined = m.getSource("neighborhoods") as mapboxgl.GeoJSONSource | undefined;
-      if (combined) combined.setData({ type: "FeatureCollection", features: combinedFeatures });
-
-      const detail = m.getSource("neighborhoods-detail") as mapboxgl.GeoJSONSource | undefined;
-      if (detail) detail.setData({ type: "FeatureCollection", features: detailFeatures });
+      // NTA boundary polygons with aggregated scores — drawn as filled,
+      // outlined neighborhood shapes (replaces the old centroid bubbles).
+      const polygons = await fetchNeighborhoodPolygons();
+      const source = m.getSource("neighborhoods") as mapboxgl.GeoJSONSource | undefined;
+      if (source) source.setData(polygons);
     } catch (e) {
       console.error("Failed to load neighborhoods:", e);
     }
@@ -347,13 +273,16 @@ export function Map() {
     });
 
     m.on("load", () => {
-      // --- Neighborhood layer (low zoom) ---
+      // --- Neighborhood outlines (low/medium zoom) ---
+      // Precise NTA boundary polygons, filled + outlined and colored by average
+      // health score. Replaces the old centroid bubbles. Shown at zoom ≤ 13;
+      // individual building dots take over above that.
       m.addSource("neighborhoods", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
 
-      // Shared score color expression for neighborhood circles
+      // Shared score color expression for the neighborhood fill.
       const scoreColor = [
         "interpolate", ["linear"], ["get", "avg_score"],
         55, "#ef4444",
@@ -363,22 +292,26 @@ export function Map() {
         100, "#22c55e",
       ] as mapboxgl.Expression;
 
-      // ── Combined bubbles (zoom 9 – 11) ─────────────────────────────────────
       m.addLayer({
-        id: "neighborhoods-circles",
-        type: "circle",
+        id: "neighborhoods-fill",
+        type: "fill",
         source: "neighborhoods",
-        maxzoom: 11,
+        maxzoom: 13,
         paint: {
-          "circle-radius": [
-            "interpolate", ["linear"], ["get", "building_count"],
-            100, 12,  1000, 20,  10000, 35,  50000, 50,
-          ],
-          "circle-color": scoreColor,
-          "circle-opacity": 0.6,
-          "circle-stroke-width": 1,
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-opacity": 0.3,
+          "fill-color": scoreColor,
+          "fill-opacity": 0.4,
+        },
+      });
+
+      m.addLayer({
+        id: "neighborhoods-outline",
+        type: "line",
+        source: "neighborhoods",
+        maxzoom: 13,
+        paint: {
+          "line-color": "#ffffff",
+          "line-width": 0.8,
+          "line-opacity": 0.5,
         },
       });
 
@@ -386,57 +319,10 @@ export function Map() {
         id: "neighborhoods-labels",
         type: "symbol",
         source: "neighborhoods",
-        maxzoom: 11,
-        layout: {
-          "text-field": [
-            "concat",
-            ["get", "name"],
-            "\n",
-            ["to-string", ["round", ["get", "avg_score"]]],
-          ],
-          "text-size": 11,
-          "text-font": ["DIN Pro Medium", "Arial Unicode MS Regular"],
-          "text-allow-overlap": false,
-        },
-        paint: {
-          "text-color": "#ffffff",
-          "text-halo-color": "#000000",
-          "text-halo-width": 1,
-        },
-      });
-
-      // ── Detail bubbles — split sub-neighborhoods (zoom 11 – 13) ────────────
-      m.addSource("neighborhoods-detail", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
-
-      m.addLayer({
-        id: "neighborhoods-detail-circles",
-        type: "circle",
-        source: "neighborhoods-detail",
-        minzoom: 11,
-        maxzoom: 13,
-        paint: {
-          "circle-radius": [
-            "interpolate", ["linear"], ["get", "building_count"],
-            50, 9,  500, 14,  5000, 22,  25000, 32,
-          ],
-          "circle-color": scoreColor,
-          "circle-opacity": 0.65,
-          "circle-stroke-width": 1,
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-opacity": 0.35,
-        },
-      });
-
-      m.addLayer({
-        id: "neighborhoods-detail-labels",
-        type: "symbol",
-        source: "neighborhoods-detail",
-        minzoom: 11,
         maxzoom: 13,
         layout: {
+          // Symbol-on-polygon: Mapbox places one label at each polygon's
+          // visual center.
           "text-field": [
             "concat",
             ["get", "name"],
@@ -644,21 +530,40 @@ export function Map() {
     };
   }, [setViewport, selectBuilding, fetchAndRenderBuildings, setMapRef, loadNeighborhoods, updateVectorBuildingCount]);
 
-  // Re-filter buildings on map when grade filter or map filters change
+  // Re-filter buildings on map when grade filter or map filters change.
   useEffect(() => {
     const m = map.current;
-    if (!m || !m.isStyleLoaded()) return;
-    if (USE_VECTOR_TILES) {
-      // Vector tiles can't be mutated, so the same grade/units/year filter is
-      // expressed as a Mapbox filter on the layer instead of re-running setData.
-      if (m.getLayer("buildings-dots")) {
-        m.setFilter("buildings-dots", buildVectorFilter(gradeFilter, mapFilters));
-        updateVectorBuildingCount(m);
+    if (!m) return;
+
+    const apply = () => {
+      if (USE_VECTOR_TILES) {
+        // Vector tiles can't be mutated, so the same grade/units/year filter is
+        // expressed as a Mapbox filter on the layer instead of re-running setData.
+        if (m.getLayer("buildings-dots")) {
+          m.setFilter("buildings-dots", buildVectorFilter(gradeFilter, mapFilters));
+          updateVectorBuildingCount(m);
+        }
+        return;
       }
-      return;
-    }
-    if (rawBuildingsRef.current.length > 0) {
-      applyGradeFilter(m, rawBuildingsRef.current, gradeFilter, mapFilters);
+      if (rawBuildingsRef.current.length > 0) {
+        applyGradeFilter(m, rawBuildingsRef.current, gradeFilter, mapFilters);
+      }
+    };
+
+    // isStyleLoaded() reports false while a source is mid-stream (e.g. right
+    // after the buildings/neighborhoods source got setData), which happens
+    // constantly during normal panning. Previously we bailed in that window, so
+    // a filter change made then was silently dropped and only took effect on the
+    // next pan — making the units/grade filters look broken. Apply immediately
+    // when the style is ready, otherwise defer to the next idle so the change is
+    // never lost.
+    if (m.isStyleLoaded()) {
+      apply();
+    } else {
+      m.once("idle", apply);
+      return () => {
+        m.off("idle", apply);
+      };
     }
   }, [gradeFilter, mapFilters, applyGradeFilter, updateVectorBuildingCount]);
 
