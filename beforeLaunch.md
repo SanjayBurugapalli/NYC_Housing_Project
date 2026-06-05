@@ -58,7 +58,7 @@ Track everything that needs to happen before this goes public. Check items off a
 | P | Owner | Item | Notes |
 |---|---|---|---|
 | P0 | 🤖 | ✅ Verify spatial + BBL indexes | Confirmed in migration 001: `idx_buildings_bbl`, GeoAlchemy2 auto-GIST on `buildings.geom` + `geom_footprint`, plus compound indexes on `(borough, building_class)`, `(building_class, composite_score)`, etc. Joins and viewport queries are indexed. |
-| P0 | 🤝 | Vector tile pipeline (tippecanoe) | CLAUDE.md explicitly says no GeoJSON from the API for map display. Biggest scale risk. I write the build + serve code; you host the tile output (Mapbox Studio or CDN). |
+| P0 | 🤝 | 🟡 Vector tile pipeline (tippecanoe) | **Built.** [tiles/generate.sh](tiles/generate.sh) + [data/publish_tiles.py](data/publish_tiles.py) generate PMTiles and the nightly refresh regenerates + uploads them to Vercel Blob when `BLOB_READ_WRITE_TOKEN` is set. **Remaining:** set `BLOB_READ_WRITE_TOKEN` on the cron service, set `NEXT_PUBLIC_TILES_URL` on Vercel, and verify the high-zoom dots actually stream from PMTiles — the `Map.tsx` vector path is still flagged UNVERIFIED until a reachable tiles URL exists. |
 | P1 | 🤖 | ✅ Tune SQLAlchemy pool size | Bumped from `pool_size=10, max_overflow=5` → `20, 10` in [database.py](backend/app/core/database.py). Confirm Railway Postgres allows ≥30 connections (default plan allows 100). |
 | P1 | 🤝 | Load test `/api/buildings` | I write a `k6` script for 100 RPS sustained. You run it against prod (or I run it if you give the go-ahead). |
 | P1 | 🤖 | ✅ Verify scoring + nightly refresh | The README mentions a materialized view; reality is `health_scores` is a regular table populated by `compute_all_scores()` and refreshed nightly by the cron service. Functionally equivalent — no code change. (Could document this in CLAUDE.md if you want.) |
@@ -70,7 +70,7 @@ Track everything that needs to happen before this goes public. Check items off a
 | P0 | 👤 | ✅ Spot-check 5 known buildings | Done — verified externally against the live UI. |
 | P0 | 🤖 | ⚠️ Score distribution sanity check | **Flagged.** Excluding 1–2 family homes: **A 78.4%**, B 12.3%, C 6.6%, D 2.2%, F 0.5%; median 99.5, 39% score exactly 100, 35% have neither a complaint nor a violation. Root cause found — see join-coverage audit below. |
 | P0 | 🤖 | ✅ Join-coverage audit + fix | **Root cause found & fixed.** `pull_311.py` never selected the source `bbl` field, so ~49% of complaints had no BBL and were dropped from scoring (which joins on BBL). Fix: select + normalize + persist `bbl` (commit 9747827). Verified locally with a 5-year re-pull + rescore: **complaint linkage 50.6% → 95.7%** (1.79M → 5.97M linked), and grade A dropped **78.4% → 71.3%** (B/C/D/F all rose, F nearly doubled). Effect is real but partial because of the 5-yr time-decay curve. Separately, 13% of `violations` reference BBLs outside the residential universe (expected — non-residential lots). **Apply in prod:** re-pull 311 with a wide `days_back` (default refresh only covers 365 days) + rerun scoring. |
-| P1 | 🤖 | ✅ Score-curve recalibration | Implemented Option 2 (sqrt(units) per-unit normalization, so large buildings aren't auto-forgiven) + Option 3 (steeper `DECAY_RATES`). Local rescore: **A 71.3% → 49.4%**, B 16.1% → 25.2%, C 8.3% → 12.3%, D 3.3% → 6.6%, F 0.9% → 6.4% — a real spread, no overshoot. Decay rates are tunable if a more/less selective A is wanted. **Apply in prod:** rerun scoring after the 311 re-pull. |
+| P1 | 🤖 | ✅ Score-curve recalibration | Implemented Option 2 (sqrt(units) per-unit normalization, so large buildings aren't auto-forgiven) + Option 3 (steeper `DECAY_RATES`). Local rescore: **A 71.3% → 49.4%**, B 16.1% → 25.2%, C 8.3% → 12.3%, D 3.3% → 6.6%, F 0.9% → 6.4% — a real spread, no overshoot. Decay rates are tunable if a more/less selective A is wanted. **Update (2026-06-04):** per product feedback that big buildings were over-penalized, softened the per-unit divisor from `sqrt(units)` to `units**0.75` (between linear and sqrt) and excluded HPD Class I (administrative) violations from severity scoring + counts. Latest dev rescore: multi-family **A 64.9% / B 15.7% / C 10.2% / D 5.7% / F 3.6%** (more lenient than the 49% A above — re-tighten the exponent/decay if a more selective A is wanted). **Apply in prod:** rerun scoring after the 311 re-pull. |
 | P1 | 🤖 | ✅ Confirm per-unit normalization in scoring | Verified in [compute.py](data/scoring/compute.py): all per-building scoring functions divide `weighted_count / residential_units` (lines 270, 319, 363, 397). Litigation is intentionally per-building. `residential_units` clipped to ≥1 to avoid divide-by-zero. |
 
 ## UX / launch polish
@@ -105,10 +105,11 @@ Updated sequence based on what's already done. Items already shipped are marked 
 7. ✅ 👤 First cron run complete.
 8. ✅ 🤝 Sentry on frontend + backend + cron.
 9. ✅ 👤 Spot-check 5 known buildings against the live UI.
-10. **Next: ⚠️ 🤖 Score-distribution calibration** — 78% of buildings grade A; decide whether to tighten the curve and/or audit complaint→building join coverage so the grade discriminates. Launch blocker for a credible product.
-11. 👤 UptimeRobot on `/health` + `/api/refresh-status` (15 min).
-12. 🤖 Switch cron `DATABASE_URL` to `${{Postgres.DATABASE_PRIVATE_URL}}` (5 min in the Railway dashboard — speeds up future runs significantly).
-13. 🤝 Vector tile pipeline (tippecanoe) — biggest scale risk; deferrable until you start seeing real traffic.
+10. ✅ 🤖 Score-distribution calibration — done in code: per-unit normalization + decay tuning, later softened to `units**0.75`, plus the 311 join-coverage fix and HPD Class I exclusion. Multi-family now ~65% A with a real D/F tail.
+11. **Next: 🤝 Apply the scoring fixes in prod** — re-pull 311 with a wide `days_back` (the join-coverage fix; the default refresh only covers 365 days), then rerun scoring on Railway. This is what puts the calibration + the new HPD/normalization changes on the live site; until it runs, prod still shows the old inflated grades. Requires the cron service to be redeployed with the latest `main` first.
+12. 👤 UptimeRobot on `/health` + `/api/refresh-status` (15 min).
+13. 👤 Switch cron `DATABASE_URL` to `${{Postgres.DATABASE_PRIVATE_URL}}` (5 min in the Railway dashboard — speeds up future runs significantly).
+14. 🟡 🤝 Vector tile pipeline — built (`generate.sh` + `publish_tiles.py` + nightly upload); set `BLOB_READ_WRITE_TOKEN` (cron) + `NEXT_PUBLIC_TILES_URL` (Vercel) and verify dots stream from PMTiles. Biggest scale risk; deferrable until real traffic.
 
 Everything else is fast-follow unless you're expecting press-level traffic on day one.
 
