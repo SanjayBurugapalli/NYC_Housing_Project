@@ -19,6 +19,7 @@ Usage:
     python data/refresh.py --datasets=rodent            # run a subset
     python data/refresh.py --skip-scoring               # ingest only (no compute.py)
     python data/refresh.py --datasets=rodent --limit=50 # fast smoke test
+    python data/refresh.py --datasets=311_complaints --days-back=1825  # wide 311 re-pull + rescore
 """
 
 import argparse
@@ -89,25 +90,33 @@ TASK_DEFINITIONS: list[tuple[str, str, str, str]] = [
 ]
 
 
-def _accepts_limit(fn: Callable) -> bool:
-    """True if `fn` can be called with a `limit=` kwarg (named param or **kwargs)."""
+def _accepts_kwarg(fn: Callable, name: str) -> bool:
+    """True if `fn` can be called with `name=` (named param or **kwargs)."""
     try:
         params = inspect.signature(fn).parameters
     except (TypeError, ValueError):
         return False
     if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
         return True
-    return "limit" in params
+    return name in params
 
 
 def _load_tasks(
-    filter_keys: set[str] | None, limit: int | None = None,
+    filter_keys: set[str] | None,
+    limit: int | None = None,
+    days_back: int | None = None,
 ) -> list[tuple[str, str, Callable[[], int]]]:
     """Resolve task callables, optionally filtered by a set of dataset keys.
 
     `limit`, if set, is forwarded as the `limit` kwarg to each puller that
     accepts one; pullers without a `limit` parameter run unbounded (with a
     warning) rather than raising. Useful for smoke tests and previews.
+
+    `days_back`, if set, is forwarded as the `days_back` kwarg to each puller
+    that accepts one (only the date-windowed pullers like 311 do). Pullers
+    without it keep their own default window and are skipped silently, since
+    `days_back` is a targeted override (e.g. a wide 311 re-pull to backfill
+    BBLs across the full scoring window) rather than a global knob.
     """
     tasks: list[tuple[str, str, Callable[[], int]]] = []
     for key, module_name, fn_name, description in TASK_DEFINITIONS:
@@ -115,14 +124,15 @@ def _load_tasks(
             continue
         module = __import__(module_name)
         fn = getattr(module, fn_name)
-        if limit is not None and _accepts_limit(fn):
-            bound: Callable[[], int] = lambda f=fn, l=limit: f(limit=l)
-        else:
-            if limit is not None:
-                logger.warning(
-                    "Puller %s does not accept limit=; running unbounded", fn_name
-                )
-            bound = fn
+        kwargs: dict[str, int] = {}
+        if limit is not None:
+            if _accepts_kwarg(fn, "limit"):
+                kwargs["limit"] = limit
+            else:
+                logger.warning("Puller %s does not accept limit=; running unbounded", fn_name)
+        if days_back is not None and _accepts_kwarg(fn, "days_back"):
+            kwargs["days_back"] = days_back
+        bound: Callable[[], int] = (lambda f=fn, kw=kwargs: f(**kw)) if kwargs else fn
         tasks.append((key, description, bound))
     return tasks
 
@@ -224,10 +234,11 @@ def run(
     filter_keys: set[str] | None = None,
     skip_scoring: bool = False,
     limit: int | None = None,
+    days_back: int | None = None,
 ) -> RefreshResult:
     """Run all (or filtered) refresh tasks and report the aggregate outcome."""
     engine = get_db_engine()
-    tasks = _load_tasks(filter_keys, limit=limit)
+    tasks = _load_tasks(filter_keys, limit=limit, days_back=days_back)
     if not tasks:
         logger.warning("No tasks matched filter; nothing to do.")
         return RefreshResult(0, 0, False, False)
@@ -312,6 +323,14 @@ def main() -> None:
         default=None,
         help="Cap each puller at this many rows. Smoke-test only — leave unset in production.",
     )
+    parser.add_argument(
+        "--days-back",
+        type=int,
+        default=None,
+        help="Override the lookback window (days) for date-windowed pullers like 311. "
+             "Use for a one-time wide re-pull, e.g. --datasets=311_complaints --days-back=1825 "
+             "to backfill BBLs across the full 5-year scoring window, then rescore.",
+    )
     args = parser.parse_args()
 
     _check_env_or_exit()
@@ -332,7 +351,12 @@ def main() -> None:
         )
 
     try:
-        result = run(filter_keys, skip_scoring=args.skip_scoring, limit=args.limit)
+        result = run(
+            filter_keys,
+            skip_scoring=args.skip_scoring,
+            limit=args.limit,
+            days_back=args.days_back,
+        )
     except Exception:
         if check_in_id is not None:
             capture_checkin(monitor_slug=_MONITOR_SLUG, check_in_id=check_in_id, status="error")
