@@ -89,12 +89,19 @@ def _address_variants(raw: str) -> list[str]:
 EXCLUDE_SMALL_HOMES = "b.building_class NOT LIKE 'A%' AND b.building_class NOT LIKE 'B%'"
 
 async def search_by_address(db: AsyncSession, query: str, include_small_homes: bool = False) -> list[dict]:
-    """Search buildings by address substring match, trying multiple normalized variants."""
+    """Search buildings by address substring match, trying multiple normalized variants.
+
+    Uses ILIKE (case-insensitive) rather than UPPER(address) LIKE so the
+    pg_trgm GIN index on buildings.address (migration 007) can serve the
+    leading-wildcard match — otherwise each variant forces a full scan of the
+    ~859k-row buildings table. Address lookup is the most common single-building
+    path, so it stays index-backed and never touches the Claude API.
+    """
     size_clause = "" if include_small_homes else f"AND {EXCLUDE_SMALL_HOMES}"
     variants = _address_variants(query)
 
-    # Build OR'd LIKE conditions for each variant
-    like_clauses = " OR ".join(f"UPPER(b.address) LIKE :p{i}" for i in range(len(variants)))
+    # Build OR'd ILIKE conditions for each variant (trigram-index accelerated)
+    like_clauses = " OR ".join(f"b.address ILIKE :p{i}" for i in range(len(variants)))
     params: dict = {f"p{i}": f"%{v}%" for i, v in enumerate(variants)}
     params["limit"] = MAX_RESULTS
 
