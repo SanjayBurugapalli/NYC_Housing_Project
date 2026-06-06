@@ -6,6 +6,7 @@ import type {
   WorstBuilding,
   WorstLandlord,
 } from "@/types/building";
+import type { CategoryWeights } from "@/lib/scoringWeights";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -106,12 +107,32 @@ export async function searchBuildings(query: string, filters: SearchFilters = {}
   });
 }
 
+// Maps the frontend weight keys to the rankings API's w_* query params.
+const RANKING_WEIGHT_PARAMS: Record<keyof CategoryWeights, string> = {
+  heat_hot_water: "w_heat",
+  pest_rodent: "w_pest",
+  structural_safety: "w_structural",
+  hpd_severity: "w_hpd",
+  noise: "w_noise",
+  litigation: "w_litigation",
+};
+
+/** Append custom scoring weights (fractions) to a rankings query, if provided. */
+function appendWeights(params: URLSearchParams, weights?: CategoryWeights | null): void {
+  if (!weights) return;
+  for (const key of Object.keys(RANKING_WEIGHT_PARAMS) as (keyof CategoryWeights)[]) {
+    params.set(RANKING_WEIGHT_PARAMS[key], String(weights[key]));
+  }
+}
+
 export async function fetchWorstBuildings(
   borough?: string | null,
-  limit = 50
+  limit = 50,
+  weights?: CategoryWeights | null
 ): Promise<{ buildings: WorstBuilding[]; total: number; borough: string | null }> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (borough) params.set("borough", borough);
+  appendWeights(params, weights);
   return fetchApi(`/api/rankings/buildings?${params.toString()}`);
 }
 
@@ -120,10 +141,12 @@ export type LandlordGroupBy = "owner" | "manager";
 export async function fetchWorstLandlords(
   borough?: string | null,
   groupBy: LandlordGroupBy = "owner",
-  limit = 50
+  limit = 50,
+  weights?: CategoryWeights | null
 ): Promise<{ landlords: WorstLandlord[]; total: number; borough: string | null; group_by: LandlordGroupBy }> {
   const params = new URLSearchParams({ limit: String(limit), group_by: groupBy });
   if (borough) params.set("borough", borough);
+  appendWeights(params, weights);
   return fetchApi(`/api/rankings/landlords?${params.toString()}`);
 }
 

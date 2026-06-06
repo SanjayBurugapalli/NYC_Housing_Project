@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { fetchWorstBuildings, fetchWorstLandlords, type LandlordGroupBy } from "@/lib/api";
+import { DEFAULT_WEIGHTS, SCORING_WEIGHTS, type CategoryWeights } from "@/lib/scoringWeights";
 import type { Borough, Grade } from "@/types/building";
 
 type Tab = "buildings" | "landlords";
@@ -58,10 +59,10 @@ function RankNumber({ n }: { n: number }) {
   );
 }
 
-function BuildingsList({ borough }: { borough: Borough | null }) {
+function BuildingsList({ borough, weights }: { borough: Borough | null; weights: CategoryWeights | null }) {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["worst-buildings", borough],
-    queryFn: () => fetchWorstBuildings(borough),
+    queryKey: ["worst-buildings", borough, weights],
+    queryFn: () => fetchWorstBuildings(borough, 50, weights),
   });
 
   if (isLoading) return <ListSkeleton />;
@@ -104,10 +105,18 @@ function BuildingsList({ borough }: { borough: Borough | null }) {
   );
 }
 
-function LandlordsList({ borough, groupBy }: { borough: Borough | null; groupBy: LandlordGroupBy }) {
+function LandlordsList({
+  borough,
+  groupBy,
+  weights,
+}: {
+  borough: Borough | null;
+  groupBy: LandlordGroupBy;
+  weights: CategoryWeights | null;
+}) {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["worst-landlords", borough, groupBy],
-    queryFn: () => fetchWorstLandlords(borough, groupBy),
+    queryKey: ["worst-landlords", borough, groupBy, weights],
+    queryFn: () => fetchWorstLandlords(borough, groupBy, 50, weights),
   });
 
   if (isLoading) return <ListSkeleton />;
@@ -188,10 +197,100 @@ function EmptyState({ label }: { label: string }) {
   );
 }
 
+/** Collapsible sliders that let a visitor re-rank by their own category weights.
+    Weights are stored as fractions (matching DEFAULT_WEIGHTS) and normalized
+    server-side, so they don't need to sum to 100%. */
+function WeightControls({
+  weights,
+  enabled,
+  onSetWeight,
+  onToggle,
+  onReset,
+}: {
+  weights: CategoryWeights;
+  enabled: boolean;
+  onSetWeight: (key: keyof CategoryWeights, value: number) => void;
+  onToggle: (value: boolean) => void;
+  onReset: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="mb-6 rounded-xl border border-gray-800 bg-gray-900/40">
+      <div className="flex items-center justify-between px-4 py-3">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex items-center gap-2 text-sm font-medium text-gray-200 transition-colors hover:text-white"
+          aria-expanded={open}
+        >
+          <span>Prioritize what matters to you</span>
+          <span className={`text-xs text-gray-500 transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
+        </button>
+        {enabled && (
+          <span className="rounded-full bg-blue-600/20 px-2 py-0.5 text-[11px] font-medium text-blue-300">
+            Custom ranking on
+          </span>
+        )}
+      </div>
+
+      {open && (
+        <div className="space-y-3 border-t border-gray-800 px-4 py-4">
+          <label className="flex items-center gap-2 text-xs text-gray-300">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => onToggle(e.target.checked)}
+              className="rounded accent-blue-500"
+            />
+            Re-rank by my weights
+          </label>
+
+          <div className={enabled ? "space-y-2" : "space-y-2 pointer-events-none opacity-40"}>
+            {SCORING_WEIGHTS.map(({ key, label, color }) => {
+              const pct = Math.round(weights[key] * 100);
+              return (
+                <div key={key} className="space-y-0.5">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-400">{label}</span>
+                    <span className="font-medium text-gray-300 tabular-nums">{pct}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={50}
+                    value={pct}
+                    onChange={(e) => onSetWeight(key, parseInt(e.target.value, 10) / 100)}
+                    style={{ accentColor: color }}
+                    className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-700"
+                    aria-label={`${label} weight`}
+                  />
+                </div>
+              );
+            })}
+
+            <div className="flex items-center justify-between border-t border-gray-800 pt-2 text-xs">
+              <button type="button" onClick={onReset} className="text-gray-400 hover:text-white">
+                Reset to defaults
+              </button>
+              <span className="text-gray-500">Weights are normalized automatically.</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RankingsPage() {
   const [tab, setTab] = useState<Tab>("buildings");
   const [borough, setBorough] = useState<Borough | null>(null);
   const [groupBy, setGroupBy] = useState<LandlordGroupBy>("owner");
+  const [customWeights, setCustomWeights] = useState<CategoryWeights>({ ...DEFAULT_WEIGHTS });
+  const [useCustomWeights, setUseCustomWeights] = useState(false);
+
+  // null = use the default composite ranking; an object = re-rank server-side.
+  const weights = useCustomWeights ? customWeights : null;
 
   return (
     <div
@@ -302,11 +401,22 @@ export default function RankingsPage() {
           </div>
         )}
 
+        {/* Custom scoring weights */}
+        <WeightControls
+          weights={customWeights}
+          enabled={useCustomWeights}
+          onSetWeight={(key, value) =>
+            setCustomWeights((w) => ({ ...w, [key]: value }))
+          }
+          onToggle={setUseCustomWeights}
+          onReset={() => setCustomWeights({ ...DEFAULT_WEIGHTS })}
+        />
+
         {/* List */}
         {tab === "buildings" ? (
-          <BuildingsList borough={borough} />
+          <BuildingsList borough={borough} weights={weights} />
         ) : (
-          <LandlordsList borough={borough} groupBy={groupBy} />
+          <LandlordsList borough={borough} groupBy={groupBy} weights={weights} />
         )}
 
         <p className="mt-6 text-[12px] leading-relaxed text-gray-500">
