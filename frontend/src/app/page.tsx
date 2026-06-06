@@ -352,14 +352,6 @@ export default function LandingPage() {
             <Link href="/rankings" className="text-gray-400 hover:text-white transition-colors">Worst landlords</Link>
             <Link href="/map" className="text-gray-400 hover:text-white transition-colors">Map</Link>
             <Link href="/privacy" className="text-gray-400 hover:text-white transition-colors">Privacy</Link>
-            <a
-              href="https://github.com/SanjayBurugapalli/NYC_Housing_Project"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-gray-400 hover:text-white transition-colors"
-            >
-              Source
-            </a>
           </div>
         </div>
       </footer>

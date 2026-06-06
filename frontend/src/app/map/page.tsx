@@ -147,8 +147,9 @@ export default function MapPage() {
       <Suspense fallback={null}><BblUrlSync /></Suspense>
       <Map />
 
-      {/* Search bar */}
-      <div className="absolute top-4 left-4 right-4 z-10 flex justify-center pointer-events-none">
+      {/* Search bar. Inset from the left on mobile so it clears the corner logo;
+          centered (with room in both gutters) on desktop. */}
+      <div className="absolute top-4 left-16 right-4 z-10 flex justify-center pointer-events-none md:left-4">
         <div className="pointer-events-auto w-full max-w-xl">
           <SearchBar />
         </div>
@@ -167,9 +168,22 @@ export default function MapPage() {
         ) : null}
       </div>
 
-      {/* Data freshness pill — display only. Anchored to the top-left corner. */}
-      <div className="absolute top-4 left-4 z-10">
-        <FreshnessPill />
+      {/* Top-left corner: logo (links home) with the data-freshness pill to its
+          right. Pill is hidden on mobile, where there's no room beside the logo
+          and the search bar. */}
+      <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
+        <Link
+          href="/"
+          aria-label="BeforeYouRent home"
+          className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-800/80 p-1 backdrop-blur-sm shadow-md transition-colors hover:bg-gray-700/90"
+        >
+          <img src="/logo-mark.svg" alt="BeforeYouRent" className="h-7 w-7" />
+        </Link>
+        {/* Shown from lg up, where there's clear room beside the centered search
+            bar; below that only the logo sits in the corner. */}
+        <div className="hidden lg:block">
+          <FreshnessPill />
+        </div>
       </div>
 
       {/* Grade filter + map filters.
