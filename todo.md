@@ -1,36 +1,35 @@
 #ME
 
-Fix text in website, sounds too AI now.
+Fix text in website, sounds too AI now. 
+
+Review UI, make changes if necessary.
+
+Figure out how to put ads on website
 
 #Claude
 
-All items below are done (commits on `main`).
+[DONE] Allow custom scoring for the 'worst landlords' page so users can prioritize what's most important to them
+  → Added w_* weight params to both /rankings endpoints (rankings.py); custom score is a normalized weighted blend of the existing sub-score columns (pure SQL, no recompute). Rankings page now has a collapsible "Prioritize what matters to you" sliders panel that re-ranks both buildings and landlords. Defaults reproduce the stored composite.
 
-- [x] HPD violations should not include class I (administrative); check DOB; weight A<B<C.
-      → HPD severity now counts only Class A/B/C (drops 66,947 Class I) in scoring,
-        stored counts, and the building-detail breakdown/list. A=1/B=3/C=5 weighting
-        was already correct and kept. DOB are construction/safety, not administrative
-        ("failure to file" + dismissed were already excluded) — no change needed.
+[DONE] Add logo to map page and make it so if clicked will take user to home page. Move the 'data last updated' pill to the right of the logo.
+  → Top-left logo (logo-mark.svg) links to "/"; FreshnessPill sits to its right on desktop. Search bar inset on mobile to clear the logo; pill is hidden on mobile (no room beside logo + search).
 
-- [x] Replace neighborhood bubbles with more precise outlines if feasible, else bubbles.
-      → Feasible: rendered as filled/outlined NTA polygons (197, full building coverage)
-        from a new /api/neighborhoods/polygons endpoint, replacing the centroid bubbles.
+[DONE] Brainstorm new potential filters that I can add.
+  → See filterIdeas.md (tiered by data availability + effort).
 
-- [x] Map units filter shows <100-unit buildings when filtering for 100+.
-      → Filter logic was correct; it was being silently dropped when the map style
-        reported mid-stream. Now applied on map idle so the change is never lost.
-        (Couldn't reproduce interactively here — verify in the browser.)
+[DONE] Brainstorm potential issues that will increase costs and identify solutions.
+  → See costAnalysis.md (Claude calls, DB storage/compute, Mapbox, hosting, abuse, observability).
 
-- [x] Search results should appear over an open building detail panel.
-      → Layering now tracks the most recently opened panel: a new search raises the
-        results above an open building panel; clicking a result still raises the building.
+[DONE] Fix the streeteasy links for buildings in queens ... should be a direct link.
+  → Queens fell back to /search?query= only because sub_neighborhood was always null. BuildingPanel now feeds nta_name through, so Queens produces a direct /building/<slug>-<neighborhood> URL. (Heads-up: if some Queens links 404, the slug builder in streeteasy.ts — underscored house number / no ordinal / neighborhood match — may need a tweak; StreetEasy blocks automated verification.)
 
-- [x] Soften the big-building penalty (between units and sqrt(units)).
-      → Per-unit normalization is now units**0.75 (midpoint of 1.0 and 0.5). Scores
-        recomputed; multi-family grade spread is ~65% A with a real D/F tail.
+[DONE] Only display violations in a 5 year window; do this for other fields too and re-score if necessary.
+  → building_service.py now windows complaints, violations, rodent inspections, and the breakdown counts (category/HPD/DOB) to NOW() - INTERVAL '5 years', matching the scoring cutoff. Litigation/FDNY/evictions were already windowed. No re-score needed: compute.py already enforces DATA_CUTOFF_YEARS = 5, so stored scores already exclude old data — this just makes the *displayed* records/counts consistent with it.
 
-- [x] Daily refresh shows as failed though the log looks fine. Investigate.
-      → Any single puller raising made the whole job exit 1 (Railway red). Now the run
-        is fatal only if scoring fails or all pullers fail; partial failures stay green
-        but still alert per-dataset (data_refresh_status + Sentry). Merged with the
-        upstream tile-publishing step.
+[DONE] Remove the source link to my github from the footer
+  → Removed the "Source" GitHub link from the landing-page footer (page.tsx). (The per-building "Report incorrect data" link is a separate feature and was left in place.)
+
+[DONE] Make sure single-building search is efficient and cheap, as I imagine that's what most users will do.
+  → Address/BBL lookups already short-circuit before any Claude call. Made them efficient too: switched search_by_address to ILIKE and added a pg_trgm GIN index on buildings.address (migration 007) so the leading-wildcard match is index-served instead of scanning ~859k rows. (See costAnalysis.md §1 for a follow-up that cuts Claude cost on NL search.)
+
+
