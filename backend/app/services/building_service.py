@@ -6,6 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.neighborhood_names import get_neighborhood_name
 
 
+# Only surface records from the last 5 years in the building detail panel. This
+# mirrors the scoring cutoff (DATA_CUTOFF_YEARS in data/scoring/compute.py), so a
+# building's displayed complaints/violations/counts match the window that
+# actually drives its health score — no more 1998-era HPD violations showing up
+# next to a score computed only from recent data.
+_DISPLAY_WINDOW_SQL = "NOW() - INTERVAL '5 years'"
+
+
 # Shared SELECT-list + FROM/JOIN for the building "summary" projection used by
 # the viewport, search, and lookup queries. Callers append their own WHERE /
 # ORDER BY / LIMIT. The 12 columns map 1:1 to BuildingSummaryResponse, so keep
@@ -157,13 +165,16 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
 
     b = dict(building._mapping)
 
-    # Recent complaints (last 50)
+    # Recent complaints (last 50, within the 5-year display window). The window
+    # matches the scoring cutoff (DATA_CUTOFF_YEARS in data/scoring/compute.py)
+    # so the displayed records line up with what actually feeds the score.
     complaints_result = await db.execute(
-        text("""
+        text(f"""
             SELECT id, source, complaint_type, descriptor, created_date, closed_date,
                    status, description, category, resolution_days
             FROM complaints
             WHERE bbl = :bbl
+                AND created_date >= {_DISPLAY_WINDOW_SQL}
             ORDER BY created_date DESC NULLS LAST
             LIMIT 50
         """),
@@ -185,15 +196,17 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         for row in complaints_result
     ]
 
-    # Recent violations (last 50, excluding admin filings, dismissed, blank
-    # entries, and HPD Class I administrative/informational violations)
+    # Recent violations (last 50 within the 5-year display window, excluding
+    # admin filings, dismissed, blank entries, and HPD Class I
+    # administrative/informational violations)
     violations_result = await db.execute(
-        text("""
+        text(f"""
             SELECT id, source, violation_type, severity, inspection_date, status, description,
                    order_number, status_date, approved_date,
                    original_certify_by_date, original_correct_by_date
             FROM violations
             WHERE bbl = :bbl
+                AND inspection_date >= {_DISPLAY_WINDOW_SQL}
                 AND (description IS NULL OR description NOT ILIKE :filing_pattern)
                 AND (violation_type NOT ILIKE :dismissed_pattern)
                 AND NOT (source = 'HPD' AND severity = 'I')
@@ -256,12 +269,14 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         for row in litigations_result
     ]
 
-    # Recent rodent inspections (last 20, excluding passed inspections)
+    # Recent rodent inspections (last 20 within the 5-year window, excluding
+    # passed inspections)
     rodent_result = await db.execute(
-        text("""
+        text(f"""
             SELECT external_id, inspection_type, result, inspection_date, address
             FROM rodent_inspections
             WHERE bbl = :bbl
+                AND inspection_date >= {_DISPLAY_WINDOW_SQL}
                 AND (result IS NULL OR result != 'Passed')
             ORDER BY inspection_date DESC NULLS LAST
             LIMIT 20
@@ -333,11 +348,14 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         for row in evictions_result
     ]
 
-    # Per-category complaint/violation counts for score breakdown
+    # Per-category complaint counts for the score breakdown. Windowed to 5 years
+    # so the counts shown next to each bar match the 5-year window the bars
+    # themselves are scored over.
     category_counts_result = await db.execute(
-        text("""
+        text(f"""
             SELECT category, COUNT(*) as cnt FROM complaints
             WHERE bbl = :bbl AND category IS NOT NULL
+                AND created_date >= {_DISPLAY_WINDOW_SQL}
             GROUP BY category
         """),
         {"bbl": bbl},
@@ -345,11 +363,13 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
     category_counts = {row.category: row.cnt for row in category_counts_result}
 
     # Only Class A/B/C count toward the HPD severity sub-score; Class I is
-    # administrative and excluded (mirrors compute_hpd_severity_score).
+    # administrative and excluded (mirrors compute_hpd_severity_score). Windowed
+    # to 5 years to match the score.
     hpd_severity_result = await db.execute(
-        text("""
+        text(f"""
             SELECT severity, COUNT(*) as cnt FROM violations
             WHERE bbl = :bbl AND source = 'HPD' AND severity IN ('A', 'B', 'C')
+                AND inspection_date >= {_DISPLAY_WINDOW_SQL}
             GROUP BY severity
         """),
         {"bbl": bbl},
@@ -358,7 +378,8 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
 
     dob_count_result = await db.execute(
         text(
-            "SELECT COUNT(*) as cnt FROM violations WHERE bbl = :bbl AND source = 'DOB' "
+            f"SELECT COUNT(*) as cnt FROM violations WHERE bbl = :bbl AND source = 'DOB' "
+            f"AND inspection_date >= {_DISPLAY_WINDOW_SQL} "
             "AND (description IS NULL OR description NOT ILIKE :filing_pattern) "
             "AND (violation_type NOT ILIKE :dismissed_pattern)"
         ),
