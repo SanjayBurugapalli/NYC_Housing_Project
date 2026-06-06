@@ -228,9 +228,12 @@ export function BuildingPanel({ bbl }: { bbl: string }) {
                 </span>
                 <span className="text-sm text-gray-400">Health Grade</span>
               </div>
-              {/* StreetEasy link */}
+              {/* StreetEasy link. Queens building URLs are keyed by neighborhood
+                  (not borough), so feed nta_name through — without it the Queens
+                  branch falls back to a /search?query= URL instead of a direct
+                  /building/ link. */}
               <a
-                href={buildStreetEasyUrl(data.address, data.borough, data.sub_neighborhood)}
+                href={buildStreetEasyUrl(data.address, data.borough, data.sub_neighborhood ?? data.nta_name)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-2 inline-flex items-center gap-1 rounded bg-gray-700 px-2.5 py-1 text-xs font-medium text-blue-400 hover:bg-gray-600 hover:text-blue-300 transition-colors"
