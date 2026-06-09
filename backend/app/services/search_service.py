@@ -1220,8 +1220,14 @@ async def search_buildings_ai(
 ) -> dict:
     """Translate natural language into a structured search.
 
-    Tries Claude Haiku first; falls back to the deterministic rule-based parser
-    when the API key is missing, the call fails, or the response is empty.
+    Rule-based first: the deterministic parser reliably handles boroughs,
+    neighborhoods, complaint/concept keywords, building class, year, size, and
+    owner intent at zero marginal cost. Only when it extracts no structured
+    entity filter at all — i.e. it couldn't make sense of the query — do we
+    escalate to the paid Claude Haiku parser. This keeps the common, well-formed
+    searches off the API entirely. (Direct BBL/address lookups never reach here;
+    the route short-circuits those before calling this.)
+
     Returns results dict including confidence and needs_fallback metadata.
 
     If no parser path produces any entity filters, the SQL is skipped and an
@@ -1235,18 +1241,22 @@ async def search_buildings_ai(
         logger.debug("Cache hit for query='%s'", query)
         return cached
 
-    parser_used = "rule_based"
     from app.services.claude_search_parser import claude_confidence, parse_query_with_claude
 
-    claude_filters = await parse_query_with_claude(query)
-    if claude_filters is not None and claude_filters:
-        filters = claude_filters
-        # Default sort if Claude didn't provide one
-        filters.setdefault("sort", [{"column": "hs.composite_score", "order": "DESC"}])
-        filters["confidence"] = claude_confidence(filters)
-        parser_used = "claude"
-    else:
-        filters = parse_search_query(query)
+    # Rule-based pass (free). Escalate to Claude only when it found no entity
+    # filter — otherwise a query the regex parser already understood ("worst
+    # buildings in Brooklyn") would needlessly incur an API call.
+    filters = parse_search_query(query)
+    parser_used = "rule_based"
+
+    if not (ENTITY_FILTER_KEYS & filters.keys()):
+        claude_filters = await parse_query_with_claude(query)
+        if claude_filters:
+            filters = claude_filters
+            # Default sort if Claude didn't provide one
+            filters.setdefault("sort", [{"column": "hs.composite_score", "order": "DESC"}])
+            filters["confidence"] = claude_confidence(filters)
+            parser_used = "claude"
 
     if extra_filters:
         filters.update(extra_filters)

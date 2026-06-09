@@ -25,13 +25,13 @@ run up via bots or a viral moment.
   no rambling).
 - Rate limit: 60 searches/min/IP.
 
-**Highest-leverage next step — flip the parser order (M):** run the
-**rule-based parser first** and only escalate to Claude when its `confidence` is
-low or `needs_fallback` is true. The rule-based parser already handles boroughs,
-neighborhoods, complaint types, score/size/year/class/owner intent — it covers a
-large share of real queries at **zero** marginal cost. Today Claude runs even for
-"worst buildings in Brooklyn," which the regex parser nails. Escalating only the
-genuinely ambiguous queries could cut Claude call volume substantially.
+**✅ Done — parser order flipped:** the **rule-based parser now runs first**
+(`search_buildings_ai` in `search_service.py`), and Claude is only consulted when
+the rule-based pass extracts no entity filter at all. The rule-based parser
+handles boroughs, neighborhoods, complaint types, and score/size/year/class/owner
+intent — a large share of real queries — at **zero** marginal cost, so
+well-formed searches like "worst buildings in Brooklyn" no longer incur an API
+call. Only genuinely ambiguous queries escalate.
 
 **Other levers:**
 - Lengthen the cache TTL (60 s → 10–30 min; the data only changes nightly) and
@@ -123,8 +123,8 @@ Sentry and Vercel Analytics bill by event/volume.
 
 ## Priorities
 
-1. **Flip rule-based-first, Claude-on-escalation** (§1) — biggest variable-cost
-   reduction, directly proportional to search traffic.
+1. ✅ **Rule-based-first, Claude-on-escalation** (§1) — done; the biggest
+   variable-cost reduction, proportional to search traffic.
 2. **Prune / partition data older than 5 years** (§2) — biggest fixed-cost
    (storage + backup) reduction, now unlocked by the 5-year display/score window.
 3. **Edge-cache nightly-stable GETs + a Claude spend circuit-breaker** (§4, §1)

@@ -1,7 +1,7 @@
 """Integration tests for the search_buildings_ai dispatcher.
 
-Verifies the Claude-first / rule-based-fallback contract without hitting the
-database. The DB session and ``execute_search`` are both stubbed.
+Verifies the rule-based-first / Claude-on-escalation contract without hitting
+the database. The DB session and ``execute_search`` are both stubbed.
 """
 
 from __future__ import annotations
@@ -41,38 +41,33 @@ def stub_execute_search():
         yield m
 
 
-async def test_claude_success_path_skips_rule_based_parser(fake_db, stub_execute_search):
-    """When Claude returns filters, parse_search_query should not be called."""
-    claude_filters = {"borough": "BROOKLYN"}
+async def test_rule_based_entity_query_skips_claude(fake_db, stub_execute_search):
+    """A query the rule-based parser understands must not hit the paid Claude
+    API — it extracts entity filters itself, so no escalation happens."""
+    with patch(
+        "app.services.claude_search_parser.parse_query_with_claude",
+        AsyncMock(return_value={"borough": "BROOKLYN"}),
+    ) as claude_parser:
+        result = await search_service.search_buildings_ai(fake_db, "worst buildings in Brooklyn")
 
-    with (
-        patch(
-            "app.services.claude_search_parser.parse_query_with_claude",
-            AsyncMock(return_value=claude_filters),
-        ),
-        patch.object(search_service, "parse_search_query") as rule_parser,
-    ):
-        result = await search_service.search_buildings_ai(fake_db, "Brooklyn")
-
-    rule_parser.assert_not_called()
+    claude_parser.assert_not_called()
     assert result["total"] == 0
-    assert result["query"] == "Brooklyn"
-    # Claude path sets a confidence score and clears needs_fallback
-    assert result["confidence"] > 0
+    assert result["query"] == "worst buildings in Brooklyn"
     assert result["needs_fallback"] is False
 
 
-async def test_claude_returns_none_falls_back_to_rule_based(fake_db, stub_execute_search):
-    """If Claude can't parse (None), the rule-based parser must be invoked."""
+async def test_escalates_to_claude_when_rule_based_finds_no_entity(fake_db, stub_execute_search):
+    """When the rule-based parser extracts no entity filter, escalate to Claude
+    and use its result."""
     with patch(
         "app.services.claude_search_parser.parse_query_with_claude",
-        AsyncMock(return_value=None),
-    ):
-        result = await search_service.search_buildings_ai(fake_db, "quiet Brooklyn")
+        AsyncMock(return_value={"borough": "BROOKLYN"}),
+    ) as claude_parser:
+        result = await search_service.search_buildings_ai(fake_db, "a decent place to crash")
 
-    # Rule-based parser handles "Brooklyn" and "quiet"
-    assert result["query"] == "quiet Brooklyn"
-    assert "confidence" in result
+    claude_parser.assert_called_once()
+    assert result["needs_fallback"] is False
+    assert result["confidence"] > 0
 
 
 async def test_claude_empty_dict_falls_back_to_rule_based(fake_db, stub_execute_search):
@@ -93,13 +88,14 @@ async def test_claude_empty_dict_falls_back_to_rule_based(fake_db, stub_execute_
     rule_parser.assert_called_once_with("vague")
 
 
-async def test_extra_filters_merged_on_claude_path(fake_db, stub_execute_search):
-    """API-side overrides (borough, min_units, include_small_homes) win."""
-    claude_filters = {"borough": "BROOKLYN"}
-
+async def test_extra_filters_override_parsed_filters(fake_db, stub_execute_search):
+    """API-side overrides (borough, min_units, include_small_homes) win over
+    whatever the parser produced. ("best buildings" is handled by the rule-based
+    parser, so Claude isn't consulted; the patch just guards against a real
+    call.)"""
     with patch(
         "app.services.claude_search_parser.parse_query_with_claude",
-        AsyncMock(return_value=claude_filters),
+        AsyncMock(return_value={"borough": "BROOKLYN"}),
     ):
         await search_service.search_buildings_ai(
             fake_db,
