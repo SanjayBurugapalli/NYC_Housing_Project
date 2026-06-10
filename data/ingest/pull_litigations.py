@@ -9,44 +9,43 @@ import logging
 import pandas as pd
 from sqlalchemy import text
 
-from base import get_socrata_client, get_db_engine, clean_row_for_sql
+from base import (
+    paginate_socrata,
+    get_db_engine,
+    clean_row_for_sql,
+    since_iso,
+    NIGHTLY_LOOKBACK_DAYS,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 ENDPOINT = "59kj-x8nc"
-BATCH_SIZE = 50000
 
 
-def pull_litigations(limit: int | None = None):
-    """Pull housing litigations and upsert into litigations table."""
-    client = get_socrata_client()
+def pull_litigations(limit: int | None = None, days_back: int = NIGHTLY_LOOKBACK_DAYS):
+    """Pull housing litigations and upsert into litigations table.
+
+    Incremental on caseopendate (calendar_date), via keyset pagination — the old
+    offset pagination re-scanned every prior row on each page (progressively
+    slower the deeper it got). Pass a wide `days_back` for a one-off backfill.
+    """
     engine = get_db_engine()
 
-    offset = 0
+    where = f"caseopendate > '{since_iso(days_back)}'"
     total_inserted = 0
 
-    while True:
-        batch_limit = min(BATCH_SIZE, limit - offset) if limit else BATCH_SIZE
-        if limit and offset >= limit:
-            break
-
-        logger.info(f"Fetching litigations offset={offset}")
-        results = client.get(
-            ENDPOINT,
-            limit=batch_limit,
-            offset=offset,
-            select="litigationid,boroid,block,lot,bbl,"
+    for results in paginate_socrata(
+        ENDPOINT,
+        select=(
+            "litigationid,boroid,block,lot,bbl,"
             "casetype,casestatus,caseopendate,"
-            "casejudgement,respondent",
-            order="caseopendate DESC",
-        )
-
-        if not results:
-            break
-
-        df = pd.DataFrame(results)
-        df = transform_litigations(df)
+            "casejudgement,respondent"
+        ),
+        where=where,
+        limit=limit,
+    ):
+        df = transform_litigations(pd.DataFrame(results))
 
         records = [clean_row_for_sql(row.to_dict()) for _, row in df.iterrows()]
         with engine.begin() as conn:
@@ -67,7 +66,6 @@ def pull_litigations(limit: int | None = None):
             )
 
         total_inserted += len(df)
-        offset += batch_limit
         logger.info(f"Upserted {total_inserted} litigations so far")
 
     logger.info(f"Litigations complete. Total: {total_inserted}")

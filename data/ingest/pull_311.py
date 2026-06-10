@@ -6,12 +6,18 @@ Categories: HEATING, PLUMBING, NOISE, PEST, WATER SYSTEM, etc.
 """
 
 import logging
-from datetime import datetime, timedelta
 
 import pandas as pd
 from sqlalchemy import text
 
-from base import paginate_socrata, get_db_engine, normalize_borough, clean_row_for_sql
+from base import (
+    paginate_socrata,
+    get_db_engine,
+    normalize_borough,
+    clean_row_for_sql,
+    since_iso,
+    NIGHTLY_LOOKBACK_DAYS,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -42,11 +48,18 @@ COMPLAINT_CATEGORY_MAP = {
 }
 
 
-def pull_311(limit: int | None = None, days_back: int = 365):
-    """Pull 311 complaints. Incremental — only fetches since last sync."""
+def pull_311(limit: int | None = None, days_back: int = NIGHTLY_LOOKBACK_DAYS):
+    """Pull 311 complaints within a rolling `days_back`-day window.
+
+    Incremental by design: each run re-pulls (and upserts) only the recent
+    window rather than the whole multi-year history, which is what kept the
+    nightly job's 311 step large. Old complaints already in the DB are retained
+    (upsert never deletes). Pass a wide `days_back` (refresh.py --days-back=1825)
+    for a one-off backfill across the full scoring window.
+    """
     engine = get_db_engine()
 
-    since_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%dT00:00:00")
+    since_date = since_iso(days_back)
 
     # Residential complaint types we care about
     relevant_types = list(COMPLAINT_CATEGORY_MAP.keys())

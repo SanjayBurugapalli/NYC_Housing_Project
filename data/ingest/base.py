@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -30,6 +31,26 @@ SOCRATA_APP_TOKEN = os.environ.get("SOCRATA_APP_TOKEN")
 # Default Socrata HTTP read timeout (seconds) and page size for keyset pagination.
 SOCRATA_TIMEOUT = 300
 SOCRATA_PAGE_SIZE = 50000
+
+# Default rolling lookback (days) for nightly incremental pulls. Generous enough
+# to self-heal across several missed nights while staying tiny vs. full history;
+# the DB accumulates across runs (upsert, never delete), so a window this size
+# keeps the full multi-year store fresh as long as we don't miss this many days
+# in a row. A one-off wide backfill overrides it via refresh.py --days-back.
+NIGHTLY_LOOKBACK_DAYS = 60
+
+
+def since_iso(days_back: int) -> str:
+    """ISO-8601 timestamp `days_back` days ago — for calendar_date / floating_timestamp
+    SoQL filters (e.g. ``created_date > '2024-01-01T00:00:00'``)."""
+    return (datetime.now(timezone.utc) - timedelta(days=days_back)).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def since_yyyymmdd(days_back: int) -> str:
+    """YYYYMMDD string `days_back` days ago — for text date fields stored as
+    fixed-width YYYYMMDD (e.g. DOB violations ``issue_date``), where lexicographic
+    comparison equals chronological order."""
+    return (datetime.now(timezone.utc) - timedelta(days=days_back)).strftime("%Y%m%d")
 
 # Sync database URL for ingestion scripts
 DATABASE_URL = os.environ.get(
@@ -135,8 +156,21 @@ def paginate_socrata(
 
 
 def get_db_engine():
-    """Create a sync SQLAlchemy engine for data ingestion."""
-    return create_engine(DATABASE_URL, echo=False)
+    """Create a sync SQLAlchemy engine for data ingestion.
+
+    ``executemany_mode="values_plus_batch"`` makes the psycopg2 driver batch
+    executemany INSERT/UPDATE calls (via ``execute_values`` / ``execute_batch``)
+    instead of issuing one network round-trip per row. The pullers and the
+    ~860k-row score upsert all write via executemany, so this is the difference
+    between thousands of round-trips and millions — especially over a
+    higher-latency DB connection.
+    """
+    return create_engine(
+        DATABASE_URL,
+        echo=False,
+        executemany_mode="values_plus_batch",
+        executemany_batch_page_size=1000,
+    )
 
 
 def get_db_session():

@@ -9,7 +9,14 @@ import logging
 import pandas as pd
 from sqlalchemy import text
 
-from base import paginate_socrata, get_db_engine, normalize_borough, clean_row_for_sql
+from base import (
+    paginate_socrata,
+    get_db_engine,
+    normalize_borough,
+    clean_row_for_sql,
+    since_iso,
+    NIGHTLY_LOOKBACK_DAYS,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -18,8 +25,13 @@ HPD_VIOLATIONS_ENDPOINT = "wvxf-dwi5"
 HPD_COMPLAINTS_ENDPOINT = "uwyv-629c"
 
 
-def pull_hpd_violations(limit: int | None = None):
-    """Pull HPD violations with Class A/B/C severity."""
+def pull_hpd_violations(limit: int | None = None, days_back: int = NIGHTLY_LOOKBACK_DAYS):
+    """Pull HPD violations with Class A/B/C severity.
+
+    Incremental on inspectiondate (a calendar_date field): each run fetches only
+    the recent window and upserts, instead of re-downloading the multi-million-row
+    history every night. Pass a wide `days_back` for a one-off backfill.
+    """
     engine = get_db_engine()
 
     select = (
@@ -28,9 +40,10 @@ def pull_hpd_violations(limit: int | None = None):
         "originalcertifybydate,originalcorrectbydate,"
         "violationstatus,ordernumber,novdescription"
     )
+    where = f"inspectiondate > '{since_iso(days_back)}'"
 
     total_inserted = 0
-    for results in paginate_socrata(HPD_VIOLATIONS_ENDPOINT, select=select, limit=limit):
+    for results in paginate_socrata(HPD_VIOLATIONS_ENDPOINT, select=select, where=where, limit=limit):
         df = transform_hpd_violations(pd.DataFrame(results))
 
         records = [clean_row_for_sql(row.to_dict()) for _, row in df.iterrows()]

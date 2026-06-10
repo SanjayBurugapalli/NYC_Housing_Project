@@ -9,46 +9,45 @@ import logging
 import pandas as pd
 from sqlalchemy import text
 
-from base import get_socrata_client, get_db_engine, normalize_borough, clean_row_for_sql
+from base import (
+    paginate_socrata,
+    get_db_engine,
+    normalize_borough,
+    clean_row_for_sql,
+    since_iso,
+    NIGHTLY_LOOKBACK_DAYS,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 ENDPOINT = "p937-wjvj"
-BATCH_SIZE = 50000
 
 
-def pull_rodent_inspections(limit: int | None = None):
-    """Pull rodent inspections and upsert."""
-    client = get_socrata_client()
-    client.timeout = 300
+def pull_rodent_inspections(limit: int | None = None, days_back: int = NIGHTLY_LOOKBACK_DAYS):
+    """Pull rodent inspections and upsert.
+
+    Incremental on inspection_date (calendar_date), via keyset pagination — the
+    old offset pagination got progressively slower on each deeper page. Pass a
+    wide `days_back` for a one-off backfill.
+    """
     engine = get_db_engine()
 
-    offset = 0
+    where = f"inspection_date > '{since_iso(days_back)}'"
     total_inserted = 0
 
-    while True:
-        batch_limit = min(BATCH_SIZE, limit - offset) if limit else BATCH_SIZE
-        if limit and offset >= limit:
-            break
-
-        logger.info(f"Fetching rodent inspections offset={offset}")
-        results = client.get(
-            ENDPOINT,
-            limit=batch_limit,
-            offset=offset,
-            select="job_id,inspection_type,result,"
+    for results in paginate_socrata(
+        ENDPOINT,
+        select=(
+            "job_id,inspection_type,result,"
             "approved_date,inspection_date,"
             "house_number,street_name,boro_code,"
-            "zip_code,latitude,longitude,bbl",
-            order="inspection_date DESC",
-        )
-
-        if not results:
-            break
-
-        df = pd.DataFrame(results)
-        df = transform_rodent(df)
+            "zip_code,latitude,longitude,bbl"
+        ),
+        where=where,
+        limit=limit,
+    ):
+        df = transform_rodent(pd.DataFrame(results))
 
         records = [clean_row_for_sql(row.to_dict()) for _, row in df.iterrows()]
         with engine.begin() as conn:
@@ -69,7 +68,6 @@ def pull_rodent_inspections(limit: int | None = None):
             )
 
         total_inserted += len(df)
-        offset += batch_limit
         logger.info(f"Upserted {total_inserted} rodent inspections so far")
 
     logger.info(f"Rodent inspections complete. Total: {total_inserted}")

@@ -9,7 +9,13 @@ import logging
 import pandas as pd
 from sqlalchemy import text
 
-from base import paginate_socrata, get_db_engine, clean_row_for_sql
+from base import (
+    paginate_socrata,
+    get_db_engine,
+    clean_row_for_sql,
+    since_yyyymmdd,
+    NIGHTLY_LOOKBACK_DAYS,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -18,8 +24,16 @@ DOB_VIOLATIONS_ENDPOINT = "3h2n-5cm9"
 DOB_COMPLAINTS_ENDPOINT = "eabe-havv"
 
 
-def pull_dob_violations(limit: int | None = None):
-    """Pull DOB violations (structural/safety)."""
+def pull_dob_violations(limit: int | None = None, days_back: int = NIGHTLY_LOOKBACK_DAYS):
+    """Pull DOB violations (structural/safety).
+
+    Incremental on issue_date. That field is *text* in YYYYMMDD form (not a
+    native date), so we compare against a YYYYMMDD string — fixed-width, so
+    lexicographic order equals chronological order. A handful of dirty values
+    (e.g. a stray "Y…" prefix) sort above the numeric dates and slip through the
+    filter, but they parse to NaT downstream and are harmless. Pass a wide
+    `days_back` for a one-off backfill.
+    """
     engine = get_db_engine()
 
     select = (
@@ -28,9 +42,10 @@ def pull_dob_violations(limit: int | None = None):
         "violation_type_code,description,"
         "disposition_date,disposition_comments"
     )
+    where = f"issue_date > '{since_yyyymmdd(days_back)}'"
 
     total_inserted = 0
-    for results in paginate_socrata(DOB_VIOLATIONS_ENDPOINT, select=select, limit=limit):
+    for results in paginate_socrata(DOB_VIOLATIONS_ENDPOINT, select=select, where=where, limit=limit):
         df = transform_dob_violations(pd.DataFrame(results))
 
         records = [clean_row_for_sql(row.to_dict()) for _, row in df.iterrows()]

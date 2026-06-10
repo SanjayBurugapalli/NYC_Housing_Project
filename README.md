@@ -6,10 +6,10 @@ An interactive full-stack map application that analyzes NYC residential building
 
 - Interactive Mapbox map with color-coded building health scores
 - Neighborhood-level heatmap at low zoom, individual buildings at street level
-- Natural language search (deterministic rule-based parser — no AI dependency)
+- Natural language search (rule-based parser first, with a Claude Haiku fallback for ambiguous queries; degrades to pure rule-based when no API key is configured)
 - Building detail panel with score breakdowns, violation history, and StreetEasy links
-- Grade filter (A–F) and custom scoring weight sliders
-- Sub-neighborhood resolution using nearest-centroid Voronoi assignment
+- Grade filter (A–F) and custom scoring weight sliders (on both the map detail panel and the rankings page)
+- Neighborhood resolution from NTA names and community-district codes
 - Search history and example suggestion dropdown
 - CSV export for search results
 
@@ -38,12 +38,15 @@ python data/transform/normalize.py   # Address normalization + BBL joining
 python data/scoring/compute.py       # Recompute health scores
 ```
 
-### Wide re-pull / backfill
+### Incremental pulls & wide re-pull / backfill
 
-The nightly refresh pulls 311 with a 365-day window, but scoring considers 5 years (`DATA_CUTOFF_YEARS`). To backfill the full window in one command — e.g. after a scoring change, or to recover complaint→building links dropped for a missing BBL — pass `--days-back`:
+The nightly refresh pulls each **event** dataset (311, HPD violations, DOB violations, litigations, rodent, evictions) with a rolling **60-day** window (`NIGHTLY_LOOKBACK_DAYS` in `data/ingest/base.py`) and upserts — it never deletes, so the full multi-year store stays complete as long as runs don't lapse for ~60 days straight. Scoring still considers 5 years (`DATA_CUTOFF_YEARS`). HPD/DOB *complaints*, PLUTO, and registrations are pulled in full each run (their date fields aren't safely range-filterable, or they're snapshot/universe datasets), but their writes are batched so it stays fast.
+
+To backfill the full window in one command — e.g. after a scoring change, after a lapse, or to recover complaint→building links dropped for a missing BBL — pass `--days-back`, which widens **every** incremental puller:
 
 ```bash
-python data/refresh.py --datasets=311_complaints --days-back=1825  # wide 311 re-pull, then rescore
+python data/refresh.py --days-back=1825                              # wide re-pull of all event datasets, then rescore
+python data/refresh.py --datasets=311_complaints --days-back=1825    # just 311
 ```
 
 In prod, run it with `railway run` against the cron service, or temporarily point the cron service at a one-off branch that overrides its start command (drop `cronSchedule` so it runs on deploy), then switch the service back to `main`.
@@ -62,7 +65,7 @@ Items below are known improvements that have not yet been implemented, along wit
 
 ### Performance
 
-- **Vector tile serving** — Pre-generate `.mbtiles` with tippecanoe and serve them via `martin` or `pg_tileserv` instead of returning building GeoJSON from the API. This requires running tippecanoe (external CLI tool), deploying a tile server sidecar, and updating the Mapbox source configuration. Deferred because it requires infrastructure changes outside the application codebase.
+- **Vector tile serving** — Built, pending verification. [tiles/generate.sh](tiles/generate.sh) produces a PMTiles archive (tippecanoe) and [data/publish_tiles.py](data/publish_tiles.py) uploads it to Vercel Blob on the nightly refresh; [Map.tsx](frontend/src/components/Map.tsx) streams the high-zoom `buildings` layer from it when `NEXT_PUBLIC_TILES_URL` is set, falling back to API GeoJSON otherwise. Remaining: set `BLOB_READ_WRITE_TOKEN` (cron) + `NEXT_PUBLIC_TILES_URL` (Vercel) and confirm the dots stream from PMTiles — the vector path is unverified until a reachable tiles URL exists. See `beforeLaunch.md`.
 
 - **Scheduled refresh** — Handled by `data/refresh.py`, run nightly on Railway cron (04:00 UTC), with Sentry cron monitoring for missed/failed runs. The earlier Celery beat scaffold was unused (empty stub task bodies) and has been removed.
 
@@ -78,4 +81,4 @@ Items below are known improvements that have not yet been implemented, along wit
 
 ### Data & Accuracy
 
-- **StreetEasy neighborhood mapping completeness** — The Queens sub-neighborhood slug lookup covers the major neighborhoods mapped from our Voronoi centroid data. Adding the remaining edge neighborhoods (Ozone Park, Maspeth, Woodhaven, etc.) requires verifying each slug against live StreetEasy URLs — this cannot be done reliably without browser access to confirm 200 vs. 404 responses. Deferred until manual verification is possible.
+- **StreetEasy Queens link accuracy** — StreetEasy keys Queens building URLs by neighborhood, so the building panel feeds each building's `nta_name` into the slug builder ([streeteasy.ts](frontend/src/components/building/streetEasy.ts)). NTA names mostly match StreetEasy's neighborhood slugs, but some merged/hyphenated NTAs won't, and the Queens house-number/ordinal slug rules are unverified — StreetEasy 403s automated requests, so confirming 200 vs. 404 needs a real browser. Deferred until manual verification is possible.

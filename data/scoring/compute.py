@@ -467,51 +467,56 @@ def get_raw_counts(engine, buildings: pd.DataFrame) -> pd.DataFrame:
 
 
 def upsert_scores(engine, scores: pd.DataFrame):
-    """Upsert computed scores into health_scores table."""
+    """Upsert computed scores into health_scores table.
+
+    Writes each chunk with a single executemany call (batched into few
+    round-trips by the engine's executemany_mode) rather than one INSERT per
+    building. At ~860k buildings the old per-row loop was the slowest step in
+    the nightly job.
+    """
     records = [clean_row_for_sql(row.to_dict()) for _, row in scores.iterrows()]
-    # Batch in chunks to avoid memory issues
+    stmt = text("""
+        INSERT INTO health_scores (
+            building_id, bbl, composite_score,
+            heat_hot_water_score, pest_rodent_score,
+            structural_safety_score, hpd_severity_score,
+            noise_score, litigation_score,
+            percentile_rank, building_class,
+            total_complaints, total_violations,
+            complaints_per_unit, violations_per_unit,
+            computed_at
+        ) VALUES (
+            :id, :bbl, :composite_score,
+            :heat_hot_water_score, :pest_rodent_score,
+            :structural_safety_score, :hpd_severity_score,
+            :noise_score, :litigation_score,
+            :percentile_rank, :building_class,
+            :total_complaints, :total_violations,
+            :complaints_per_unit, :violations_per_unit,
+            NOW()
+        ) ON CONFLICT (bbl) DO UPDATE SET
+            composite_score = EXCLUDED.composite_score,
+            heat_hot_water_score = EXCLUDED.heat_hot_water_score,
+            pest_rodent_score = EXCLUDED.pest_rodent_score,
+            structural_safety_score = EXCLUDED.structural_safety_score,
+            hpd_severity_score = EXCLUDED.hpd_severity_score,
+            noise_score = EXCLUDED.noise_score,
+            litigation_score = EXCLUDED.litigation_score,
+            percentile_rank = EXCLUDED.percentile_rank,
+            total_complaints = EXCLUDED.total_complaints,
+            total_violations = EXCLUDED.total_violations,
+            complaints_per_unit = EXCLUDED.complaints_per_unit,
+            violations_per_unit = EXCLUDED.violations_per_unit,
+            computed_at = NOW()
+    """)
+    # Chunked executemany: the engine batches each chunk into a handful of
+    # round-trips (execute_batch), so this is ~chunk_size× fewer trips than the
+    # former per-row loop.
     chunk_size = 10000
     with engine.begin() as conn:
         for i in range(0, len(records), chunk_size):
             chunk = records[i:i + chunk_size]
-            for record in chunk:
-                conn.execute(
-                    text("""
-                        INSERT INTO health_scores (
-                            building_id, bbl, composite_score,
-                            heat_hot_water_score, pest_rodent_score,
-                            structural_safety_score, hpd_severity_score,
-                            noise_score, litigation_score,
-                            percentile_rank, building_class,
-                            total_complaints, total_violations,
-                            complaints_per_unit, violations_per_unit,
-                            computed_at
-                        ) VALUES (
-                            :id, :bbl, :composite_score,
-                            :heat_hot_water_score, :pest_rodent_score,
-                            :structural_safety_score, :hpd_severity_score,
-                            :noise_score, :litigation_score,
-                            :percentile_rank, :building_class,
-                            :total_complaints, :total_violations,
-                            :complaints_per_unit, :violations_per_unit,
-                            NOW()
-                        ) ON CONFLICT (bbl) DO UPDATE SET
-                            composite_score = EXCLUDED.composite_score,
-                            heat_hot_water_score = EXCLUDED.heat_hot_water_score,
-                            pest_rodent_score = EXCLUDED.pest_rodent_score,
-                            structural_safety_score = EXCLUDED.structural_safety_score,
-                            hpd_severity_score = EXCLUDED.hpd_severity_score,
-                            noise_score = EXCLUDED.noise_score,
-                            litigation_score = EXCLUDED.litigation_score,
-                            percentile_rank = EXCLUDED.percentile_rank,
-                            total_complaints = EXCLUDED.total_complaints,
-                            total_violations = EXCLUDED.total_violations,
-                            complaints_per_unit = EXCLUDED.complaints_per_unit,
-                            violations_per_unit = EXCLUDED.violations_per_unit,
-                            computed_at = NOW()
-                    """),
-                    record,
-                )
+            conn.execute(stmt, chunk)
             logger.info(f"  Upserted {min(i + chunk_size, len(records))}/{len(records)} scores")
 
 

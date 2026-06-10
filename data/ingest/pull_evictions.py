@@ -10,50 +10,47 @@ import logging
 import pandas as pd
 from sqlalchemy import text
 
-from base import get_socrata_client, get_db_engine, normalize_borough, clean_row_for_sql
+from base import (
+    paginate_socrata,
+    get_db_engine,
+    normalize_borough,
+    clean_row_for_sql,
+    since_iso,
+    NIGHTLY_LOOKBACK_DAYS,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 ENDPOINT = "6z8x-wfk4"
-BATCH_SIZE = 50000
 
 
-def pull_evictions(limit: int | None = None):
-    """Pull evictions and upsert."""
-    client = get_socrata_client()
-    client.timeout = 300
+def pull_evictions(limit: int | None = None, days_back: int = NIGHTLY_LOOKBACK_DAYS):
+    """Pull residential evictions and upsert.
+
+    Incremental on executed_date (calendar_date), via keyset pagination — the old
+    offset pagination got progressively slower on each deeper page. Pass a wide
+    `days_back` for a one-off backfill.
+    """
     engine = get_db_engine()
 
-    offset = 0
+    where = (
+        "residential_commercial_ind='Residential' "
+        f"AND executed_date > '{since_iso(days_back)}'"
+    )
     total_inserted = 0
 
-    while True:
-        batch_limit = min(BATCH_SIZE, limit - offset) if limit else BATCH_SIZE
-        if limit and offset >= limit:
-            break
-
-        logger.info(f"Fetching evictions offset={offset}")
-        results = client.get(
-            ENDPOINT,
-            limit=batch_limit,
-            offset=offset,
-            select=(
-                "court_index_number,docket_number,eviction_address,eviction_apt_num,"
-                "executed_date,marshal_first_name,marshal_last_name,"
-                "ejectment,eviction_possession,residential_commercial_ind,bbl,borough"
-            ),
-            where="residential_commercial_ind='Residential'",
-            order="executed_date DESC",
-        )
-
-        if not results:
-            break
-
-        df = pd.DataFrame(results)
-        if df.empty:
-            break
-        df = transform_evictions(df)
+    for results in paginate_socrata(
+        ENDPOINT,
+        select=(
+            "court_index_number,docket_number,eviction_address,eviction_apt_num,"
+            "executed_date,marshal_first_name,marshal_last_name,"
+            "ejectment,eviction_possession,residential_commercial_ind,bbl,borough"
+        ),
+        where=where,
+        limit=limit,
+    ):
+        df = transform_evictions(pd.DataFrame(results))
 
         records = [clean_row_for_sql(row.to_dict()) for _, row in df.iterrows()]
         with engine.begin() as conn:
@@ -75,7 +72,6 @@ def pull_evictions(limit: int | None = None):
             )
 
         total_inserted += len(df)
-        offset += batch_limit
         logger.info(f"Upserted {total_inserted} evictions so far")
 
     logger.info(f"Evictions complete. Total: {total_inserted}")
