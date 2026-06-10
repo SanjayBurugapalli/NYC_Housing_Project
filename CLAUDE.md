@@ -108,7 +108,7 @@ The search endpoint sends the user's natural language query to Claude with a `se
 
 ### Local Development
 ```bash
-docker-compose up                    # Start Postgres, Redis, backend, frontend
+docker-compose up                    # Start Postgres, backend, frontend
 cd backend && uvicorn app.main:app --reload  # Backend dev server
 cd frontend && npm run dev           # Frontend dev server
 ```

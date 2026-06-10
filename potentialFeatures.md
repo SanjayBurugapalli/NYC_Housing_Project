@@ -5,7 +5,7 @@ Brainstormed from a NYC renter's perspective. Difficulty: **S** (small, hours) �
 ## Tenant-Protection Signals
 
 - **Rent stabilization lookup** — flag stabilized units using DHCR registration data + 421-a / J-51 tax abatement signals. Arguably the single most consequential fact for a NYC renter. **L** — DHCR data is hard to get cleanly; partial coverage from JustFix's open dataset is feasible faster.
-- **Landlord portfolio view** — group buildings by owner (HPD registrations), surface a "worst landlord" leaderboard, link every building owned by the same LLC. Exposes serial slumlords behind shell companies. **M** — HPD Registrations dataset is already keyed by BBL; just need a new table + UI.
+- ~~**Landlord portfolio view** — group buildings by owner (HPD registrations), surface a "worst landlord" leaderboard, link every building owned by the same LLC.~~ **✅ Shipped** — the `/rankings` page ranks worst landlords by owner *and* managing agent (legal-entity suffixes normalized so shell-company variants group together), links each to its worst building, and the building panel's owner/manager names link to that entity's full portfolio. Now also supports custom score weights.
 - **Eviction & litigation timeline** — per-building housing court filings. Extend the existing Housing Litigations ingest with OCA eviction case data. **M** — OCA data is bulk-downloadable but address-only (no BBL), so needs the same address-normalization path as 311.
 - **Rent overcharge flag** — if a stabilized unit shows a registered rent jump beyond legal increase caps, flag it. **L** — depends on rent-stabilization data landing first.
 
@@ -36,7 +36,8 @@ Brainstormed from a NYC renter's perspective. Difficulty: **S** (small, hours) �
 ## Suggested Order
 
 1. **"Why this score?" explainer** (S) — immediate UX win on data we already have.
-2. **Multi-building compare** (S) — small extension, high tenant value.
-3. **Landlord portfolio view** (M) — uniquely defensible vs. StreetEasy; HPD Registrations data is clean.
-4. **Lease red-flag scanner** (M) — high "wow" factor, leverages the existing Claude integration.
-5. **Rent stabilization lookup** (L) — biggest single tenant-impact feature, but data acquisition is the long pole.
+2. **Multi-building compare** (S) — extend the existing 2-building `ComparePanel` to 3–4, high tenant value.
+3. **Lease red-flag scanner** (M) — high "wow" factor, leverages the existing Claude integration.
+4. **Rent stabilization lookup** (L) — biggest single tenant-impact feature, but data acquisition is the long pole.
+
+> Already shipped since this list was written: **Landlord portfolio view** (the `/rankings` page).
