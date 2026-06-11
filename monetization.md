@@ -85,11 +85,42 @@ client). One or two clients can exceed all consumer revenue combined.
 quotas, and a license). The real cost is sales effort, which is why this comes
 after the consumer product proves the data's credibility.
 
-## 4. What we deliberately do NOT do
+## 4. Native sponsorship — the only acceptable ad model
 
-- **No display ads.** Pennies per user, wrecks the product feel, and the
-  obvious advertisers (brokers, landlords, listing sites) are exactly the
-  conflict of interest the brand exists to avoid.
+Programmatic display ads (AdSense-style networks) are out: third-party
+trackers contradict the privacy posture, layout shift wrecks the map UX, the
+creative is irrelevant, and the yield is pennies. But **direct-sold, native
+sponsorship** — one labeled, static, first-party card per view, only in dead
+UI space — is compatible with the trust model:
+
+- **Idle side panel.** Before a building is selected, the detail panel is
+  empty. One "Sponsor ·" card lives there and disappears the moment a
+  building is clicked — an ad never appears next to actual building data.
+- **Post-decision flow.** The "getting this apartment?" affiliate area (§1)
+  can carry one clearly-labeled sponsored slot; the user is past evaluating
+  the building, so there's no perception the ad shaped what they saw.
+- **Informational/SEO pages** (neighborhood guides, moving checklists), where
+  sponsorship is normal — keeps the map and building panels pristine.
+- **Patron-style sponsor line** in the footer/about page ("supported this
+  month by ___"), newsletter-style. Lowest yield, zero intrusion, reinforces
+  the independent-not-ad-funded brand.
+
+**House rules:** never on the map or in a panel showing building data; never
+landlord, broker, or listing-site advertisers; always labeled "Sponsor"; one
+per view max; served as static first-party content — no ad-network JS, no
+trackers, no layout shift. Direct-sold or affiliate-sourced only.
+
+Sequencing note: direct sponsorship needs traffic before anyone buys, so this
+slots in alongside Phase 2. The same advertisers (guarantors, insurers,
+movers) often pay better as affiliates; the sponsor card's real value is
+**flat, predictable revenue** from the same category.
+
+## 5. What we deliberately do NOT do
+
+- **No programmatic/network display ads.** See §4 — trackers, layout shift,
+  irrelevant creative, pennies per user, and the obvious advertisers
+  (brokers, landlords, listing sites) are exactly the conflict of interest
+  the brand exists to avoid.
 - **No paid placement or "featured buildings."** Same reason. The score must
   be unbuyable or the whole product is worthless.
 - **No selling user data.** The privacy page (`/privacy`) and the trust
@@ -97,7 +128,7 @@ after the consumer product proves the data's credibility.
 - **No landlord-side score remediation services.** Even structured carefully,
   it reads as pay-to-fix and invites a "ratings agency" credibility collapse.
 
-## 5. Sequencing & rough numbers
+## 6. Sequencing & rough numbers
 
 | Phase | When | Revenue line | Why then |
 |---|---|---|---|
@@ -110,7 +141,7 @@ fully-loaded run rate is on the order of $100–300/mo. ~10–30 guarantor
 referrals **or** ~20–40 Renter Reports a month covers it. Everything beyond
 that funds the `potentialFeatures.md` roadmap.
 
-## 6. Open questions before Phase 2
+## 7. Open questions before Phase 2
 
 - Accounts are a prerequisite for both the Hunter Pass and the watch-alerts
   feature — build once, serve both.
