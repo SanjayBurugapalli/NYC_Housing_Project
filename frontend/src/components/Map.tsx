@@ -18,9 +18,9 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 // path runs unchanged. The URL is a pmtiles protocol URL pointing at the file
 // produced by `OUTPUT_FORMAT=pmtiles ./tiles/generate.sh`, e.g.
 //   pmtiles://https://cdn.example.com/buildings.pmtiles
-// NOTE: this vector path is UNVERIFIED pending hosted tiles — it cannot be
-// runtime-tested without a reachable PMTiles URL. The CSP `connect-src` in
-// next.config.js must also include the CDN host before this works in the browser.
+// The CSP `connect-src` in next.config.js must include the archive host. If the
+// archive is unreachable (bad URL, 404, outage), the map falls back to the API
+// GeoJSON source at runtime (see fallbackToApi) so it never goes blank.
 const TILES_URL = process.env.NEXT_PUBLIC_TILES_URL || "";
 const USE_VECTOR_TILES = TILES_URL.length > 0;
 // PmTilesSource builds its own `pmtiles://<url>/{z}/{x}/{y}` template and calls
@@ -102,11 +102,39 @@ const GRADE_COLOR_EXPRESSION = [
   "#6b7280",
 ] as unknown as ExpressionSpecification;
 
+// The high-zoom building-dots layer. Identical for both the vector (PMTiles,
+// which needs `source-layer`) and the API-GeoJSON paths, so it's defined once
+// and reused by the initial render and by the runtime fallback swap — that way
+// the two can't drift apart.
+function buildingsDotsLayer(vector: boolean): mapboxgl.LayerSpecification {
+  return {
+    id: "buildings-dots",
+    type: "circle",
+    source: "buildings",
+    ...(vector ? { "source-layer": TILES_SOURCE_LAYER } : {}),
+    minzoom: 13,
+    paint: {
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 3, 16, 6],
+      "circle-color": GRADE_COLOR_EXPRESSION,
+      "circle-opacity": 0.8,
+      "circle-stroke-width": 1,
+      "circle-stroke-color": "#1f2937",
+    },
+  } as mapboxgl.LayerSpecification;
+}
+
 export function Map() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const moveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Whether the vector (PMTiles) path is still live. Starts at the build-time
+  // intent and flips to false (one-way) if fallbackToApi runs because the
+  // archive is unreachable. `vectorErrored` records that a `buildings` source
+  // error was seen so maybeFallbackToApi can tell a fatal failure from a
+  // sporadic single-tile error.
+  const vectorActiveRef = useRef(USE_VECTOR_TILES);
+  const vectorErroredRef = useRef(false);
   const setViewport = useStore((s) => s.setViewport);
   const selectBuilding = useStore((s) => s.selectBuilding);
   const setMapRef = useStore((s) => s.setMapRef);
@@ -217,6 +245,43 @@ export function Map() {
     setBuildingCount(bbls.size);
   }, [setBuildingCount]);
 
+  // Swap the high-zoom `buildings` layer from the PMTiles source back to the
+  // API-GeoJSON source so the map still shows dots if the archive is broken.
+  // One-way and idempotent: once we fall back we stay on the API path for the
+  // session. mapbox-gl can't change a source's type in place, so the source +
+  // layer are removed and re-added.
+  const fallbackToApi = useCallback((m: mapboxgl.Map) => {
+    if (!vectorActiveRef.current) return;
+    vectorActiveRef.current = false;
+    console.warn(
+      "[map] PMTiles archive unreachable — falling back to the /api/buildings source."
+    );
+    // A search may have hidden the dots layer; preserve that on re-add.
+    const hidden =
+      !!m.getLayer("buildings-dots") &&
+      m.getLayoutProperty("buildings-dots", "visibility") === "none";
+    if (m.getLayer("buildings-dots")) m.removeLayer("buildings-dots");
+    if (m.getSource("buildings")) m.removeSource("buildings");
+    m.addSource("buildings", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    // Re-insert beneath the selected/search layers to keep the original z-order.
+    m.addLayer(buildingsDotsLayer(false), "selected-building-dot");
+    if (hidden) m.setLayoutProperty("buildings-dots", "visibility", "none");
+    fetchAndRenderBuildings(m);
+  }, [fetchAndRenderBuildings]);
+
+  // Decide whether a `buildings` source error is fatal (blank map) or transient.
+  // Only fall back once we're zoomed into building range and nothing rendered —
+  // a sporadic single-tile error with dots still on screen is ignored.
+  const maybeFallbackToApi = useCallback((m: mapboxgl.Map) => {
+    if (!vectorActiveRef.current || !vectorErroredRef.current) return;
+    if (m.getZoom() < 13 || !m.getLayer("buildings-dots")) return;
+    if (m.queryRenderedFeatures({ layers: ["buildings-dots"] }).length > 0) return;
+    fallbackToApi(m);
+  }, [fallbackToApi]);
+
   const loadNeighborhoods = useCallback(async (m: mapboxgl.Map) => {
     try {
       // NTA boundary polygons with aggregated scores — drawn as filled,
@@ -250,6 +315,23 @@ export function Map() {
     const m = map.current;
     setMapRef(m);
 
+    if (USE_VECTOR_TILES) {
+      // Catch a broken/unreachable PMTiles archive (bad URL, 404, outage). The
+      // source emits an `error` (header load or per-tile); flag it and let
+      // maybeFallbackToApi decide. Registered before the source is added in the
+      // `load` handler so an immediate header-load error isn't missed.
+      m.on("error", (e) => {
+        if ((e as { sourceId?: string }).sourceId === "buildings") {
+          vectorErroredRef.current = true;
+          maybeFallbackToApi(m);
+          return;
+        }
+        // Adding any `error` listener suppresses mapbox-gl's built-in console
+        // logging, so re-log everything we don't handle to keep parity.
+        console.error((e as { error?: unknown }).error ?? e);
+      });
+    }
+
     m.on("moveend", () => {
       const bounds = m.getBounds();
       if (!bounds) return;
@@ -266,10 +348,16 @@ export function Map() {
       // Vector path streams tiles automatically, so there's nothing to fetch —
       // we only recount the rendered features for the new viewport.
       if (moveDebounceRef.current) clearTimeout(moveDebounceRef.current);
-      moveDebounceRef.current = setTimeout(
-        () => (USE_VECTOR_TILES ? updateVectorBuildingCount(m) : fetchAndRenderBuildings(m)),
-        250
-      );
+      moveDebounceRef.current = setTimeout(() => {
+        if (vectorActiveRef.current) {
+          updateVectorBuildingCount(m);
+          // Re-evaluate after a zoom-in: a header-load failure recorded at low
+          // zoom can only be confirmed fatal once we're in building range.
+          maybeFallbackToApi(m);
+        } else {
+          fetchAndRenderBuildings(m);
+        }
+      }, 250);
     });
 
     m.on("load", () => {
@@ -365,35 +453,22 @@ export function Map() {
         });
       }
 
-      m.addLayer({
-        id: "buildings-dots",
-        type: "circle",
-        source: "buildings",
-        ...(USE_VECTOR_TILES ? { "source-layer": TILES_SOURCE_LAYER } : {}),
-        minzoom: 13,
-        paint: {
-          "circle-radius": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            13, 3,
-            16, 6,
-          ],
-          "circle-color": GRADE_COLOR_EXPRESSION,
-          "circle-opacity": 0.8,
-          "circle-stroke-width": 1,
-          "circle-stroke-color": "#1f2937",
-        },
-      });
+      m.addLayer(buildingsDotsLayer(USE_VECTOR_TILES));
 
       if (USE_VECTOR_TILES) {
         // Apply the current grade/units/year filter via a Mapbox expression
         // (vector-tile features can't be mutated like a GeoJSON array can).
         const initialFilter = buildVectorFilter(gradeFilterRef.current, mapFiltersRef.current);
         if (initialFilter) m.setFilter("buildings-dots", initialFilter);
-        // Recount as tiles stream in for the current viewport.
+        // Recount as tiles stream in for the current viewport. Skipped once we've
+        // fallen back to the API path (that path drives the count itself).
         m.on("sourcedata", (e) => {
-          if (e.sourceId === "buildings" && e.isSourceLoaded) updateVectorBuildingCount(m);
+          if (e.sourceId === "buildings" && e.isSourceLoaded && vectorActiveRef.current) {
+            updateVectorBuildingCount(m);
+            // A failed source still reaches isSourceLoaded with no features —
+            // backstop the error listener in case its event was missed.
+            maybeFallbackToApi(m);
+          }
         });
       }
 
@@ -516,7 +591,7 @@ export function Map() {
 
       // Initial viewport: vector tiles stream on their own (count updates via
       // the sourcedata listener above), so only the API path fetches here.
-      if (USE_VECTOR_TILES) {
+      if (vectorActiveRef.current) {
         updateVectorBuildingCount(m);
       } else {
         fetchAndRenderBuildings(m);
@@ -528,7 +603,7 @@ export function Map() {
       m.remove();
       map.current = null;
     };
-  }, [setViewport, selectBuilding, fetchAndRenderBuildings, setMapRef, loadNeighborhoods, updateVectorBuildingCount]);
+  }, [setViewport, selectBuilding, fetchAndRenderBuildings, setMapRef, loadNeighborhoods, updateVectorBuildingCount, maybeFallbackToApi]);
 
   // Re-filter buildings on map when grade filter or map filters change.
   useEffect(() => {
@@ -536,7 +611,7 @@ export function Map() {
     if (!m) return;
 
     const apply = () => {
-      if (USE_VECTOR_TILES) {
+      if (vectorActiveRef.current) {
         // Vector tiles can't be mutated, so the same grade/units/year filter is
         // expressed as a Mapbox filter on the layer instead of re-running setData.
         if (m.getLayer("buildings-dots")) {
@@ -592,7 +667,7 @@ export function Map() {
     // clicked building straight from the rendered tile features. Only on-screen
     // buildings can be found this way, which covers the click case (the dot was
     // just clicked, so it's visible).
-    if (!coords && USE_VECTOR_TILES && m.getLayer("buildings-dots")) {
+    if (!coords && vectorActiveRef.current && m.getLayer("buildings-dots")) {
       const matches = m.queryRenderedFeatures({
         layers: ["buildings-dots"],
         filter: ["==", ["get", "bbl"], selectedBbl] as unknown as mapboxgl.FilterSpecification,
