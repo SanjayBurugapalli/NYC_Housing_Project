@@ -40,7 +40,6 @@ Outstanding work before this goes public. Completed items have been removed — 
 | P | Owner | Item | Notes |
 |---|---|---|---|
 | P1 | 👤 | Mobile responsiveness on real device | iOS Safari + Android Chrome. DevTools emulation misses real touch + viewport quirks. |
-| P2 | 🤝 | Favicon / app icon | OG + Twitter share images exist ([opengraph-image.tsx](frontend/src/app/opengraph-image.tsx), [twitter-image.tsx](frontend/src/app/twitter-image.tsx)); no app icon under `app/`. I can wire a metadata icon to the existing `logo-mark.svg`. |
 
 ## Legal / attribution
 
