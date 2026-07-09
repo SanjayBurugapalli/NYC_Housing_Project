@@ -24,5 +24,8 @@ dockerfilePath = "Dockerfile.cron"
 
 [deploy]
 startCommand = "python data/refresh.py"
-cronSchedule = "0 4 * * *"
+# Nightly refresh DISABLED for now. Feb 31 never occurs, so this cron never
+# fires (and, unlike deleting the line, it stays a cron service instead of
+# running once on every deploy). To re-enable, restore: cronSchedule = "0 4 * * *"
+cronSchedule = "0 4 31 2 *"
 restartPolicyType = "never"
