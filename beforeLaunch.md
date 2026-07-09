@@ -24,11 +24,6 @@ Outstanding work before this goes public. Completed items have been removed — 
 
 ## Reliability
 
-| P | Owner | Item | Notes |
-|---|---|---|---|
-| P1 | 👤 | Refresh-staleness alert on `/api/refresh-status` | Same tool, daily ping, alert if `any_stale: true`. Catches broken pullers. |
-| P1 | 👤 | Verify DB backups + document restore | Railway → Postgres → Backups. Add a one-paragraph restore runbook to README. |
-
 ## Performance
 
 | P | Owner | Item | Notes |
@@ -36,10 +31,6 @@ Outstanding work before this goes public. Completed items have been removed — 
 | P1 | 🤝 | Load test `/api/buildings` | k6 script exists ([load_test/buildings_viewport.js](load_test/buildings_viewport.js)). Run it against prod for ~100 RPS sustained — but **not while a refresh/rescore is running** (it competes for the DB). |
 
 ## UX / launch polish
-
-| P | Owner | Item | Notes |
-|---|---|---|---|
-| P1 | 👤 | Mobile responsiveness on real device | iOS Safari + Android Chrome. DevTools emulation misses real touch + viewport quirks. |
 
 ## Legal / attribution
 
