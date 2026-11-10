@@ -29,16 +29,25 @@ export default function OpengraphImage() {
               width: "56px",
               height: "56px",
               borderRadius: "14px",
-              background: "#22c55e",
+              background: "#F4F6F8",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: "34px",
-              fontWeight: 800,
-              color: "#0b1220",
             }}
           >
-            B
+            {/* Same paths as public/logo-mark.svg; the light tile keeps the ink house visible on the dark card. */}
+            <svg
+              width="36"
+              height="36"
+              viewBox="10 2 100 104"
+              fill="none"
+              strokeWidth="8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M83.2 48.6 L96 60 V100 H24 V60 L49.5 37.3" stroke="#12141A" />
+              <path d="M60 28 L72.7 39.3 L87 8.4" stroke="#1FA187" />
+            </svg>
           </div>
           <div style={{ fontSize: "34px", fontWeight: 600, letterSpacing: "-0.02em" }}>
             BeforeYouRent

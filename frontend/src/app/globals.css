@@ -15,14 +15,139 @@ html, body {
   overscroll-behavior: none;
 }
 
+@layer base {
+  /* One visible focus treatment for every control in the ink-outlined UI. */
+  :focus-visible {
+    outline: 3px solid #3D2DB3;
+    outline-offset: 2px;
+  }
+  input::placeholder {
+    color: #5A6172;
+  }
+  summary {
+    list-style: none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+}
+
+@layer components {
+  /* Pill chip with an ink outline (suggestions, filters, facts). */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border-[1.5px] border-ink bg-white px-3.5 text-sm font-medium text-ink;
+    min-height: 44px;
+  }
+  .chip[aria-pressed="true"] {
+    @apply bg-ink text-white;
+  }
+  /* Small static fact chip ("24 units", "Built 1931"). */
+  .fact {
+    @apply inline-flex items-center rounded-full border-[1.5px] border-ink px-2.5 py-1 text-xs font-semibold;
+  }
+  /* Square ink-outlined icon button (close, copy link, zoom). */
+  .icon-btn {
+    @apply inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-[1.5px] border-ink bg-white text-ink transition-colors hover:bg-surface;
+  }
+  /* Outlined secondary button. */
+  .btn-outline {
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-xl border-[1.5px] border-ink bg-white px-3.5 text-[13px] font-bold text-ink no-underline transition-colors hover:bg-surface;
+  }
+  /* Solid ink primary button. */
+  .btn-ink {
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-ink px-4 text-sm font-bold text-white no-underline transition-colors hover:bg-ink-2 disabled:opacity-60;
+  }
+  /* Floating card surface: ink outline + hard offset shadow. */
+  .card-float {
+    @apply border-2 border-ink bg-white text-ink;
+  }
+  .eyebrow {
+    @apply text-xs font-bold uppercase tracking-[0.08em] text-muted;
+  }
+}
+
 .mapboxgl-map {
   width: 100%;
   height: 100%;
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+/* Keep Mapbox's attribution legible on the light map without competing with
+   the ink-outlined controls. */
+.mapboxgl-ctrl-attrib {
+  font-size: 10px;
+}
+
+/* HTML markers (grade tiles, food pins, work marker) must not swallow the
+   map's drag gestures except on the parts that are actually interactive. */
+.byr-marker {
+  pointer-events: none;
+}
+.byr-marker [data-interactive] {
+  pointer-events: auto;
+}
+
+/* Food pins: the place's name floats above the disc on hover/focus. While a
+   place is open (data-active) its popup shows the name, so the label hides. */
+.byr-food:hover,
+.byr-food:focus-within,
+.byr-food[data-active] {
+  z-index: 4;
+}
+.byr-food-label {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 10px;
+  border: 2px solid #12141A;
+  border-radius: 999px;
+  background: #FFFFFF;
+  color: #12141A;
+  font-size: 12px;
+  font-weight: 700;
+  pointer-events: none;
+}
+.byr-food:not([data-active]):hover .byr-food-label,
+.byr-food:not([data-active]):focus-within .byr-food-label {
+  display: block;
+}
+.byr-food[data-active] .byr-food-disc {
+  box-shadow: 0 0 0 3px #FFFFFF, 0 0 0 5px #12141A;
+}
+
+/* Place popup on the food map: same ink card language as everything else, and
+   above every HTML marker (the building tile sits at z-index 3). */
+.byr-popup {
+  z-index: 6;
+}
+.byr-popup .mapboxgl-popup-content {
+  padding: 0;
+  border: 2px solid #12141A;
+  border-radius: 18px;
+  box-shadow: 4px 4px 0 #12141A;
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+.byr-popup[class*="anchor-bottom"] .mapboxgl-popup-tip {
+  border-top-color: #12141A;
+}
+.byr-popup[class*="anchor-top"] .mapboxgl-popup-tip {
+  border-bottom-color: #12141A;
+}
+.byr-popup.mapboxgl-popup-anchor-left .mapboxgl-popup-tip {
+  border-right-color: #12141A;
+}
+.byr-popup.mapboxgl-popup-anchor-right .mapboxgl-popup-tip {
+  border-left-color: #12141A;
 }
 
 /* External feedback widget (injected by Vercel / hosting platform):
-   force it below side panels so it doesn't cover the building or search views.
-   Panels use z-10 (desktop) / z-20 (mobile); we use z-index: 1 + isolation here. */
+   force it below side panels so it doesn't cover the building or search views. */
 button[aria-label="Submit feedback"],
 *:has(> button[aria-label="Submit feedback"]) {
   z-index: 1 !important;

@@ -10,14 +10,14 @@ const LAST_UPDATED = "June 2, 2026";
 
 export default function PrivacyPage() {
   return (
-    <main className="min-h-dvh bg-gray-900 text-gray-200">
-      <nav className="sticky top-0 z-50 border-b border-gray-700/50 bg-gray-900/85 backdrop-blur-md">
+    <main className="min-h-dvh bg-surface text-ink">
+      <nav className="sticky top-0 z-50 border-b border-line/50 bg-surface/85 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-3xl items-center justify-between px-4 sm:px-8">
-          <Link href="/" className="flex items-center gap-2.5 text-white no-underline">
+          <Link href="/" className="flex items-center gap-2.5 text-ink no-underline">
             <img src="/logo-mark.svg" alt="" className="h-8 w-8" aria-hidden="true" />
             <span className="text-[15px] font-semibold tracking-tight">BeforeYouRent</span>
           </Link>
-          <Link href="/map" className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors">
+          <Link href="/map" className="rounded-xl bg-ink px-4 py-2.5 text-sm font-bold text-white hover:bg-ink-2 transition-colors">
             Open map
           </Link>
         </div>
@@ -30,12 +30,12 @@ export default function PrivacyPage() {
           counsel. Confirm it matches actual data practices before launch.
         </div>
 
-        <h1 className="text-3xl font-semibold tracking-tight text-white">Privacy Policy</h1>
-        <p className="mt-2 text-sm text-gray-400">Last updated: {LAST_UPDATED}</p>
+        <h1 className="text-3xl font-semibold tracking-tight text-ink">Privacy Policy</h1>
+        <p className="mt-2 text-sm text-muted">Last updated: {LAST_UPDATED}</p>
 
         <div className="prose-invert mt-8 space-y-8 text-[15px] leading-relaxed">
           <section>
-            <h2 className="text-xl font-semibold text-white">The short version</h2>
+            <h2 className="text-xl font-semibold text-ink">The short version</h2>
             <p className="mt-3">
               BeforeYouRent is an informational tool that shows public NYC building data. We do not
               sell your data, we do not run third-party advertising trackers, and we collect only
@@ -45,7 +45,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">What we collect</h2>
+            <h2 className="text-xl font-semibold text-ink">What we collect</h2>
             <ul className="mt-3 list-disc space-y-3 pl-5">
               <li>
                 <strong>Usage analytics.</strong> When you use the site we record anonymous events
@@ -69,7 +69,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">What we do not collect</h2>
+            <h2 className="text-xl font-semibold text-ink">What we do not collect</h2>
             <p className="mt-3">
               No accounts, no passwords, no payment information, no precise location, and no raw IP
               addresses stored against your activity. The building data shown is public record from
@@ -78,7 +78,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">How we use it</h2>
+            <h2 className="text-xl font-semibold text-ink">How we use it</h2>
             <p className="mt-3">
               To operate and improve the site, measure aggregate usage, diagnose errors (via our
               error-monitoring provider), prevent abuse, and respond to feedback. We do not use your
@@ -87,7 +87,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">Service providers</h2>
+            <h2 className="text-xl font-semibold text-ink">Service providers</h2>
             <p className="mt-3">
               We rely on a small number of infrastructure providers that process data on our behalf:
               hosting and analytics (Vercel), backend/database hosting (Railway), maps (Mapbox), and
@@ -96,7 +96,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">Retention</h2>
+            <h2 className="text-xl font-semibold text-ink">Retention</h2>
             <p className="mt-3">
               Analytics events and feedback are retained only as long as useful for the purposes
               above and then deleted or further aggregated. You can ask us to delete feedback you
@@ -105,7 +105,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">Your choices</h2>
+            <h2 className="text-xl font-semibold text-ink">Your choices</h2>
             <p className="mt-3">
               You can browse without submitting any feedback or email. To request deletion of
               feedback you sent, contact us below. Most browsers also let you block analytics
@@ -114,14 +114,14 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">Contact</h2>
+            <h2 className="text-xl font-semibold text-ink">Contact</h2>
             <p className="mt-3">
               Questions or deletion requests:{" "}
               <a
                 href="https://github.com/SanjayBurugapalli/NYC_Housing_Project/issues"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-400 hover:text-blue-300"
+                className="text-ink underline hover:text-ink-2"
               >
                 open an issue
               </a>{" "}
@@ -130,8 +130,8 @@ export default function PrivacyPage() {
           </section>
         </div>
 
-        <div className="mt-12 border-t border-gray-800 pt-6 text-sm">
-          <Link href="/" className="text-gray-400 hover:text-white transition-colors">
+        <div className="mt-12 border-t border-ink pt-6 text-sm">
+          <Link href="/" className="text-muted hover:text-ink transition-colors">
             ← Back to home
           </Link>
         </div>

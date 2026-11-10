@@ -1,8 +1,13 @@
 import type {
   BuildingDetail,
   BuildingSummary,
+  CommuteResult,
+  FoodResult,
+  ResolveListingResult,
+  SearchFilters,
   SearchResult,
   ViewportBounds,
+  Workplace,
   WorstBuilding,
   WorstLandlord,
 } from "@/types/building";
@@ -10,6 +15,13 @@ import type { CategoryWeights } from "@/lib/scoringWeights";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const DEFAULT_TIMEOUT_MS = 10_000;
+
+/** Non-2xx API response. `detail` carries FastAPI's user-facing message when present. */
+export class ApiError extends Error {
+  constructor(public status: number, public detail: string | null) {
+    super(detail ?? `API error: ${status}`);
+  }
+}
 
 async function fetchApi<T>(path: string, options?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const { timeoutMs = DEFAULT_TIMEOUT_MS, ...fetchOptions } = options ?? {};
@@ -24,7 +36,14 @@ async function fetchApi<T>(path: string, options?: RequestInit & { timeoutMs?: n
       ...fetchOptions,
     });
     if (!res.ok) {
-      throw new Error(`API error: ${res.status} ${res.statusText}`);
+      let detail: string | null = null;
+      try {
+        const body = await res.json();
+        if (typeof body?.detail === "string") detail = body.detail;
+      } catch {
+        // non-JSON error body
+      }
+      throw new ApiError(res.status, detail);
     }
     return res.json();
   } catch (err) {
@@ -89,21 +108,73 @@ export async function fetchRefreshStatus(): Promise<RefreshStatus> {
   return fetchApi("/api/refresh-status");
 }
 
-export interface SearchFilters {
+export interface SearchOptions {
   includeSmallHomes?: boolean;
+  /** Borough chip from the map filters (applies to plain-English searches). */
   borough?: string | null;
-  minUnits?: number | null;
+  /** Structured filters to run instead of parsing the query (chip removal). */
+  filters?: SearchFilters | null;
+  /** Restrict to a map area ("Search this area"). */
+  bbox?: ViewportBounds | null;
 }
 
-export async function searchBuildings(query: string, filters: SearchFilters = {}): Promise<SearchResult> {
+export async function searchBuildings(query: string, opts: SearchOptions = {}): Promise<SearchResult> {
   return fetchApi("/api/search", {
     method: "POST",
+    timeoutMs: 15_000,
     body: JSON.stringify({
       query,
-      include_small_homes: filters.includeSmallHomes ?? false,
-      borough: filters.borough ?? null,
-      min_units: filters.minUnits ?? null,
+      include_small_homes: opts.includeSmallHomes ?? false,
+      borough: opts.borough ?? null,
+      filters: opts.filters ?? null,
+      bbox: opts.bbox ? [opts.bbox.west, opts.bbox.south, opts.bbox.east, opts.bbox.north] : null,
     }),
+  });
+}
+
+/** Snap a StreetEasy/Zillow listing link to a building (parses the URL; never fetches it). */
+export async function resolveListing(url: string): Promise<ResolveListingResult> {
+  return fetchApi("/api/resolve-listing", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  });
+}
+
+/** Fastest transit + walking trip, next weekday at 8:30 AM. Throws ApiError(404) when no route exists. */
+export async function fetchCommute(
+  from: { latitude: number; longitude: number },
+  to: { latitude: number; longitude: number }
+): Promise<CommuteResult> {
+  const params = new URLSearchParams({
+    from_lat: from.latitude.toFixed(5),
+    from_lng: from.longitude.toFixed(5),
+    to_lat: to.latitude.toFixed(5),
+    to_lng: to.longitude.toFixed(5),
+  });
+  return fetchApi(`/api/commute?${params.toString()}`, { timeoutMs: 15_000 });
+}
+
+/** Delis, groceries and restaurants within `radiusM` of a building (400 m ≈ a 5-minute walk). */
+export async function fetchFood(bbl: string, radiusM = 400): Promise<FoodResult> {
+  return fetchApi(`/api/buildings/${bbl}/food?radius_m=${radiusM}`);
+}
+
+// NYC Planning Labs GeoSearch (open data, no key, CORS-enabled). Called straight
+// from the browser for type-ahead on the work-address field; CSP connect-src
+// in next.config.js allows the host.
+const GEOSEARCH_URL = "https://geosearch.planninglabs.nyc/v2/autocomplete";
+
+export async function autocompleteAddress(text: string, signal?: AbortSignal): Promise<Workplace[]> {
+  const res = await fetch(`${GEOSEARCH_URL}?text=${encodeURIComponent(text)}`, { signal });
+  if (!res.ok) return [];
+  const body = await res.json();
+  const features: unknown[] = Array.isArray(body?.features) ? body.features : [];
+  return features.slice(0, 6).flatMap((f) => {
+    const feat = f as { properties?: { label?: string }; geometry?: { coordinates?: [number, number] } };
+    const coords = feat.geometry?.coordinates;
+    const label = feat.properties?.label;
+    if (!coords || !label) return [];
+    return [{ label: label.replace(/, USA$/, ""), longitude: coords[0], latitude: coords[1] }];
   });
 }
 

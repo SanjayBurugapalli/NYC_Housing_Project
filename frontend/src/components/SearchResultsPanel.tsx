@@ -1,8 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useStore } from "@/lib/store";
-import type { BuildingSummary } from "@/types/building";
+import { useSearchRunner } from "@/hooks/useSearchRunner";
+import { distanceMeters, formatMiles } from "@/lib/geo";
+import { titleCase } from "@/lib/grades";
+import type { BuildingSummary, SearchFilters } from "@/types/building";
+import { GradeTile } from "@/components/ui/GradeTile";
+import { SearchBar } from "@/components/SearchBar";
+import { CheckIcon, ChevronDownIcon, CloseIcon, DownloadIcon, LogoIcon, PlusIcon } from "@/components/ui/icons";
 
 function exportCsv(results: BuildingSummary[]) {
   const headers = ["BBL", "Address", "Borough", "Grade", "Score", "Units", "Year Built", "Latitude", "Longitude"];
@@ -22,201 +29,280 @@ function exportCsv(results: BuildingSummary[]) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "nyc_building_search.csv";
+  a.download = "beforeyourent_search.csv";
   a.click();
   URL.revokeObjectURL(url);
 }
 
-function gradeColor(grade: string): string {
-  if (grade === "A") return "text-score-excellent";
-  if (grade === "B") return "text-score-good";
-  if (grade === "C") return "text-score-fair";
-  if (grade === "D") return "text-score-poor";
-  return "text-score-critical";
-}
-
-function gradeBg(grade: string): string {
-  if (grade === "A") return "border-green-700 bg-green-950/40";
-  if (grade === "B") return "border-lime-700 bg-lime-950/40";
-  if (grade === "C") return "border-yellow-700 bg-yellow-950/40";
-  if (grade === "D") return "border-orange-700 bg-orange-950/40";
-  return "border-red-700 bg-red-950/40";
-}
-
 const GRADE_ORDER: Record<string, number> = { A: 0, B: 1, C: 2, D: 3, F: 4 };
 
-// Grade ordering subsumes score ordering — separate score sort was redundant.
-type SortKey = "grade_asc" | "grade_desc";
+type SortKey = "best" | "worst";
 
 function sortResults(results: BuildingSummary[], sort: SortKey): BuildingSummary[] {
-  return [...results].sort((a, b) => {
-    if (sort === "grade_asc")  return (GRADE_ORDER[a.grade ?? "F"] ?? 4) - (GRADE_ORDER[b.grade ?? "F"] ?? 4);
-    if (sort === "grade_desc") return (GRADE_ORDER[b.grade ?? "F"] ?? 4) - (GRADE_ORDER[a.grade ?? "F"] ?? 4);
-    return 0;
-  });
+  const dir = sort === "best" ? 1 : -1;
+  return [...results].sort(
+    (a, b) =>
+      dir * ((GRADE_ORDER[a.grade ?? "F"] ?? 4) - (GRADE_ORDER[b.grade ?? "F"] ?? 4)) ||
+      dir * ((b.health_score ?? 0) - (a.health_score ?? 0))
+  );
 }
 
-interface SearchResultsPanelProps {
-  clarification?: string | null;
+// Quick filters offered under "Add a filter" (keys match validate_filters).
+const ADDABLE: { label: string; filters: SearchFilters }[] = [
+  { label: "Rent stabilized", filters: { rent_stabilized: true } },
+  { label: "Grade B or better", filters: { min_score: 90 } },
+  { label: "10+ units", filters: { min_units: 10 } },
+  { label: "Built before 1940", filters: { max_year_built: 1939 } },
+];
+
+const PAGE = 20;
+
+function ResultRow({ b }: { b: BuildingSummary }) {
+  const selectBuilding = useStore((s) => s.selectBuilding);
+  const setSelectedLocation = useStore((s) => s.setSelectedLocation);
+  const workplace = useStore((s) => s.workplace);
+  const compareBbls = useStore((s) => s.compareBbls);
+  const addToCompare = useStore((s) => s.addToCompare);
+  const removeFromCompare = useStore((s) => s.removeFromCompare);
+  const inCompare = compareBbls.includes(b.bbl);
+  const full = !inCompare && compareBbls.length >= 2;
+  const address = titleCase(b.address);
+
+  // Straight-line distance to work (the routed time lives on the building card —
+  // timing every result would hammer the free transit router).
+  const toWork =
+    workplace && b.latitude != null && b.longitude != null
+      ? `${formatMiles(distanceMeters([b.longitude, b.latitude], [workplace.longitude, workplace.latitude]))} to work`
+      : titleCase(b.nta_name || b.neighborhood);
+
+  return (
+    <li className="flex items-center gap-3 border-t-[1.5px] border-line py-3">
+      <GradeTile grade={b.grade} size="md" shadow="xs" />
+      <button
+        type="button"
+        onClick={() => {
+          selectBuilding(b.bbl);
+          if (b.latitude != null && b.longitude != null) setSelectedLocation({ lng: b.longitude, lat: b.latitude, grade: b.grade });
+        }}
+        className="min-w-0 flex-1 text-left"
+      >
+        <span className="block truncate text-base font-bold">{address}</span>
+        <span className="block text-[13px] text-muted">
+          {[b.residential_units ? `${b.residential_units} units` : null, b.year_built ? `built ${b.year_built}` : null].filter(Boolean).join(" · ") || titleCase(b.borough)}
+        </span>
+        <span className="block text-[13px] font-medium">
+          Health {Math.round(b.health_score ?? 0)}
+          {toWork ? ` · ${toWork}` : ""}
+        </span>
+      </button>
+      <button
+        type="button"
+        aria-pressed={inCompare}
+        aria-label={inCompare ? `Remove ${address} from comparison` : `Add ${address} to comparison`}
+        disabled={full}
+        onClick={() => (inCompare ? removeFromCompare(b.bbl) : addToCompare(b.bbl))}
+        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-2 border-ink disabled:opacity-40 ${
+          inCompare ? "bg-ink text-white" : "bg-white text-ink hover:bg-surface"
+        }`}
+      >
+        {inCompare ? <CheckIcon size={18} strokeWidth={2.8} /> : <PlusIcon size={18} />}
+      </button>
+    </li>
+  );
 }
 
-export function SearchResultsPanel({ clarification }: SearchResultsPanelProps) {
+export function SearchResultsPanel({ mobile = false }: { mobile?: boolean }) {
   const searchResults = useStore((s) => s.searchResults);
+  const searchQuery = useStore((s) => s.searchQuery);
+  const searchFilters = useStore((s) => s.searchFilters);
+  const filterChips = useStore((s) => s.filterChips);
+  const clarification = useStore((s) => s.searchClarification);
   const gradeFilter = useStore((s) => s.gradeFilter);
   const isSearching = useStore((s) => s.isSearching);
-  const selectBuilding = useStore((s) => s.selectBuilding);
   const clearSearch = useStore((s) => s.clearSearch);
-  const mapRef = useStore((s) => s.mapRef);
+  const run = useSearchRunner();
 
-  const [sortKey, setSortKey] = useState<SortKey>("grade_asc");
+  const [sortKey, setSortKey] = useState<SortKey>("best");
+  const [shown, setShown] = useState(PAGE);
+  const [addOpen, setAddOpen] = useState(false);
+  const addRef = useRef<HTMLDivElement>(null);
 
-  const filtered = gradeFilter.length > 0
-    ? searchResults.filter((b) => gradeFilter.includes(b.grade ?? ""))
-    : searchResults;
+  useEffect(() => setShown(PAGE), [searchResults]);
 
-  const visibleResults = sortResults(filtered, sortKey);
+  useEffect(() => {
+    if (!addOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (addRef.current && !addRef.current.contains(e.target as Node)) setAddOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [addOpen]);
 
-  const handleSelect = (building: BuildingSummary) => {
-    selectBuilding(building.bbl);
-    if (mapRef && building.latitude != null && building.longitude != null) {
-      mapRef.flyTo({
-        center: [building.longitude, building.latitude],
-        zoom: Math.max(mapRef.getZoom(), 15),
-        duration: 800,
-      });
+  const filtered = gradeFilter.length > 0 ? searchResults.filter((b) => gradeFilter.includes(b.grade ?? "")) : searchResults;
+  const visible = sortResults(filtered, sortKey);
+  const page = visible.slice(0, shown);
+
+  const removeChip = (key: string) => {
+    if (!searchFilters || !(key in searchFilters)) {
+      clearSearch();
+      return;
     }
+    const next = { ...searchFilters };
+    delete next[key];
+    if (Object.keys(next).length === 0) clearSearch();
+    else run(searchQuery, { filters: next });
+  };
+
+  const addFilter = (extra: SearchFilters) => {
+    setAddOpen(false);
+    run(searchQuery, { filters: { ...(searchFilters ?? {}), ...extra } });
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-gray-800/95 backdrop-blur-sm shadow-xl border-l border-gray-700">
-      {/* Header */}
-      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-700 bg-gray-800 px-4 py-3">
-        <div>
-          <h2 className="text-lg font-semibold">Search Results</h2>
-          <p className="text-xs text-gray-400">
-            {isSearching
-              ? "Searching…"
-              : `${visibleResults.length} building${visibleResults.length !== 1 ? "s" : ""}${gradeFilter.length > 0 ? " (filtered)" : ""}`}
-          </p>
+    <aside
+      aria-label="Search results"
+      className={`flex h-full flex-col overflow-hidden bg-white ${mobile ? "rounded-t-[24px] border-t-2 border-ink" : "border-r-2 border-ink"}`}
+    >
+      <div className={`relative flex shrink-0 flex-col gap-3.5 border-b-2 border-ink bg-surface px-[18px] ${mobile ? "pb-4 pt-3" : "pb-[18px] pt-4"}`}>
+        {mobile ? (
+          <div className="flex items-center justify-between">
+            <span aria-hidden="true" className="mx-auto h-[5px] w-11 rounded-full bg-ink" />
+            <button type="button" onClick={clearSearch} aria-label="Close search results" className="absolute right-3 top-2 flex h-11 w-11 items-center justify-center rounded-xl">
+              <CloseIcon size={18} />
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-2.5">
+            <Link href="/" aria-label="BeforeYouRent home" className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[15px] bg-ink text-white">
+              <LogoIcon size={24} />
+            </Link>
+            <SearchBar variant="panel" />
+          </div>
+        )}
+
+        {filterChips.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <div className="text-[13px] font-bold">Here&apos;s how I read that</div>
+            <div className="flex flex-wrap gap-1.5">
+              {filterChips.map((chip) => (
+                <button
+                  key={`${chip.key}-${chip.label}`}
+                  type="button"
+                  onClick={() => removeChip(chip.key)}
+                  aria-label={`Remove filter: ${chip.label}`}
+                  disabled={isSearching}
+                  className="inline-flex h-11 items-center gap-1.5 rounded-full border-[1.5px] border-ink bg-white pl-3 pr-2.5 text-[13px] font-semibold hover:bg-surface disabled:opacity-60"
+                >
+                  {chip.label}
+                  <CloseIcon size={14} strokeWidth={2.6} />
+                </button>
+              ))}
+              {searchFilters && (
+                <div ref={addRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setAddOpen((v) => !v)}
+                    aria-expanded={addOpen}
+                    disabled={isSearching}
+                    className="inline-flex h-11 items-center gap-1.5 rounded-full border-[1.5px] border-dashed border-ink px-3 text-[13px] font-semibold hover:bg-white disabled:opacity-60"
+                  >
+                    <PlusIcon size={14} strokeWidth={2.6} />
+                    Add a filter
+                  </button>
+                  {addOpen && (
+                    <div className="card-float absolute left-0 top-full z-20 mt-1.5 w-56 rounded-2xl p-1 shadow-hard-sm">
+                      {ADDABLE.filter((a) => Object.keys(a.filters).some((k) => !(k in searchFilters))).map((a) => (
+                        <button
+                          key={a.label}
+                          type="button"
+                          onClick={() => addFilter(a.filters)}
+                          className="block w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium hover:bg-surface"
+                        >
+                          {a.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {clarification && !isSearching && filterChips.length === 0 && (
+          <p className="m-0 text-[13px] text-ink-2">{clarification}</p>
+        )}
+      </div>
+
+      <div className="flex shrink-0 items-center justify-between gap-3 px-[18px] pb-2.5 pt-3.5">
+        <div className="font-display text-[22px] font-extrabold tracking-[-0.02em]" aria-live="polite">
+          {isSearching ? "Searching…" : `${visible.length} building${visible.length === 1 ? "" : "s"}`}
         </div>
-        <div className="flex items-center gap-1">
-          {/* Sort dropdown */}
-          {searchResults.length > 1 && !isSearching && (
+        {visible.length > 1 && !isSearching && (
+          <label className="relative inline-flex h-11 items-center rounded-xl border-[1.5px] border-ink bg-white">
+            <span className="sr-only">Sort results</span>
             <select
               value={sortKey}
               onChange={(e) => setSortKey(e.target.value as SortKey)}
-              className="rounded border border-gray-600 bg-gray-700 px-2 py-1 text-xs text-gray-300 focus:border-blue-500 focus:outline-none"
-              aria-label="Sort results"
+              className="h-full appearance-none rounded-xl border-0 bg-transparent py-0 pl-3 pr-8 text-[13px] font-semibold text-ink focus:ring-0"
             >
-              <option value="grade_asc">Grade: A → F</option>
-              <option value="grade_desc">Grade: F → A</option>
+              <option value="best">Best grade first</option>
+              <option value="worst">Worst grade first</option>
             </select>
-          )}
-          {searchResults.length > 0 && !isSearching && (
-            <button
-              onClick={() => exportCsv(searchResults)}
-              className="rounded px-2 py-1 text-xs text-gray-400 hover:bg-gray-700 hover:text-white focus:outline-none"
-              aria-label="Export results as CSV"
-              title="Download CSV"
-            >
-              CSV
-            </button>
-          )}
-          <button
-            onClick={clearSearch}
-            className="rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            aria-label="Clear search results"
-            title="Clear results"
-          >
-            ✕
-          </button>
-        </div>
+            <ChevronDownIcon size={14} className="pointer-events-none absolute right-3" />
+          </label>
+        )}
       </div>
 
-      {/* Clarification banner */}
-      {clarification && !isSearching && (
-        <div className="border-b border-blue-900/50 bg-blue-900/30 px-4 py-2 text-xs text-blue-300">
-          {clarification}
-        </div>
-      )}
-
-      {/* Loading skeleton */}
-      {isSearching && (
-        <div className="flex-1 overflow-hidden">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="border-b border-gray-700 px-4 py-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 space-y-2">
-                  <div className="h-3.5 w-3/4 animate-pulse rounded bg-gray-700" />
-                  <div className="h-2.5 w-1/2 animate-pulse rounded bg-gray-700/70" />
-                </div>
-                <div className="h-7 w-8 animate-pulse rounded bg-gray-700" />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {isSearching ? (
+          <ul className="m-0 list-none px-[18px] py-0">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <li key={i} className="flex items-center gap-3 border-t-[1.5px] border-line py-3">
+                <span className="h-[50px] w-11 animate-pulse rounded-[10px] bg-block" />
+                <span className="flex flex-1 flex-col gap-2">
+                  <span className="h-4 w-3/4 animate-pulse rounded bg-block" />
+                  <span className="h-3 w-1/2 animate-pulse rounded bg-block" />
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : visible.length === 0 ? (
+          <div className="flex flex-col gap-2 px-[18px] py-8">
+            <p className="m-0 font-bold">
+              {searchResults.length > 0 ? "Every match is hidden by the grade filter." : "No buildings matched."}
+            </p>
+            <p className="m-0 text-sm text-muted">
+              {searchResults.length > 0
+                ? `Show all grades to see the ${searchResults.length} matches.`
+                : clarification || "Try a different neighborhood, or remove a filter."}
+            </p>
+          </div>
+        ) : (
+          <>
+            <ul className="m-0 flex list-none flex-col px-[18px] py-0">
+              {page.map((b) => (
+                <ResultRow key={b.bbl} b={b} />
+              ))}
+            </ul>
+            <div className="flex items-center justify-between gap-3 border-t-[1.5px] border-line px-[18px] pb-[18px] pt-3">
+              <span className="text-[13px] text-muted">
+                Showing {page.length} of {visible.length}
+              </span>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => exportCsv(visible)} className="btn-outline" aria-label="Download results as CSV">
+                  <DownloadIcon size={16} />
+                  CSV
+                </button>
+                {page.length < visible.length && (
+                  <button type="button" onClick={() => setShown((n) => n + PAGE)} className="btn-outline border-2 text-sm">
+                    Show more
+                  </button>
+                )}
               </div>
-              <div className="mt-2 h-1.5 w-full animate-pulse rounded-full bg-gray-700/50" />
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Empty state — shown when the query returned zero matches. The
-          clarification banner above already explains why; this block just
-          keeps the panel from looking broken/blank. */}
-      {!isSearching && searchResults.length === 0 && (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
-          <p className="text-sm font-medium text-gray-300">No buildings matched your search.</p>
-          <p className="text-xs text-gray-500">Try broadening the query or removing filters.</p>
-        </div>
-      )}
-
-      {/* Grade-filter empty state — search returned matches but the active
-          grade filter hides them all. */}
-      {!isSearching && visibleResults.length === 0 && searchResults.length > 0 && (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
-          <p className="text-sm font-medium text-gray-300">No results match the current grade filter.</p>
-          <p className="text-xs text-gray-500">Clear the grade filter to see all {searchResults.length} matches.</p>
-        </div>
-      )}
-
-      {/* Results list */}
-      {!isSearching && visibleResults.length > 0 && (
-        <div className="flex-1 overflow-y-auto">
-          {visibleResults.map((b) => (
-            <button
-              key={b.bbl}
-              type="button"
-              onClick={() => handleSelect(b)}
-              className="w-full border-b border-gray-700 px-4 py-3 text-left hover:bg-gray-700/50 transition-colors focus:outline-none focus:bg-gray-700/50"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium text-sm text-white">{b.address}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {b.borough}
-                    {b.residential_units ? ` · ${b.residential_units} units` : ""}
-                    {b.year_built ? ` · Built ${b.year_built}` : ""}
-                  </p>
-                </div>
-                <div className={`shrink-0 rounded border px-2 py-0.5 text-sm font-bold ${gradeBg(b.grade ?? "F")} ${gradeColor(b.grade ?? "F")}`}>
-                  {b.grade}
-                </div>
-              </div>
-              {b.health_score != null && (
-                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-gray-700">
-                  <div
-                    className={`h-full rounded-full ${
-                      b.grade === "A" ? "bg-score-excellent" :
-                      b.grade === "B" ? "bg-score-good" :
-                      b.grade === "C" ? "bg-score-fair" :
-                      b.grade === "D" ? "bg-score-poor" : "bg-score-critical"
-                    }`}
-                    style={{ width: `${b.health_score}%` }}
-                  />
-                </div>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+          </>
+        )}
+      </div>
+    </aside>
   );
 }

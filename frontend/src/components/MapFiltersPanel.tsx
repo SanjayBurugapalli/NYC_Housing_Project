@@ -1,11 +1,10 @@
 "use client";
 
-import { useState } from "react";
 import { useStore } from "@/lib/store";
 
+/** Units + year-built ranges, shown under "More filters" in the filter card. */
 export function MapFiltersPanel() {
   const { mapFilters, setMapFilter, clearMapFilters } = useStore();
-  const [open, setOpen] = useState(false);
 
   const activeCount = [
     mapFilters.minUnits,
@@ -22,84 +21,31 @@ export function MapFiltersPanel() {
     setMapFilter(key, isNaN(n) ? null : n);
   }
 
+  const field =
+    "h-11 w-20 rounded-xl border-[1.5px] border-ink bg-white px-2.5 text-sm font-medium text-ink focus:border-ink focus:ring-0 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+
   return (
-    <div className="mt-2 rounded-lg bg-gray-800/90 p-3 backdrop-blur-sm shadow-lg">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between"
-      >
-        <h4 className="text-xs font-semibold uppercase text-gray-400">More Filters</h4>
-        <div className="flex items-center gap-1.5">
-          {activeCount > 0 && (
-            <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-              {activeCount}
-            </span>
-          )}
-          <span className="text-xs text-gray-500">{open ? "▲" : "▼"}</span>
+    <div className="flex flex-col gap-3">
+      <fieldset className="m-0 flex flex-col gap-1.5 border-0 p-0">
+        <legend className="mb-1.5 text-[13px] font-bold">Apartments in the building</legend>
+        <div className="flex items-center gap-2">
+          <input aria-label="Minimum units" type="number" min={0} placeholder="Min" value={mapFilters.minUnits ?? ""} onChange={(e) => handleNumber("minUnits", e.target.value)} className={field} />
+          <span className="text-muted">–</span>
+          <input aria-label="Maximum units" type="number" min={0} placeholder="Max" value={mapFilters.maxUnits ?? ""} onChange={(e) => handleNumber("maxUnits", e.target.value)} className={field} />
         </div>
-      </button>
-
-      {open && (
-        <div className="mt-3 space-y-3">
-          {/* Units */}
-          <div>
-            <p className="mb-1.5 text-xs text-gray-400">Residential Units</p>
-            <div className="flex items-center gap-1.5">
-              <input
-                type="number"
-                min={0}
-                placeholder="Min"
-                value={mapFilters.minUnits ?? ""}
-                onChange={(e) => handleNumber("minUnits", e.target.value)}
-                className="w-16 rounded border border-gray-600 bg-gray-700 px-2 py-1 text-xs text-gray-200 focus:border-blue-500 focus:outline-none"
-              />
-              <span className="text-xs text-gray-500">–</span>
-              <input
-                type="number"
-                min={0}
-                placeholder="Max"
-                value={mapFilters.maxUnits ?? ""}
-                onChange={(e) => handleNumber("maxUnits", e.target.value)}
-                className="w-16 rounded border border-gray-600 bg-gray-700 px-2 py-1 text-xs text-gray-200 focus:border-blue-500 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          {/* Year built */}
-          <div>
-            <p className="mb-1.5 text-xs text-gray-400">Year Built</p>
-            <div className="flex items-center gap-1.5">
-              <input
-                type="number"
-                min={1800}
-                max={2025}
-                placeholder="From"
-                value={mapFilters.minYear ?? ""}
-                onChange={(e) => handleNumber("minYear", e.target.value)}
-                className="w-16 rounded border border-gray-600 bg-gray-700 px-2 py-1 text-xs text-gray-200 focus:border-blue-500 focus:outline-none"
-              />
-              <span className="text-xs text-gray-500">–</span>
-              <input
-                type="number"
-                min={1800}
-                max={2025}
-                placeholder="To"
-                value={mapFilters.maxYear ?? ""}
-                onChange={(e) => handleNumber("maxYear", e.target.value)}
-                className="w-16 rounded border border-gray-600 bg-gray-700 px-2 py-1 text-xs text-gray-200 focus:border-blue-500 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          {activeCount > 0 && (
-            <button
-              onClick={clearMapFilters}
-              className="text-xs text-blue-400 hover:text-white transition-colors"
-            >
-              Clear filters
-            </button>
-          )}
+      </fieldset>
+      <fieldset className="m-0 flex flex-col gap-1.5 border-0 p-0">
+        <legend className="mb-1.5 text-[13px] font-bold">Year built</legend>
+        <div className="flex items-center gap-2">
+          <input aria-label="Built from" type="number" min={1800} max={2030} placeholder="From" value={mapFilters.minYear ?? ""} onChange={(e) => handleNumber("minYear", e.target.value)} className={field} />
+          <span className="text-muted">–</span>
+          <input aria-label="Built to" type="number" min={1800} max={2030} placeholder="To" value={mapFilters.maxYear ?? ""} onChange={(e) => handleNumber("maxYear", e.target.value)} className={field} />
         </div>
+      </fieldset>
+      {activeCount > 0 && (
+        <button type="button" onClick={clearMapFilters} className="self-start text-[13px] font-semibold underline underline-offset-2">
+          Clear these filters
+        </button>
       )}
     </div>
   );

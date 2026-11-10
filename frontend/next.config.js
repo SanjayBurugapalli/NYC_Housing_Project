@@ -23,6 +23,7 @@ const CSP = [
     "https://*.railway.app",        // Railway-hosted backend
     "https://*.onrender.com",       // Render-hosted backend
     "https://*.public.blob.vercel-storage.com", // PMTiles building tiles (range requests)
+    "https://geosearch.planninglabs.nyc", // NYC GeoSearch: work-address type-ahead
     "https://*.ingest.sentry.io",   // Sentry SaaS ingest (sends errors + perf events)
     "https://*.ingest.us.sentry.io",
   ].join(" "),
@@ -43,7 +44,8 @@ const nextConfig = {
           { key: "X-Frame-Options", value: "DENY" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy", value: "geolocation=(), camera=(), microphone=()" },
+          // geolocation=(self): the map's "Go to my location" button.
+          { key: "Permissions-Policy", value: "geolocation=(self), camera=(), microphone=()" },
         ],
       },
     ];

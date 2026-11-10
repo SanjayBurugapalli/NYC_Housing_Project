@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import mapboxgl, { type ExpressionSpecification } from "mapbox-gl";
 // Imported from the prebuilt dist (the package's `main` is raw TS which Next
 // won't transpile from node_modules). mapbox-gl has no MapLibre-style
@@ -8,6 +8,9 @@ import mapboxgl, { type ExpressionSpecification } from "mapbox-gl";
 import { PmTilesSource } from "mapbox-pmtiles/dist/mapbox-pmtiles.js";
 import { useStore } from "@/lib/store";
 import { fetchNeighborhoodPolygons } from "@/lib/api";
+import { GRADES, GRADE_META, INK, rentStatus } from "@/lib/grades";
+import { HoverCard, type HoveredBuilding } from "@/components/map/HoverCard";
+import { FOOTPRINTS_MINZOOM, FOOTPRINTS_URL, USE_FOOTPRINTS } from "@/lib/tiles";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -29,11 +32,15 @@ const USE_VECTOR_TILES = TILES_URL.length > 0;
 const TILES_ARCHIVE_URL = TILES_URL.replace(/^pmtiles:\/\//, "");
 // The source-layer name baked into the tileset by tiles/generate.sh.
 const TILES_SOURCE_LAYER = "buildings";
+// Building outlines (see lib/tiles.ts); layer name from data/publish_footprints.py.
+const FOOTPRINTS_ARCHIVE_URL = FOOTPRINTS_URL.replace(/^pmtiles:\/\//, "");
+const FOOTPRINTS_SOURCE_LAYER = "footprints";
+const FOOTPRINT_LAYERS = ["footprints-fill", "footprints-outline"];
 
 // Register the custom PMTiles vector source type with mapbox-gl exactly once, at
-// module load, and only when the vector path is enabled. Guarded against SSR
+// module load, and only when a PMTiles source is in use. Guarded against SSR
 // (mapbox-gl is browser-only) and made idempotent so HMR re-evaluation is safe.
-if (USE_VECTOR_TILES && typeof window !== "undefined") {
+if ((USE_VECTOR_TILES || USE_FOOTPRINTS) && typeof window !== "undefined") {
   if (!mapboxgl.Style.getSourceType(PmTilesSource.SOURCE_TYPE)) {
     mapboxgl.Style.setSourceType(
       PmTilesSource.SOURCE_TYPE,
@@ -52,15 +59,36 @@ type MapFilters = {
   maxYear: number | null;
 };
 
+type LayerToggles = {
+  includeSmallHomes: boolean;
+  rentStabilizedOnly: boolean;
+  borough: string | null;
+};
+
+// Buildings carry "BROOKLYN", neighborhood polygons "Brooklyn" — compare upper-cased.
+const boroughFilterExpr = (borough: string) =>
+  ["==", ["upcase", ["coalesce", ["get", "borough"], ""]], borough.toUpperCase()] as unknown as mapboxgl.FilterSpecification;
+
+// Building classes that rentStatus() maps to condo/co-op rather than
+// "likely stabilized" — mirrored here for the vector-tile filter expression.
+const NON_RENTAL_CLASSES = ["C6", "D5", "C0", "D0", "D4"];
+
+const BUILDING_CLASS_EXPR = ["upcase", ["coalesce", ["get", "building_class"], ""]];
+const CLASS_LETTER_EXPR = ["slice", BUILDING_CLASS_EXPR, 0, 1];
+
 // Build a Mapbox filter expression for the vector path that mirrors the
 // client-side array filtering applied in applyGradeFilter() on the API path:
 //   - grade ∈ selected grades (when any are selected)
 //   - residential_units (missing → treated as 0, matching `?? 0`)
 //   - year_built (missing/null features are excluded when a year bound is set)
+//   - "3+ units only" drops 1–2 family homes (PLUTO class A/B), like search
+//   - "Rent stabilized" keeps only rentStatus() === "likely_stabilized"
+//   - the borough chip keeps one borough
 // Returns null when no filter is active (shows all features).
 function buildVectorFilter(
   grades: string[],
-  mf: MapFilters
+  mf: MapFilters,
+  toggles: LayerToggles
 ): mapboxgl.FilterSpecification | null {
   const clauses: unknown[] = ["all"];
   if (grades.length > 0) {
@@ -78,49 +106,184 @@ function buildVectorFilter(
   if (mf.maxYear != null) {
     clauses.push(["all", ["has", "year_built"], ["<=", ["get", "year_built"], mf.maxYear]]);
   }
+  if (!toggles.includeSmallHomes) {
+    clauses.push(["!", ["in", CLASS_LETTER_EXPR, ["literal", ["A", "B"]]]]);
+  }
+  if (toggles.rentStabilizedOnly) {
+    clauses.push([
+      "all",
+      ["in", CLASS_LETTER_EXPR, ["literal", ["C", "D"]]],
+      ["!", ["in", BUILDING_CLASS_EXPR, ["literal", NON_RENTAL_CLASSES]]],
+      [">=", ["coalesce", ["get", "residential_units"], 0], 6],
+      [">", ["coalesce", ["get", "year_built"], 0], 0],
+      ["<=", ["coalesce", ["get", "year_built"], 0], 1974],
+    ]);
+  }
+  if (toggles.borough) {
+    clauses.push(boroughFilterExpr(toggles.borough));
+  }
   return clauses.length === 1
     ? null
     : (clauses as unknown as mapboxgl.FilterSpecification);
 }
 
-// Grade color mapping
-const GRADE_COLORS: Record<string, string> = {
-  A: "#22c55e",
-  B: "#84cc16",
-  C: "#eab308",
-  D: "#f97316",
-  F: "#ef4444",
-};
-
 // Mapbox "match" expression that colors a feature by its `grade` property,
-// derived from GRADE_COLORS so the dot layers stay in sync with the single
+// derived from GRADE_META so the dot layers stay in sync with the single
 // source. Falls back to a neutral grey for ungraded features.
 const GRADE_COLOR_EXPRESSION = [
   "match",
   ["get", "grade"],
-  ...Object.entries(GRADE_COLORS).flatMap(([grade, color]) => [grade, color]),
-  "#6b7280",
+  ...GRADES.flatMap((g) => [g, GRADE_META[g].bg]),
+  "#9AA1AE",
 ] as unknown as ExpressionSpecification;
+
+// Letter color on a grade fill: white on F, ink elsewhere (matches GradeTile).
+const GRADE_TEXT_EXPRESSION = [
+  "match", ["get", "grade"], "F", "#FFFFFF", INK,
+] as unknown as ExpressionSpecification;
+
+// Zoom bands where one layer hands over to the next. Inside a band the
+// outgoing layer fades out while the incoming one fades in; outside it only
+// one of them is drawn (and only it catches clicks and hovers).
+//   neighborhoods → dots: starts at z13, where building data starts loading
+//   dots → outlines: ends at z16, the zoom stepper's "Footprints" level
+const NEIGHBORHOODS_TO_DOTS: [number, number] = [13, 13.6];
+const DOTS_TO_OUTLINES: [number, number] = [15.6, 16];
+
+type Band = [number, number];
+const fadeIn = (full: number, [from, to]: Band) =>
+  ["interpolate", ["linear"], ["zoom"], from, 0, to, full] as unknown as ExpressionSpecification;
+const fadeOut = (full: number, [from, to]: Band) =>
+  ["interpolate", ["linear"], ["zoom"], from, full, to, 0] as unknown as ExpressionSpecification;
+
+/** Dots fade in over the neighborhoods, and (with outlines) out under the outlines. */
+function dotsOpacity(full: number, outlines: boolean): ExpressionSpecification {
+  if (!outlines) return fadeIn(full, NEIGHBORHOODS_TO_DOTS);
+  const [inFrom, inTo] = NEIGHBORHOODS_TO_DOTS;
+  const [outFrom, outTo] = DOTS_TO_OUTLINES;
+  return ["interpolate", ["linear"], ["zoom"], inFrom, 0, inTo, full, outFrom, full, outTo, 0] as unknown as ExpressionSpecification;
+}
 
 // The high-zoom building-dots layer. Identical for both the vector (PMTiles,
 // which needs `source-layer`) and the API-GeoJSON paths, so it's defined once
 // and reused by the initial render and by the runtime fallback swap — that way
 // the two can't drift apart.
-function buildingsDotsLayer(vector: boolean): mapboxgl.LayerSpecification {
+function buildingsDotsLayer(vector: boolean, outlines = USE_FOOTPRINTS): mapboxgl.LayerSpecification {
   return {
     id: "buildings-dots",
     type: "circle",
     source: "buildings",
     ...(vector ? { "source-layer": TILES_SOURCE_LAYER } : {}),
-    minzoom: 13,
+    minzoom: NEIGHBORHOODS_TO_DOTS[0],
+    // With outlines, the dots stop rendering once faded out — but one tile level
+    // late. Vector tiles are picked by rounding the zoom (z15.5 already loads z16
+    // tiles) and Mapbox leaves a layer out of any tile at or above its maxzoom,
+    // so a maxzoom of 16 would blank the dots from z15.5, before the outlines
+    // fade in. The pointer handlers ignore them past the fade (dotsFaded).
+    ...(outlines ? { maxzoom: DOTS_TO_OUTLINES[1] + 1 } : {}),
     paint: {
-      "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 3, 16, 6],
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 13, 3, 16, 6.5, 18, 10],
       "circle-color": GRADE_COLOR_EXPRESSION,
-      "circle-opacity": 0.8,
-      "circle-stroke-width": 1,
-      "circle-stroke-color": "#1f2937",
+      "circle-opacity": dotsOpacity(0.92, outlines),
+      "circle-stroke-opacity": dotsOpacity(1, outlines),
+      "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 13, 0.6, 16, 1.5],
+      "circle-stroke-color": INK,
     },
   } as mapboxgl.LayerSpecification;
+}
+
+// Remove the outline layers (archive unreachable) and give the dots back their
+// full zoom range. Idempotent.
+function dropFootprints(m: mapboxgl.Map) {
+  try {
+    for (const id of [...FOOTPRINT_LAYERS, "footprints-selected"]) if (m.getLayer(id)) m.removeLayer(id);
+    if (m.getSource("footprints")) m.removeSource("footprints");
+    if (m.getLayer("buildings-dots")) {
+      m.setLayerZoomRange("buildings-dots", NEIGHBORHOODS_TO_DOTS[0], 24);
+      m.setPaintProperty("buildings-dots", "circle-opacity", dotsOpacity(0.92, false));
+      m.setPaintProperty("buildings-dots", "circle-stroke-opacity", dotsOpacity(1, false));
+    }
+    console.warn("[map] Building outlines unavailable — showing dots at every zoom.");
+  } catch {
+    // style already torn down
+  }
+}
+
+// Street-level building outlines, filled in the grade color and edged in ink.
+// Inserted beneath the dots; the two cross-fade across DOTS_TO_OUTLINES, and
+// the outlines aren't drawn (or clickable) before that band starts. The tiles
+// themselves exist from FOOTPRINTS_MINZOOM, so they're loaded by then.
+function addFootprintLayers(m: mapboxgl.Map) {
+  m.addSource("footprints", {
+    type: PmTilesSource.SOURCE_TYPE,
+    url: FOOTPRINTS_ARCHIVE_URL,
+    minzoom: FOOTPRINTS_MINZOOM,
+  } as unknown as mapboxgl.SourceSpecification);
+  m.addLayer(
+    {
+      id: "footprints-fill",
+      type: "fill",
+      source: "footprints",
+      "source-layer": FOOTPRINTS_SOURCE_LAYER,
+      minzoom: DOTS_TO_OUTLINES[0],
+      paint: {
+        "fill-color": GRADE_COLOR_EXPRESSION,
+        "fill-opacity": fadeIn(0.88, DOTS_TO_OUTLINES),
+      },
+    } as mapboxgl.LayerSpecification,
+    "buildings-dots"
+  );
+  m.addLayer(
+    {
+      id: "footprints-outline",
+      type: "line",
+      source: "footprints",
+      "source-layer": FOOTPRINTS_SOURCE_LAYER,
+      minzoom: DOTS_TO_OUTLINES[0],
+      paint: {
+        "line-color": INK,
+        "line-width": ["interpolate", ["linear"], ["zoom"], DOTS_TO_OUTLINES[0], 0.5, 17, 1.2],
+        "line-opacity": fadeIn(0.85, DOTS_TO_OUTLINES),
+      },
+    } as mapboxgl.LayerSpecification,
+    "buildings-dots"
+  );
+  // The open building gets a heavy ink outline (filter set by the highlight effect).
+  m.addLayer(
+    {
+      id: "footprints-selected",
+      type: "line",
+      source: "footprints",
+      "source-layer": FOOTPRINTS_SOURCE_LAYER,
+      minzoom: DOTS_TO_OUTLINES[0],
+      filter: ["==", ["get", "bbl"], ""],
+      paint: { "line-color": INK, "line-width": 3.5, "line-opacity": fadeIn(1, DOTS_TO_OUTLINES) },
+    } as mapboxgl.LayerSpecification,
+    "buildings-dots"
+  );
+}
+
+// Nudge Mapbox's light style toward the redesign's paper palette: white land,
+// soft-blue water, block-grey footprints. Every layer is optional across style
+// revisions, so each change is guarded.
+function tuneBaseStyle(m: mapboxgl.Map) {
+  const paint = (layer: string, prop: string, value: unknown) => {
+    if (m.getLayer(layer)) {
+      try {
+        m.setPaintProperty(layer, prop as never, value as never);
+      } catch {
+        // property not applicable to this layer type in this style revision
+      }
+    }
+  };
+  paint("land", "background-color", "#FFFFFF");
+  paint("water", "fill-color", "#CFE0F0");
+  paint("building", "fill-color", "#E4E8ED");
+  paint("building", "fill-outline-color", "#D5DAE2");
+}
+
+function canHover(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
 }
 
 export function Map() {
@@ -137,30 +300,57 @@ export function Map() {
   const vectorErroredRef = useRef(false);
   const setViewport = useStore((s) => s.setViewport);
   const selectBuilding = useStore((s) => s.selectBuilding);
+  const setSelectedLocation = useStore((s) => s.setSelectedLocation);
   const setMapRef = useStore((s) => s.setMapRef);
   const setBuildingCount = useStore((s) => s.setBuildingCount);
   const searchResults = useStore((s) => s.searchResults);
   const gradeFilter = useStore((s) => s.gradeFilter);
   const mapFilters = useStore((s) => s.mapFilters);
+  const includeSmallHomes = useStore((s) => s.includeSmallHomes);
+  const rentStabilizedOnly = useStore((s) => s.rentStabilizedOnly);
+  const boroughFilter = useStore((s) => s.boroughFilter);
   const selectedBbl = useStore((s) => s.selectedBbl);
+  const selectedLocation = useStore((s) => s.selectedLocation);
+  // Flips true once the style + our sources exist (Map publishes mapRef on load),
+  // so the effects below re-run for state that arrived before the map was ready.
+  const mapReady = useStore((s) => s.mapRef !== null);
+
+  // Desktop hover preview. The card stays up while the pointer is over it, so
+  // hiding is delayed a beat to let the pointer travel from dot to card.
+  const [hovered, setHovered] = useState<HoveredBuilding | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelHide = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = null;
+  }, []);
+  const scheduleHide = useCallback(() => {
+    cancelHide();
+    hideTimerRef.current = setTimeout(() => setHovered(null), 220);
+  }, [cancelHide]);
 
   // Cache of last-fetched raw building features (before grade filtering)
   const rawBuildingsRef = useRef<any[]>([]);
-  // Refs so callbacks don't need grade/mapFilters as deps (avoids map teardown on filter change)
+  // Refs so callbacks don't need filter state as deps (avoids map teardown on filter change)
   const gradeFilterRef = useRef(gradeFilter);
   useEffect(() => { gradeFilterRef.current = gradeFilter; }, [gradeFilter]);
   const mapFiltersRef = useRef(mapFilters);
   useEffect(() => { mapFiltersRef.current = mapFilters; }, [mapFilters]);
+  const togglesRef = useRef<LayerToggles>({ includeSmallHomes, rentStabilizedOnly, borough: boroughFilter });
+  useEffect(() => {
+    togglesRef.current = { includeSmallHomes, rentStabilizedOnly, borough: boroughFilter };
+  }, [includeSmallHomes, rentStabilizedOnly, boroughFilter]);
 
   const applyGradeFilter = useCallback((
     m: mapboxgl.Map,
     features: any[],
     filter: string[],
-    mf?: typeof mapFilters
+    mf?: MapFilters,
+    toggles?: LayerToggles
   ) => {
     const source = m.getSource("buildings") as mapboxgl.GeoJSONSource | undefined;
     if (!source) return;
     const activeFilters = mf ?? mapFiltersRef.current;
+    const activeToggles = toggles ?? togglesRef.current;
     let visible = filter.length > 0
       ? features.filter((f) => filter.includes(f.properties.grade))
       : features;
@@ -172,6 +362,14 @@ export function Map() {
       visible = visible.filter((f) => f.properties.year_built != null && f.properties.year_built >= activeFilters.minYear!);
     if (activeFilters.maxYear != null)
       visible = visible.filter((f) => f.properties.year_built != null && f.properties.year_built <= activeFilters.maxYear!);
+    if (!activeToggles.includeSmallHomes)
+      visible = visible.filter((f) => !/^[AB]/i.test(f.properties.building_class ?? ""));
+    if (activeToggles.rentStabilizedOnly)
+      visible = visible.filter(
+        (f) => rentStatus(f.properties.building_class, f.properties.year_built, f.properties.residential_units) === "likely_stabilized"
+      );
+    if (activeToggles.borough)
+      visible = visible.filter((f) => String(f.properties.borough ?? "").toUpperCase() === activeToggles.borough);
     source.setData({ type: "FeatureCollection", features: visible });
     setBuildingCount(features.length);
   }, [setBuildingCount]);
@@ -194,8 +392,9 @@ export function Map() {
     abortRef.current = new AbortController();
 
     try {
+      const small = togglesRef.current.includeSmallHomes ? "&include_small_homes=true" : "";
       const res = await fetch(
-        `${API_URL}/api/buildings?bbox=${bbox}&zoom=${Math.round(zoom)}`,
+        `${API_URL}/api/buildings?bbox=${bbox}&zoom=${Math.round(zoom)}${small}`,
         { signal: abortRef.current.signal }
       );
       if (!res.ok) return;
@@ -217,6 +416,7 @@ export function Map() {
             borough: b.borough ?? "",
             residential_units: b.residential_units ?? 0,
             year_built: b.year_built ?? null,
+            building_class: b.building_class ?? null,
           },
         }));
 
@@ -225,7 +425,7 @@ export function Map() {
     } catch (e: any) {
       if (e.name !== "AbortError") console.error("Failed to fetch buildings:", e);
     }
-  }, [setBuildingCount, applyGradeFilter]); // gradeFilter removed — use ref instead
+  }, [setBuildingCount, applyGradeFilter]); // filters read via refs
 
   // Vector path only: tiles stream in automatically, so the building count comes
   // from the features currently rendered in the viewport rather than the length
@@ -301,7 +501,7 @@ export function Map() {
 
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
-      style: "mapbox://styles/mapbox/dark-v11",
+      style: "mapbox://styles/mapbox/light-v11",
       center: [-73.98, 40.75],
       zoom: 11,
       minZoom: 9,
@@ -310,20 +510,28 @@ export function Map() {
         [-74.5, 40.35],
         [-73.3, 41.1],
       ],
+      attributionControl: false,
     });
 
     const m = map.current;
-    setMapRef(m);
+    m.addControl(new mapboxgl.AttributionControl({ compact: true }), "bottom-right");
 
-    if (USE_VECTOR_TILES) {
+    if (USE_VECTOR_TILES || USE_FOOTPRINTS) {
       // Catch a broken/unreachable PMTiles archive (bad URL, 404, outage). The
       // source emits an `error` (header load or per-tile); flag it and let
       // maybeFallbackToApi decide. Registered before the source is added in the
       // `load` handler so an immediate header-load error isn't missed.
       m.on("error", (e) => {
-        if ((e as { sourceId?: string }).sourceId === "buildings") {
+        const sourceId = (e as { sourceId?: string }).sourceId;
+        if (USE_VECTOR_TILES && sourceId === "buildings") {
           vectorErroredRef.current = true;
           maybeFallbackToApi(m);
+          return;
+        }
+        // Outlines unavailable: drop them and let the dots cover every zoom
+        // again, so street level never goes blank.
+        if (sourceId === "footprints") {
+          dropFootprints(m);
           return;
         }
         // Adding any `error` listener suppresses mapbox-gl's built-in console
@@ -331,6 +539,8 @@ export function Map() {
         console.error((e as { error?: unknown }).error ?? e);
       });
     }
+
+    m.on("movestart", () => setHovered(null));
 
     m.on("moveend", () => {
       const bounds = m.getBounds();
@@ -361,33 +571,37 @@ export function Map() {
     });
 
     m.on("load", () => {
+      tuneBaseStyle(m);
+
       // --- Neighborhood outlines (low/medium zoom) ---
       // Precise NTA boundary polygons, filled + outlined and colored by average
-      // health score. Replaces the old centroid bubbles. Shown at zoom ≤ 13;
-      // individual building dots take over above that.
+      // health score. Shown at zoom ≤ 13; individual building dots take over
+      // above that.
       m.addSource("neighborhoods", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
 
-      // Shared score color expression for the neighborhood fill.
+      // Neighborhood fill ramps through the grade colors at the grade cut-offs.
       const scoreColor = [
         "interpolate", ["linear"], ["get", "avg_score"],
-        55, "#ef4444",
-        75, "#f97316",
-        90, "#eab308",
-        95, "#84cc16",
-        100, "#22c55e",
+        55, GRADE_META.F.bg,
+        75, GRADE_META.D.bg,
+        90, GRADE_META.C.bg,
+        95, GRADE_META.B.bg,
+        100, GRADE_META.A.bg,
       ] as mapboxgl.Expression;
 
+      // Neighborhoods fade out across NEIGHBORHOODS_TO_DOTS as the dots fade in,
+      // and stop drawing once gone.
       m.addLayer({
         id: "neighborhoods-fill",
         type: "fill",
         source: "neighborhoods",
-        maxzoom: 13,
+        maxzoom: NEIGHBORHOODS_TO_DOTS[1],
         paint: {
           "fill-color": scoreColor,
-          "fill-opacity": 0.4,
+          "fill-opacity": fadeOut(0.42, NEIGHBORHOODS_TO_DOTS),
         },
       });
 
@@ -395,11 +609,11 @@ export function Map() {
         id: "neighborhoods-outline",
         type: "line",
         source: "neighborhoods",
-        maxzoom: 13,
+        maxzoom: NEIGHBORHOODS_TO_DOTS[1],
         paint: {
-          "line-color": "#ffffff",
+          "line-color": INK,
           "line-width": 0.8,
-          "line-opacity": 0.5,
+          "line-opacity": fadeOut(0.45, NEIGHBORHOODS_TO_DOTS),
         },
       });
 
@@ -407,24 +621,28 @@ export function Map() {
         id: "neighborhoods-labels",
         type: "symbol",
         source: "neighborhoods",
-        maxzoom: 13,
+        maxzoom: NEIGHBORHOODS_TO_DOTS[1],
         layout: {
           // Symbol-on-polygon: Mapbox places one label at each polygon's
           // visual center.
           "text-field": [
             "concat",
-            ["get", "name"],
+            ["upcase", ["get", "name"]],
             "\n",
             ["to-string", ["round", ["get", "avg_score"]]],
           ],
           "text-size": 11,
-          "text-font": ["DIN Pro Medium", "Arial Unicode MS Regular"],
+          "text-letter-spacing": 0.12,
+          "text-font": ["DIN Pro Bold", "Arial Unicode MS Bold"],
           "text-allow-overlap": false,
         },
         paint: {
-          "text-color": "#ffffff",
-          "text-halo-color": "#000000",
-          "text-halo-width": 1,
+          "text-color": INK,
+          "text-halo-color": "#FFFFFF",
+          "text-halo-width": 2,
+          // Labels clear out in the first half of the band, before the dots
+          // underneath are at full strength, so the two never read as clutter.
+          "text-opacity": fadeOut(1, [NEIGHBORHOODS_TO_DOTS[0], (NEIGHBORHOODS_TO_DOTS[0] + NEIGHBORHOODS_TO_DOTS[1]) / 2]),
         },
       });
 
@@ -455,10 +673,16 @@ export function Map() {
 
       m.addLayer(buildingsDotsLayer(USE_VECTOR_TILES));
 
+      if (USE_FOOTPRINTS) {
+        addFootprintLayers(m);
+        const outlineFilter = buildVectorFilter(gradeFilterRef.current, mapFiltersRef.current, togglesRef.current);
+        if (outlineFilter) for (const id of FOOTPRINT_LAYERS) m.setFilter(id, outlineFilter);
+      }
+
       if (USE_VECTOR_TILES) {
         // Apply the current grade/units/year filter via a Mapbox expression
         // (vector-tile features can't be mutated like a GeoJSON array can).
-        const initialFilter = buildVectorFilter(gradeFilterRef.current, mapFiltersRef.current);
+        const initialFilter = buildVectorFilter(gradeFilterRef.current, mapFiltersRef.current, togglesRef.current);
         if (initialFilter) m.setFilter("buildings-dots", initialFilter);
         // Recount as tiles stream in for the current viewport. Skipped once we've
         // fallen back to the API path (that path drives the count itself).
@@ -472,7 +696,7 @@ export function Map() {
         });
       }
 
-      // --- Selected building highlight (filled dot + white halo ring) ---
+      // --- Selected building highlight (filled dot + ink halo ring) ---
       // The dot layer ensures the selected building is always visible even
       // when the underlying buildings-dots layer omits it (e.g. backend
       // prioritises lower-scoring buildings and drops higher-scoring ones,
@@ -489,14 +713,14 @@ export function Map() {
         paint: {
           "circle-radius": [
             "interpolate", ["linear"], ["zoom"],
-            10, 4,
-            14, 7,
-            16, 9,
+            10, 5,
+            14, 8,
+            16, 11,
           ],
           "circle-color": GRADE_COLOR_EXPRESSION,
-          "circle-opacity": 0.95,
-          "circle-stroke-width": 1,
-          "circle-stroke-color": "#1f2937",
+          "circle-opacity": 1,
+          "circle-stroke-width": 2,
+          "circle-stroke-color": INK,
         },
       });
 
@@ -507,19 +731,19 @@ export function Map() {
         paint: {
           "circle-radius": [
             "interpolate", ["linear"], ["zoom"],
-            10, 8,
-            14, 14,
-            16, 18,
+            10, 10,
+            14, 15,
+            16, 19,
           ],
           "circle-color": "rgba(0,0,0,0)",
           "circle-opacity": 1,
           "circle-stroke-width": 2.5,
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-opacity": 0.95,
+          "circle-stroke-color": INK,
+          "circle-stroke-opacity": 0.9,
         },
       });
 
-      // --- Search results highlight layer ---
+      // --- Search results: lettered grade pins ---
       m.addSource("search-results", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -531,17 +755,31 @@ export function Map() {
         source: "search-results",
         paint: {
           "circle-radius": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            10, 5,
-            14, 8,
-            16, 10,
+            "interpolate", ["linear"], ["zoom"],
+            10, 9,
+            14, 13,
+            16, 15,
           ],
           "circle-color": GRADE_COLOR_EXPRESSION,
-          "circle-opacity": 0.95,
+          "circle-opacity": 1,
           "circle-stroke-width": 2.5,
-          "circle-stroke-color": "#ffffff",
+          "circle-stroke-color": INK,
+        },
+      });
+
+      m.addLayer({
+        id: "search-results-letters",
+        type: "symbol",
+        source: "search-results",
+        layout: {
+          "text-field": ["get", "grade"],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 10, 10, 14, 14, 16, 16],
+          "text-font": ["DIN Pro Bold", "Arial Unicode MS Bold"],
+          "text-allow-overlap": true,
+          "text-ignore-placement": true,
+        },
+        paint: {
+          "text-color": GRADE_TEXT_EXPRESSION,
         },
       });
 
@@ -549,44 +787,99 @@ export function Map() {
         id: "search-results-labels",
         type: "symbol",
         source: "search-results",
-        minzoom: 13,
+        // Street level only — at neighborhood scale the pins speak for themselves.
+        minzoom: 16,
         layout: {
           "text-field": ["get", "address"],
-          "text-size": 10,
-          "text-offset": [0, 1.5],
+          "text-size": 11,
+          "text-offset": [0, 1.9],
           "text-font": ["DIN Pro Medium", "Arial Unicode MS Regular"],
           "text-allow-overlap": false,
         },
         paint: {
-          "text-color": "#ffffff",
-          "text-halo-color": "#000000",
-          "text-halo-width": 1,
+          "text-color": INK,
+          "text-halo-color": "#FFFFFF",
+          "text-halo-width": 1.5,
         },
       });
 
-      // Click handlers
+      // Click handlers. Dots locate the building by their point; an outline
+      // (a polygon) by where it was clicked — the detail load refines it.
+      const openFromFeature = (feature: mapboxgl.GeoJSONFeature | undefined, at?: mapboxgl.LngLat) => {
+        const bbl = feature?.properties?.bbl;
+        if (!bbl) return;
+        const geom = feature.geometry;
+        selectBuilding(String(bbl));
+        const grade = String(feature.properties?.grade ?? "");
+        if (geom.type === "Point") {
+          const [lng, lat] = geom.coordinates as [number, number];
+          setSelectedLocation({ lng, lat, grade });
+        } else if (at) {
+          setSelectedLocation({ lng: at.lng, lat: at.lat, grade });
+        }
+        cancelHide();
+        setHovered(null);
+      };
+
+      // Past the cross-fade the dots are transparent but still drawn for one more
+      // tile level (see buildingsDotsLayer) — they mustn't catch the pointer there.
+      const dotsFaded = () => !!m.getLayer("footprints-fill") && m.getZoom() >= DOTS_TO_OUTLINES[1];
+      const isFadedDots = (layerId: string) => layerId === "buildings-dots" && dotsFaded();
+
       m.on("click", "buildings-dots", (e) => {
-        if (e.features && e.features[0]) {
-          const bbl = e.features[0].properties?.bbl;
-          if (bbl) selectBuilding(bbl);
-        }
+        if (!dotsFaded()) openFromFeature(e.features?.[0]);
       });
+      m.on("click", "search-results-dots", (e) => openFromFeature(e.features?.[0]));
+      if (USE_FOOTPRINTS) m.on("click", "footprints-fill", (e) => openFromFeature(e.features?.[0], e.lngLat));
 
-      m.on("click", "search-results-dots", (e) => {
-        if (e.features && e.features[0]) {
-          const bbl = e.features[0].properties?.bbl;
-          if (bbl) selectBuilding(bbl);
-        }
-      });
-
-      // Pointer cursor on hover for every clickable dot layer.
-      for (const layerId of ["buildings-dots", "search-results-dots"]) {
+      // Pointer cursor on hover for every clickable layer.
+      for (const layerId of ["buildings-dots", "search-results-dots", ...(USE_FOOTPRINTS ? ["footprints-fill"] : [])]) {
         m.on("mouseenter", layerId, () => {
-          m.getCanvas().style.cursor = "pointer";
+          if (!isFadedDots(layerId)) m.getCanvas().style.cursor = "pointer";
         });
         m.on("mouseleave", layerId, () => {
-          m.getCanvas().style.cursor = "";
+          if (!isFadedDots(layerId)) m.getCanvas().style.cursor = "";
         });
+      }
+
+      // Hover preview (desktop, nothing selected). Anchored at the dot, or at
+      // the pointer for an outline.
+      const hoverFrom = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.GeoJSONFeature[] }) => {
+        if (!canHover() || useStore.getState().selectedBbl) return;
+        const f = e.features?.[0];
+        const bbl = f?.properties?.bbl;
+        if (!f || !bbl) return;
+        cancelHide();
+        const [lng, lat] =
+          f.geometry.type === "Point" ? (f.geometry.coordinates as [number, number]) : [e.lngLat.lng, e.lngLat.lat];
+        setHovered((prev) => {
+          if (prev?.bbl === String(bbl)) return prev;
+          const p = m.project([lng, lat]);
+          const props = f.properties ?? {};
+          return {
+            bbl: String(bbl),
+            address: String(props.address ?? ""),
+            grade: String(props.grade ?? ""),
+            healthScore: Number(props.health_score ?? 0),
+            units: props.residential_units != null ? Number(props.residential_units) : null,
+            yearBuilt: props.year_built ? Number(props.year_built) : null,
+            buildingClass: props.building_class != null ? String(props.building_class) : null,
+            lng,
+            lat,
+            x: p.x,
+            y: p.y,
+          };
+        });
+      };
+      m.on("mousemove", "buildings-dots", (e) => {
+        if (!dotsFaded()) hoverFrom(e);
+      });
+      m.on("mouseleave", "buildings-dots", () => {
+        if (!dotsFaded()) scheduleHide();
+      });
+      if (USE_FOOTPRINTS) {
+        m.on("mousemove", "footprints-fill", hoverFrom);
+        m.on("mouseleave", "footprints-fill", () => scheduleHide());
       }
 
       // Initial viewport: vector tiles stream on their own (count updates via
@@ -596,6 +889,10 @@ export function Map() {
       } else {
         fetchAndRenderBuildings(m);
       }
+
+      // Publish the map only once its sources exist, so consumers (overlays,
+      // fly-to on deep links) can add layers without racing the style load.
+      setMapRef(m);
     });
 
     return () => {
@@ -603,25 +900,36 @@ export function Map() {
       m.remove();
       map.current = null;
     };
-  }, [setViewport, selectBuilding, fetchAndRenderBuildings, setMapRef, loadNeighborhoods, updateVectorBuildingCount, maybeFallbackToApi]);
+  }, [setViewport, selectBuilding, setSelectedLocation, fetchAndRenderBuildings, setMapRef, loadNeighborhoods, updateVectorBuildingCount, maybeFallbackToApi, cancelHide, scheduleHide]);
 
   // Re-filter buildings on map when grade filter or map filters change.
   useEffect(() => {
     const m = map.current;
     if (!m) return;
+    const toggles = { includeSmallHomes, rentStabilizedOnly, borough: boroughFilter };
 
     const apply = () => {
+      // Neighborhood outlines follow the borough chip too.
+      const nbFilter = boroughFilter ? boroughFilterExpr(boroughFilter) : null;
+      for (const id of ["neighborhoods-fill", "neighborhoods-outline", "neighborhoods-labels"]) {
+        if (m.getLayer(id)) m.setFilter(id, nbFilter);
+      }
+      // Outlines are always vector tiles, whichever path the dots are on.
+      const vectorFilter = buildVectorFilter(gradeFilter, mapFilters, toggles);
+      for (const id of FOOTPRINT_LAYERS) {
+        if (m.getLayer(id)) m.setFilter(id, vectorFilter);
+      }
       if (vectorActiveRef.current) {
         // Vector tiles can't be mutated, so the same grade/units/year filter is
         // expressed as a Mapbox filter on the layer instead of re-running setData.
         if (m.getLayer("buildings-dots")) {
-          m.setFilter("buildings-dots", buildVectorFilter(gradeFilter, mapFilters));
+          m.setFilter("buildings-dots", buildVectorFilter(gradeFilter, mapFilters, toggles));
           updateVectorBuildingCount(m);
         }
         return;
       }
       if (rawBuildingsRef.current.length > 0) {
-        applyGradeFilter(m, rawBuildingsRef.current, gradeFilter, mapFilters);
+        applyGradeFilter(m, rawBuildingsRef.current, gradeFilter, mapFilters, toggles);
       }
     };
 
@@ -640,33 +948,51 @@ export function Map() {
         m.off("idle", apply);
       };
     }
-  }, [gradeFilter, mapFilters, applyGradeFilter, updateVectorBuildingCount]);
+  }, [gradeFilter, mapFilters, includeSmallHomes, rentStabilizedOnly, boroughFilter, mapReady, applyGradeFilter, updateVectorBuildingCount]);
 
-  // Highlight selected building with a white ring
+  // Toggling "3+ units only" changes what the API path returns, so refetch.
   useEffect(() => {
     const m = map.current;
-    if (!m || !m.isStyleLoaded()) return;
+    if (m && !vectorActiveRef.current && m.getSource("buildings")) fetchAndRenderBuildings(m);
+  }, [includeSmallHomes, fetchAndRenderBuildings]);
+
+  // A selection hides the hover preview.
+  useEffect(() => {
+    if (selectedBbl) setHovered(null);
+  }, [selectedBbl]);
+
+  // Highlight selected building with an ink ring
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
     const source = m.getSource("selected-building") as mapboxgl.GeoJSONSource | undefined;
     if (!source) return;
+
+    if (m.getLayer("footprints-selected")) {
+      m.setFilter("footprints-selected", ["==", ["get", "bbl"], selectedBbl ?? ""]);
+    }
 
     if (!selectedBbl) {
       source.setData({ type: "FeatureCollection", features: [] });
       return;
     }
 
-    // Look up coordinates + grade from visible buildings or search results.
-    // Grade is needed so the selected-building-dot layer can colour the dot.
+    // Prefer the location published for this selection (click or detail
+    // load — the only source for ?bbl= deep links); otherwise look it up from
+    // visible buildings or search results. Grade colors the dot.
     let coords: [number, number] | null = null;
     let grade = "";
-    const inRaw = rawBuildingsRef.current.find((f) => f.properties.bbl === selectedBbl);
+    if (selectedLocation) {
+      coords = [selectedLocation.lng, selectedLocation.lat];
+      grade = selectedLocation.grade;
+    }
+    const inRaw = !coords && rawBuildingsRef.current.find((f) => f.properties.bbl === selectedBbl);
     if (inRaw) {
       coords = inRaw.geometry.coordinates as [number, number];
       grade = inRaw.properties.grade ?? "";
     }
     // Vector path: rawBuildingsRef is empty (no fetched array), so pull the
-    // clicked building straight from the rendered tile features. Only on-screen
-    // buildings can be found this way, which covers the click case (the dot was
-    // just clicked, so it's visible).
+    // clicked building straight from the rendered tile features.
     if (!coords && vectorActiveRef.current && m.getLayer("buildings-dots")) {
       const matches = m.queryRenderedFeatures({
         layers: ["buildings-dots"],
@@ -692,19 +1018,19 @@ export function Map() {
         ? [{ type: "Feature", geometry: { type: "Point", coordinates: coords }, properties: { grade } }]
         : [],
     });
-  }, [selectedBbl, searchResults]);
+  }, [selectedBbl, selectedLocation, searchResults, mapReady]);
 
   // Update search results on map when they change
   useEffect(() => {
     const m = map.current;
-    if (!m || !m.isStyleLoaded()) return;
+    if (!m) return;
 
     const source = m.getSource("search-results") as mapboxgl.GeoJSONSource | undefined;
     if (!source) return;
 
     const setBuildingsVisibility = (visible: boolean) => {
-      if (m.getLayer("buildings-dots")) {
-        m.setLayoutProperty("buildings-dots", "visibility", visible ? "visible" : "none");
+      for (const id of ["buildings-dots", ...FOOTPRINT_LAYERS]) {
+        if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", visible ? "visible" : "none");
       }
     };
 
@@ -744,23 +1070,40 @@ export function Map() {
       features.forEach((f) => {
         bounds.extend(f.geometry.coordinates as [number, number]);
       });
-      // Cap zoom well below the buildings-dots minzoom so the map zooms out
-      // enough to show as many result dots as possible at once. The result
-      // dots have no minzoom, so they remain visible at this wider view.
-      // Padding mirrors the panel layout: right-side panel on desktop,
-      // bottom sheet on mobile — otherwise the dots get squeezed off-screen
-      // on narrow viewports.
+      // Padding mirrors the layout: the results list docks on the left on
+      // desktop and is a bottom sheet on mobile — otherwise the pins get
+      // squeezed under the panel.
       const isMobile = window.innerWidth < 768;
       const padding = isMobile
-        ? { top: 80, bottom: Math.round(window.innerHeight * 0.55), left: 30, right: 30 }
-        : { top: 80, bottom: 40, left: 40, right: 420 };
+        ? { top: 150, bottom: Math.round(window.innerHeight * 0.55), left: 30, right: 30 }
+        : { top: 100, bottom: 60, left: 480, right: 70 };
       m.fitBounds(bounds, {
         padding,
-        maxZoom: 12,
+        maxZoom: 15,
         duration: 1500,
       });
     }
-  }, [searchResults, gradeFilter]);
+  }, [searchResults, gradeFilter, mapReady]);
 
-  return <div ref={mapContainer} className="absolute inset-0 z-0" />;
+  const container = mapContainer.current;
+
+  return (
+    <>
+      <div ref={mapContainer} className="absolute inset-0 z-0" />
+      {hovered && !selectedBbl && container && (
+        <HoverCard
+          building={hovered}
+          containerWidth={container.clientWidth}
+          containerHeight={container.clientHeight}
+          onOpen={() => {
+            selectBuilding(hovered.bbl);
+            setSelectedLocation({ lng: hovered.lng, lat: hovered.lat, grade: hovered.grade });
+            setHovered(null);
+          }}
+          onPointerEnter={cancelHide}
+          onPointerLeave={scheduleHide}
+        />
+      )}
+    </>
+  );
 }

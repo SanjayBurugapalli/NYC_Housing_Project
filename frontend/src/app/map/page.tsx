@@ -3,328 +3,302 @@
 import { useState, useEffect, useRef, Suspense } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { Home, MessageSquare, HelpCircle, SlidersHorizontal } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { SearchBar } from "@/components/SearchBar";
-import { BuildingPanel } from "@/components/BuildingPanel";
+import { BuildingCard } from "@/components/BuildingCard";
 import { InfoPanel } from "@/components/InfoPanel";
 import { SearchResultsPanel } from "@/components/SearchResultsPanel";
-import { GradeFilter } from "@/components/GradeFilter";
-import { MapFiltersPanel } from "@/components/MapFiltersPanel";
+import { GradeFilter, GradeToggles } from "@/components/GradeFilter";
 import { ComparePanel } from "@/components/ComparePanel";
 import { FeedbackModal } from "@/components/FeedbackModal";
-import { FreshnessPill } from "@/components/FreshnessPill";
+import { CompareTray, LocateButton, MapControls, WorkButton, ZoomStepper } from "@/components/map/MapChrome";
+import { CommuteOverlay, FoodOverlay } from "@/components/map/Overlays";
+import { CompareIcon, LogoIcon, RefreshIcon } from "@/components/ui/icons";
 import { useStore } from "@/lib/store";
+import { usePresence } from "@/hooks/usePresence";
+import { useMediaQuery } from "@/hooks/useBuildingData";
+import { useSearchRunner } from "@/hooks/useSearchRunner";
 
 const Map = dynamic(() => import("@/components/Map").then((m) => m.Map), {
   ssr: false,
-  loading: () => <div className="h-full w-full bg-gray-900" />,
+  loading: () => <div className="h-full w-full bg-white" />,
 });
 
-// Must match the keyframe duration in tailwind.config.ts (slide-out-* = 220ms)
-const SLIDE_EXIT_MS = 220;
+// Starter questions under the search bar. Each is phrased so the rule-based
+// parser understands it without a Claude call.
+const SUGGESTIONS = [
+  "Rent-stabilized, no heat complaints",
+  "Graded A in Astoria",
+  "Worst buildings in Bushwick",
+];
 
 /**
- * Keeps a panel mounted long enough to play its exit animation when `open` flips
- * to false. Returns `shouldRender` (true while open OR animating out) and
- * `entering` (true while open, false while exit-animating) so the caller can
- * choose the enter vs exit animation class. Mounts synchronously during render
- * on the closed→open transition so the panel's first paint includes the
- * slide-in animation class — otherwise the panel can flash into place before
- * the animation has a chance to run.
+ * Syncs selectedBbl ↔ ?bbl= without a full navigation, and runs a search
+ * handed over from the landing page via ?q= once on arrival.
  */
-function useSlidePanel(open: boolean): { shouldRender: boolean; entering: boolean } {
-  const [mounted, setMounted] = useState(open);
-
-  if (open && !mounted) {
-    setMounted(true);
-  }
-
-  useEffect(() => {
-    if (!open && mounted) {
-      const t = setTimeout(() => setMounted(false), SLIDE_EXIT_MS);
-      return () => clearTimeout(t);
-    }
-  }, [open, mounted]);
-
-  return { shouldRender: mounted, entering: open };
-}
-
-/** Syncs selectedBbl ↔ ?bbl= URL param without causing a full navigation. */
-function BblUrlSync() {
+function UrlSync() {
   const params = useSearchParams();
   const router = useRouter();
   const selectedBuilding = useStore((s) => s.selectedBbl);
   const selectBuilding = useStore((s) => s.selectBuilding);
+  const run = useSearchRunner();
 
-  // On mount: if ?bbl= is present, open that building
   useEffect(() => {
     const bbl = params.get("bbl");
-    if (bbl && /^\d{10}$/.test(bbl)) selectBuilding(bbl);
+    if (bbl && /^\d{10}$/.test(bbl)) {
+      selectBuilding(bbl);
+      return;
+    }
+    const q = params.get("q");
+    if (q) run(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // run once on mount only
 
-  // When selectedBuilding changes: keep URL in sync
   useEffect(() => {
     const current = new URLSearchParams(window.location.search);
+    current.delete("q");
     if (selectedBuilding) {
-      if (current.get("bbl") === selectedBuilding) return;
+      if (current.get("bbl") === selectedBuilding && !window.location.search.includes("q=")) return;
       current.set("bbl", selectedBuilding);
     } else {
-      if (!current.has("bbl")) return;
+      if (!current.has("bbl") && !window.location.search.includes("q=")) return;
       current.delete("bbl");
     }
-    router.replace(`/map?${current.toString()}`, { scroll: false });
+    const qs = current.toString();
+    router.replace(qs ? `/map?${qs}` : "/map", { scroll: false });
   }, [selectedBuilding, router]);
 
   return null;
 }
 
+function LogoTile({ size = 56 }: { size?: number }) {
+  return (
+    <Link
+      href="/"
+      aria-label="BeforeYouRent home"
+      className="flex shrink-0 items-center justify-center rounded-2xl bg-ink text-white hover:bg-ink-2"
+      style={{ width: size, height: size }}
+    >
+      <LogoIcon size={size > 52 ? 26 : 24} />
+    </Link>
+  );
+}
+
+const TOP_BTN = "inline-flex h-12 items-center gap-2 rounded-[14px] border-2 border-ink bg-white px-4 text-sm font-bold text-ink hover:bg-surface";
+
 export default function MapPage() {
-  const selectedBuilding = useStore((s) => s.selectedBbl);
-  const buildingCount = useStore((s) => s.buildingCount);
-  const zoom = useStore((s) => s.zoom);
+  const selectedBbl = useStore((s) => s.selectedBbl);
+  const cardView = useStore((s) => s.cardView);
   const searchResults = useStore((s) => s.searchResults);
   const isSearching = useStore((s) => s.isSearching);
   const searchClarification = useStore((s) => s.searchClarification);
-  const gradeFilter = useStore((s) => s.gradeFilter);
-  const mapFilters = useStore((s) => s.mapFilters);
+  const searchQuery = useStore((s) => s.searchQuery);
+  const searchFilters = useStore((s) => s.searchFilters);
+  const viewport = useStore((s) => s.viewport);
+  const compareBbls = useStore((s) => s.compareBbls);
+  const setCompareOpen = useStore((s) => s.setCompareOpen);
+  const mapRef = useStore((s) => s.mapRef);
+  const run = useSearchRunner();
+  const isMobile = useMediaQuery("(max-width: 767px)");
+
   const [showInfo, setShowInfo] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
-  const [showMobileFilters, setShowMobileFilters] = useState(false);
-  const [lastOpened, setLastOpened] = useState<"building" | "info">("building");
-  // Which of {building detail, search results} the user opened most recently —
-  // decides which slides on top when both are visible (see buildingOverSearch).
-  const [topPanel, setTopPanel] = useState<"building" | "search">("building");
+  const [mobileFilters, setMobileFilters] = useState(false);
 
-  const activeFilterCount =
-    gradeFilter.length +
-    [mapFilters.minUnits, mapFilters.maxUnits, mapFilters.minYear, mapFilters.maxYear].filter(
-      (v) => v != null
-    ).length;
-
-  // Remember the last bbl shown so the BuildingPanel keeps rendering content
-  // during its exit slide-out (after selectedBuilding is cleared to null).
+  // Remember the last bbl shown so the card keeps rendering content during its
+  // exit animation (after selectedBbl is cleared to null).
   const lastBblRef = useRef<string | null>(null);
-  if (selectedBuilding) lastBblRef.current = selectedBuilding;
+  if (selectedBbl) lastBblRef.current = selectedBbl;
 
-  useEffect(() => {
-    if (selectedBuilding) setLastOpened("building");
-  }, [selectedBuilding]);
-
-  // Selecting a building (including clicking a search result) brings the
-  // building panel forward; kicking off a search brings the results forward,
-  // even over an already-open building panel.
-  useEffect(() => {
-    if (selectedBuilding) setTopPanel("building");
-  }, [selectedBuilding]);
-  useEffect(() => {
-    if (isSearching) setTopPanel("search");
-  }, [isSearching]);
-
-  const showBuildingPanel = !!selectedBuilding && (!showInfo || lastOpened === "building");
-  const showInfoPanel = showInfo && (!selectedBuilding || lastOpened === "info");
   // Keep the results panel open for the zero-result case so the clarification
   // is visible — otherwise it'd flash open during search then close immediately.
-  const showSearchResults = isSearching || searchResults.length > 0 || !!searchClarification;
-  const buildingSlide = useSlidePanel(showBuildingPanel);
-  const infoSlide = useSlidePanel(showInfoPanel);
-  const searchSlide = useSlidePanel(showSearchResults);
+  const showResults = isSearching || searchResults.length > 0 || !!searchClarification;
+  const card = usePresence(!!selectedBbl);
+  const results = usePresence(showResults);
+  const info = usePresence(showInfo);
 
-  // When both the building detail and the search results are visible, the more
-  // recently opened one slides on top: clicking a result raises the building
-  // panel (so you see what you clicked), while running a new search raises the
-  // results above an already-open building panel. Keyed on shouldRender so the
-  // close-animation slides out in the same relative order.
-  const buildingOverSearch =
-    buildingSlide.shouldRender && searchSlide.shouldRender && topPanel === "building";
+  const docked = !!selectedBbl && (cardView === "commute" || cardView === "food");
+  // Summary/deep float over a faded map like a dialog; only the top bar stays.
+  const dialog = !!selectedBbl && !docked;
+  const resultsDesktop = showResults && !isMobile;
 
-  // Hide the corner controls when any panel is rendered (including during exit).
-  const anyPanelRendered = buildingSlide.shouldRender || infoSlide.shouldRender || searchSlide.shouldRender;
+  // Saved work address + recent buildings live in localStorage, which the
+  // server render can't see — load them once the page is on the client.
+  useEffect(() => {
+    useStore.getState().hydratePersisted();
+  }, []);
+
+  useEffect(() => {
+    if (selectedBbl) setShowInfo(false);
+  }, [selectedBbl]);
+
+  useEffect(() => {
+    if (!showInfo) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setShowInfo(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showInfo]);
+
+  const locate = () => {
+    if (!mapRef || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => mapRef.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 15.5, duration: 1200 }),
+      () => {},
+      { timeout: 8000, maximumAge: 300_000 }
+    );
+  };
+
+  const rightButtons = (
+    <div className="pointer-events-auto ml-auto flex flex-wrap gap-2">
+      <WorkButton className={`${TOP_BTN} px-3.5`} />
+      <button
+        type="button"
+        onClick={() => setCompareOpen(true)}
+        title="Compare two buildings side by side"
+        className={`${TOP_BTN} px-3.5`}
+      >
+        <CompareIcon size={18} />
+        Compare
+        <span className="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-ink px-1.5 text-xs text-white">
+          {compareBbls.length}
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={() => setShowInfo((v) => !v)}
+        aria-label="How scores work"
+        aria-expanded={showInfo}
+        className="h-12 w-12 rounded-[14px] border-2 border-ink bg-white font-display text-xl font-extrabold text-ink hover:bg-surface"
+      >
+        ?
+      </button>
+    </div>
+  );
 
   return (
-    <main className="relative h-dvh w-screen overflow-hidden">
-      <Suspense fallback={null}><BblUrlSync /></Suspense>
+    <main className="relative h-dvh w-screen overflow-hidden bg-white text-ink">
+      <Suspense fallback={null}><UrlSync /></Suspense>
       <Map />
+      <CommuteOverlay />
+      <FoodOverlay />
 
-      {/* Search bar. Inset from the left on mobile so it clears the corner logo;
-          centered (with room in both gutters) on desktop. */}
-      <div className="absolute top-4 left-16 right-4 z-10 flex justify-center pointer-events-none md:left-4">
-        <div className="pointer-events-auto w-full max-w-xl">
-          <SearchBar />
+      {/* Results list: docked left on desktop, bottom sheet on phones */}
+      {results.shouldRender && !isMobile && (
+        <div className={`absolute inset-y-0 left-0 z-20 w-[430px] max-w-full ${results.entering ? "animate-slide-in-left" : "animate-slide-out-left"}`}>
+          <SearchResultsPanel />
         </div>
-      </div>
-
-      {/* Building count / search results indicator */}
-      <div className="absolute top-20 left-1/2 z-10 -translate-x-1/2">
-        {searchResults.length > 0 ? (
-          <div className="rounded-full bg-blue-600/90 px-3 py-1 text-xs text-white backdrop-blur-sm">
-            {searchResults.length} search result{searchResults.length !== 1 ? "s" : ""}
-          </div>
-        ) : zoom >= 13 && buildingCount > 0 ? (
-          <div className="rounded-full bg-gray-800/80 px-3 py-1 text-xs text-gray-300 backdrop-blur-sm">
-            {buildingCount.toLocaleString()} buildings in view
-          </div>
-        ) : null}
-      </div>
-
-      {/* Top-left corner: logo (links home) with the data-freshness pill to its
-          right. Pill is hidden on mobile, where there's no room beside the logo
-          and the search bar. */}
-      <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
-        <Link
-          href="/"
-          aria-label="BeforeYouRent home"
-          className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-800/80 p-1 backdrop-blur-sm shadow-md transition-colors hover:bg-gray-700/90"
-        >
-          <img src="/logo-mark.svg" alt="BeforeYouRent" className="h-7 w-7" />
-        </Link>
-        {/* Shown from lg up, where there's clear room beside the centered search
-            bar; below that only the logo sits in the corner. */}
-        <div className="hidden lg:block">
-          <FreshnessPill />
+      )}
+      {results.shouldRender && isMobile && (
+        <div className={`absolute inset-x-0 bottom-0 z-20 h-[55dvh] ${results.entering ? "animate-slide-in-bottom" : "animate-slide-out-bottom"}`}>
+          <SearchResultsPanel mobile />
         </div>
-      </div>
+      )}
 
-      {/* Grade filter + map filters.
-          Desktop: always-open stack. Mobile: collapsed behind a compact pill
-          that grows the panel upward so it never runs off the bottom edge.
-          Hidden on mobile when any side panel is open so it doesn't sit on
-          top of the building/info/search bottom sheets. Desktop stays visible
-          since the panels there only cover the right edge. */}
-      <div className={`absolute bottom-1 left-28 md:bottom-14 md:left-4 z-20 flex w-44 max-w-[calc(100vw-1rem)] flex-col gap-2 pointer-events-auto transition-opacity duration-150 ${anyPanelRendered ? "pointer-events-none opacity-0 md:pointer-events-auto md:opacity-100" : "opacity-100"}`}>
-        <div className={`${showMobileFilters ? "block" : "hidden"} md:block`}>
-          <GradeFilter />
-          <MapFiltersPanel />
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowMobileFilters((v) => !v)}
-          className="flex items-center gap-1.5 self-start rounded-lg border border-gray-600 bg-gray-800/95 px-3 py-2 text-sm font-semibold text-gray-200 backdrop-blur-sm shadow-lg active:bg-gray-700 md:hidden"
-          aria-expanded={showMobileFilters}
-          aria-label="Toggle filters"
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-          <span>Filters</span>
-          {activeFilterCount > 0 && (
-            <span className="rounded-full bg-blue-600 px-1.5 text-[10px] font-bold leading-4 text-white">
-              {activeFilterCount}
-            </span>
+      {/* Top bar */}
+      {!isMobile ? (
+        <div className={`pointer-events-none absolute left-4 right-4 top-4 flex flex-wrap items-start gap-3 ${dialog ? "z-[35]" : "z-10"}`}>
+          {!resultsDesktop ? (
+            <div className="pointer-events-auto flex min-w-0 flex-[0_1_640px] flex-col gap-2.5">
+              <div className="flex gap-2.5">
+                <LogoTile />
+                <SearchBar variant="map" />
+              </div>
+              {!selectedBbl && !searchQuery && (
+                <div className="flex w-max max-w-[calc(100vw-420px)] flex-wrap items-center gap-2 pl-[66px]">
+                  {SUGGESTIONS.map((s) => (
+                    <button key={s} type="button" onClick={() => run(s)} className="chip">
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            searchFilters && (
+              <button
+                type="button"
+                disabled={isSearching}
+                onClick={() => run(searchQuery, { filters: searchFilters, bbox: viewport })}
+                className={`${TOP_BTN} pointer-events-auto ml-[430px] shadow-hard-sm disabled:opacity-60`}
+              >
+                <RefreshIcon size={18} />
+                Search this area
+              </button>
+            )
           )}
-          <span className={`text-xs text-gray-400 transition-transform ${showMobileFilters ? "rotate-180" : ""}`}>▾</span>
-        </button>
-      </div>
-
-      {/* Desktop feedback button — always visible */}
-      <div className="absolute bottom-16 right-4 z-20 hidden md:block">
-        <button
-          onClick={() => setShowFeedback(true)}
-          className="flex items-center gap-1.5 rounded-lg border border-gray-600 bg-gray-800/95 px-3 py-2 text-sm font-semibold text-gray-300 backdrop-blur-sm hover:bg-gray-700 hover:text-white transition-colors shadow-lg"
-          aria-label="Submit feedback"
-        >
-          💬 Feedback
-        </button>
-      </div>
-
-      {/* Desktop home + about — hidden when any right panel is open */}
-      <div className={`absolute bottom-6 right-4 z-20 hidden items-center gap-2 transition-opacity duration-150 md:flex ${anyPanelRendered ? "pointer-events-none opacity-0" : "opacity-100"}`}>
-        <Link
-          href="/"
-          className="flex items-center gap-1.5 rounded-lg border border-gray-600 bg-gray-800/95 px-3 py-2 text-sm font-semibold text-gray-400 backdrop-blur-sm hover:bg-gray-700 hover:text-white transition-colors shadow-lg"
-          aria-label="Back to home"
-        >
-          ← Home
-        </Link>
-        <button
-          onClick={() => { setShowInfo(true); setLastOpened("info"); }}
-          className="flex items-center gap-1.5 rounded-lg border border-gray-600 bg-gray-800/95 px-3 py-2 text-sm font-semibold text-blue-400 backdrop-blur-sm hover:bg-gray-700 hover:text-white transition-colors shadow-lg"
-          aria-label="About this project"
-        >
-          <span className="text-base leading-none">?</span>
-          <span>About &amp; Guide</span>
-        </button>
-      </div>
-
-      {/* Mobile nav — compact icon buttons, hidden when any panel is open
-          (the bottom sheet covers this corner). aria-label avoids "Submit
-          feedback" so the external-widget z-index rule in globals.css can't
-          demote this cluster. */}
-      <div className={`absolute bottom-1 right-10 z-20 flex items-center gap-2 transition-opacity duration-150 md:hidden ${anyPanelRendered ? "pointer-events-none opacity-0" : "opacity-100"}`}>
-        <Link
-          href="/"
-          className="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-600 bg-gray-800/95 text-gray-300 backdrop-blur-sm shadow-lg active:bg-gray-700"
-          aria-label="Back to home"
-        >
-          <Home className="h-5 w-5" />
-        </Link>
-        <button
-          onClick={() => setShowFeedback(true)}
-          className="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-600 bg-gray-800/95 text-gray-300 backdrop-blur-sm shadow-lg active:bg-gray-700"
-          aria-label="Send feedback"
-        >
-          <MessageSquare className="h-5 w-5" />
-        </button>
-        <button
-          onClick={() => { setShowInfo(true); setLastOpened("info"); }}
-          className="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-600 bg-gray-800/95 text-blue-400 backdrop-blur-sm shadow-lg active:bg-gray-700"
-          aria-label="About this project"
-        >
-          <HelpCircle className="h-5 w-5" />
-        </button>
-      </div>
-
-      {/*
-        Right-side panel stacking (desktop):
-          z-20  info panel
-          z-30  search results
-          building detail  — z-10 normally, z-40 when a result was clicked so
-                            it slides on top of the still-open results panel
-        Mobile bottom sheets keep the same relative ordering.
-      */}
-
-      {/* Building detail panel */}
-      {buildingSlide.shouldRender && lastBblRef.current && (
-        <>
-          <div className={`absolute bottom-0 left-0 right-0 h-[70dvh] md:hidden ${buildingOverSearch ? "z-40" : "z-10"} ${buildingSlide.entering ? "animate-slide-in-bottom" : "animate-slide-out-bottom"}`}>
-            <BuildingPanel bbl={lastBblRef.current} />
+          {rightButtons}
+        </div>
+      ) : (
+        <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex flex-col gap-2.5">
+          <div className="pointer-events-auto flex gap-2">
+            <LogoTile size={52} />
+            <SearchBar variant="mobile" onToggleFilters={() => setMobileFilters((v) => !v)} filtersOpen={mobileFilters} />
           </div>
-          <div className={`absolute top-0 right-0 hidden h-full w-96 md:block ${buildingOverSearch ? "z-40" : "z-10"} ${buildingSlide.entering ? "animate-slide-in-right" : "animate-slide-out-right"}`}>
-            <BuildingPanel bbl={lastBblRef.current} />
-          </div>
-        </>
+          {!selectedBbl && (
+            <div className="card-float pointer-events-auto rounded-[15px] p-1.5">
+              <GradeToggles compact />
+            </div>
+          )}
+          {mobileFilters && !selectedBbl && <GradeFilter hideGrades className="pointer-events-auto" />}
+        </div>
       )}
 
-      {/* Info panel */}
-      {infoSlide.shouldRender && (
-        <>
-          <div className={`absolute bottom-0 left-0 right-0 z-20 h-[70dvh] md:hidden ${infoSlide.entering ? "animate-slide-in-bottom" : "animate-slide-out-bottom"}`}>
-            <InfoPanel onClose={() => setShowInfo(false)} />
-          </div>
-          <div className={`absolute top-0 right-0 z-20 hidden h-full w-96 md:block ${infoSlide.entering ? "animate-slide-in-right" : "animate-slide-out-right"}`}>
-            <InfoPanel onClose={() => setShowInfo(false)} />
-          </div>
-        </>
+      {/* Filters (desktop, bottom-left) */}
+      {!isMobile && !resultsDesktop && !selectedBbl && (
+        <div className="absolute bottom-4 left-4 z-10 w-[min(332px,calc(100%-32px))]">
+          <GradeFilter />
+        </div>
       )}
 
-      {/* Search results panel */}
-      {searchSlide.shouldRender && (
-        <>
-          <div className={`absolute bottom-0 left-0 right-0 z-30 h-[50dvh] md:hidden ${searchSlide.entering ? "animate-slide-in-bottom" : "animate-slide-out-bottom"}`}>
-            <SearchResultsPanel clarification={searchClarification} />
-          </div>
-          <div className={`absolute top-0 right-0 z-30 hidden h-full w-96 md:block ${searchSlide.entering ? "animate-slide-in-right" : "animate-slide-out-right"}`}>
-            <SearchResultsPanel clarification={searchClarification} />
-          </div>
-        </>
+      {/* Detail-level stepper, or the compare tray once something's queued */}
+      {!isMobile && !selectedBbl && (
+        <div
+          className="absolute bottom-4 z-10 hidden -translate-x-1/2 min-[900px]:flex"
+          style={{ left: resultsDesktop ? "calc(430px + (100% - 430px) / 2)" : "50%" }}
+        >
+          {compareBbls.length > 0 ? <CompareTray /> : <ZoomStepper />}
+        </div>
+      )}
+      {isMobile && compareBbls.length > 0 && !selectedBbl && !showResults && (
+        <div className="absolute inset-x-3 bottom-3 z-10 flex justify-center">
+          <CompareTray />
+        </div>
       )}
 
-      {/* Compare panel */}
+      {/* Map controls */}
+      {!isMobile ? (
+        <div className={`absolute bottom-4 right-4 z-10 ${dialog ? "hidden" : docked ? "hidden 2xl:block" : ""}`}>
+          <MapControls />
+        </div>
+      ) : (
+        !selectedBbl && !showResults && <LocateButton onClick={locate} className="absolute right-3 top-[45%] z-10" />
+      )}
+
+      {/* Building card (all faces) */}
+      {card.shouldRender && lastBblRef.current && (
+        <BuildingCard bbl={lastBblRef.current} entering={card.entering} />
+      )}
+
+      {/* About & scoring */}
+      {info.shouldRender && (
+        <div
+          className={`absolute z-30 ${isMobile ? "inset-3 top-[72px]" : "bottom-4 right-4 top-20 w-[420px] max-w-[calc(100%-32px)]"} ${
+            info.entering ? "animate-card-in" : "animate-card-out"
+          }`}
+        >
+          <InfoPanel
+            onClose={() => setShowInfo(false)}
+            onFeedback={() => {
+              setShowInfo(false);
+              setShowFeedback(true);
+            }}
+          />
+        </div>
+      )}
+
       <ComparePanel />
 
-      {/* Feedback modal */}
-      {showFeedback && (
-        <FeedbackModal onClose={() => setShowFeedback(false)} />
-      )}
+      {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} />}
     </main>
   );
 }

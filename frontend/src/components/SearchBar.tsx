@@ -1,228 +1,131 @@
 "use client";
 
-import { useState, useRef, useEffect, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useStore } from "@/lib/store";
-import { searchBuildings, trackEvent } from "@/lib/api";
+import { loadHistory, useSearchRunner } from "@/hooks/useSearchRunner";
+import { CloseIcon, SearchIcon, SlidersIcon, SparkleIcon } from "@/components/ui/icons";
 
-const HISTORY_KEY = "nyc_search_history";
-const HISTORY_MAX = 8;
-const SUGGESTIONS = [
-  "quiet buildings in Brooklyn",
-  "no heat violations in the Bronx",
-  "rat-free apartments in Astoria",
-  "worst buildings in Harlem",
-  "pre-war elevator buildings in Manhattan",
-];
-
-const BOROUGHS = ["MANHATTAN", "BROOKLYN", "QUEENS", "BRONX", "STATEN ISLAND"];
-
-function loadHistory(): string[] {
-  try {
-    const raw = typeof window !== "undefined" ? localStorage.getItem(HISTORY_KEY) : null;
-    if (raw) return JSON.parse(raw);
-  } catch {
-    // ignore
-  }
-  return [];
-}
-
-function saveHistory(query: string, existing: string[]): string[] {
-  const deduped = [query, ...existing.filter((h) => h !== query)].slice(0, HISTORY_MAX);
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(deduped));
-  } catch {
-    // ignore
-  }
-  return deduped;
-}
-
-export function SearchBar() {
-  const [input, setInput] = useState("");
-  const [borough, setBorough] = useState<string>("");
-  const [minUnits, setMinUnits] = useState<string>("");
-  const [showFilters, setShowFilters] = useState(false);
+/**
+ * The map's one search box: addresses, plain-English questions and pasted
+ * StreetEasy/Zillow links all go through useSearchRunner.
+ *
+ * variant "map"   — 56px floating bar with the sparkle and a Search button
+ * variant "panel" — 52px bar heading the results panel, with a clear button
+ * variant "mobile"— compact bar with a filters toggle in place of Search
+ */
+export function SearchBar({
+  variant = "map",
+  onToggleFilters,
+  filtersOpen,
+}: {
+  variant?: "map" | "panel" | "mobile";
+  onToggleFilters?: () => void;
+  filtersOpen?: boolean;
+}) {
+  const searchQuery = useStore((s) => s.searchQuery);
+  const isSearching = useStore((s) => s.isSearching);
+  const searchError = useStore((s) => s.searchError);
+  const setSearchError = useStore((s) => s.setSearchError);
+  const clearSearch = useStore((s) => s.clearSearch);
+  const run = useSearchRunner();
+  const [input, setInput] = useState(searchQuery);
   const [history, setHistory] = useState<string[]>([]);
-  const [showDropdown, setShowDropdown] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const {
-    setSearchQuery,
-    setSearchResults,
-    setIsSearching,
-    setSearchError,
-    setSearchClarification,
-    selectBuilding,
-    isSearching,
-    searchError,
-    searchClarification,
-    clearSearch,
-    includeSmallHomes,
-    setIncludeSmallHomes,
-  } = useStore();
 
-  useEffect(() => {
-    setHistory(loadHistory());
-  }, []);
+  // Mirror searches started elsewhere (suggestion chips, ?q=, owner links).
+  useEffect(() => setInput(searchQuery), [searchQuery]);
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    function onMouseDown(e: MouseEvent) {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(e.target as Node) &&
-        inputRef.current &&
-        !inputRef.current.contains(e.target as Node)
-      ) {
-        setShowDropdown(false);
-      }
-    }
-    document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
-  }, []);
-
-  // Clear error after 8 seconds
   useEffect(() => {
     if (!searchError) return;
     const timer = setTimeout(() => setSearchError(null), 8000);
     return () => clearTimeout(timer);
   }, [searchError, setSearchError]);
 
-  const activeFilterCount =
-    (includeSmallHomes ? 1 : 0) + (borough ? 1 : 0) + (minUnits ? 1 : 0);
-
-  const runSearch = async (query: string) => {
-    if (!query.trim()) return;
-    setInput(query);
-    setShowDropdown(false);
-    setSearchQuery(query);
-    setIsSearching(true);
-    setSearchError(null);
-
-    try {
-      const result = await searchBuildings(query, {
-        includeSmallHomes,
-        borough: borough || null,
-        minUnits: minUnits ? parseInt(minUnits, 10) : null,
-      });
-      const updated = saveHistory(query, history);
-      setHistory(updated);
-
-      trackEvent("search", { query, result_count: result.results.length });
-
-      if (result.results.length === 0) {
-        setSearchResults([]);
-        setSearchError(null);
-        setSearchClarification(
-          result.clarification ||
-            'No buildings found. Try: "quiet buildings in Brooklyn" or "worst heat in the Bronx".'
-        );
-      } else if (result.results.length === 1) {
-        setSearchResults(result.results);
-        setSearchClarification(null);
-        selectBuilding(result.results[0].bbl);
-      } else {
-        setSearchResults(result.results);
-        setSearchClarification(result.clarification || null);
-      }
-    } catch {
-      setSearchResults([]);
-      setSearchError("Search failed. Please try again.");
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  const handleSubmit = (e: FormEvent) => {
+  const submit = (e: FormEvent) => {
     e.preventDefault();
-    runSearch(input.trim());
+    setShowHistory(false);
+    run(input);
   };
 
-  const handleClear = () => {
+  const clear = () => {
     setInput("");
     clearSearch();
-    setShowDropdown(false);
     inputRef.current?.focus();
   };
 
-  const dropdownItems = input.trim()
-    ? history.filter((h) => h.toLowerCase().includes(input.toLowerCase()))
-    : history.length > 0
-    ? history
-    : SUGGESTIONS;
-
-  const dropdownLabel = input.trim()
-    ? null
-    : history.length > 0
-    ? "Recent searches"
-    : "Try searching for";
+  const tall = variant === "map" ? "h-14 rounded-2xl" : "h-[52px] rounded-[15px]";
+  const recent = history.filter((h) => !input.trim() || h.toLowerCase().includes(input.toLowerCase())).slice(0, 6);
 
   return (
-    <div className="relative">
-      <form onSubmit={handleSubmit} className="relative">
+    <div className="relative min-w-0 flex-1">
+      <form
+        onSubmit={submit}
+        role="search"
+        className={`flex min-w-0 items-center gap-2.5 border-2 border-ink bg-white pl-3.5 pr-1.5 shadow-hard-sm ${tall}`}
+      >
+        <label htmlFor={`q-${variant}`} className="flex items-center">
+          {variant === "map" ? <SparkleIcon size={22} /> : <SearchIcon size={variant === "panel" ? 20 : 20} />}
+          <span className="sr-only">Search buildings</span>
+        </label>
         <input
           ref={inputRef}
+          id={`q-${variant}`}
           type="text"
           value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            setShowDropdown(true);
+          onChange={(e) => setInput(e.target.value)}
+          onFocus={() => {
+            setHistory(loadHistory());
+            setShowHistory(true);
           }}
-          onFocus={() => setShowDropdown(true)}
-          placeholder="Search buildings... (e.g., 'buildings with rat problems in Brooklyn')"
-          className="w-full rounded-lg border border-gray-600 bg-gray-800/90 px-4 py-3 pr-28 text-white placeholder-gray-400 backdrop-blur-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          aria-label="Search buildings"
-          aria-autocomplete="list"
-          aria-expanded={showDropdown && dropdownItems.length > 0}
-          disabled={isSearching}
+          onBlur={() => setTimeout(() => setShowHistory(false), 120)}
+          placeholder={variant === "mobile" ? "Address, or just ask" : "Address, a question, or a listing link"}
+          className="h-11 min-w-0 flex-1 border-0 bg-transparent p-0 text-base font-medium text-ink focus:ring-0"
           autoComplete="off"
+          enterKeyHint="search"
         />
-        <div className="absolute right-2 top-1/2 flex -translate-y-1/2 gap-1">
-          {input && !isSearching && (
-            <button
-              type="button"
-              onClick={handleClear}
-              className="rounded px-2 py-1 text-sm text-gray-400 hover:text-white"
-              aria-label="Clear search"
-            >
-              Clear
-            </button>
-          )}
-          <button
-            type="submit"
-            disabled={isSearching}
-            className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            aria-label="Submit search"
-          >
-            {isSearching && (
-              <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-            )}
-            {isSearching ? "Searching" : "Search"}
+        {variant !== "map" && input && !isSearching && (
+          <button type="button" onClick={clear} aria-label="Clear search" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[11px] hover:bg-surface">
+            <CloseIcon size={18} />
           </button>
-        </div>
+        )}
+        {variant === "mobile" && (
+          <button
+            type="button"
+            onClick={onToggleFilters}
+            aria-label="Filters"
+            aria-expanded={filtersOpen}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[11px] hover:bg-surface"
+          >
+            <SlidersIcon size={20} />
+          </button>
+        )}
+        {variant === "map" && (
+          <>
+            {input && !isSearching && (
+              <button type="button" onClick={clear} aria-label="Clear search" className="flex h-11 w-9 shrink-0 items-center justify-center rounded-[11px] hover:bg-surface">
+                <CloseIcon size={18} />
+              </button>
+            )}
+            <button type="submit" disabled={isSearching} className="btn-ink h-11 rounded-[11px] text-[15px]">
+              {isSearching && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />}
+              {isSearching ? "Searching" : "Search"}
+            </button>
+          </>
+        )}
       </form>
 
       {/* Loading bar */}
-      <div className="relative h-0.5 overflow-hidden rounded-full">
-        <div
-          className={`absolute inset-0 transition-opacity duration-300 ${isSearching ? "opacity-100" : "opacity-0"}`}
-        >
-          <div className="h-full w-full animate-loading-bar bg-gradient-to-r from-transparent via-blue-500 to-transparent" />
+      <div className="relative mx-3 h-0.5 overflow-hidden rounded-full">
+        <div className={`absolute inset-0 transition-opacity duration-300 ${isSearching ? "opacity-100" : "opacity-0"}`}>
+          <div className="h-full w-full animate-loading-bar bg-gradient-to-r from-transparent via-ink to-transparent" />
         </div>
       </div>
 
-      {/* History / suggestion dropdown */}
-      {showDropdown && dropdownItems.length > 0 && !isSearching && (
-        <div
-          ref={dropdownRef}
-          className="absolute top-full mt-1 w-full rounded-lg border border-gray-600 bg-gray-800/95 py-1 shadow-xl backdrop-blur-sm z-50"
-          role="listbox"
-        >
-          {dropdownLabel && (
-            <p className="px-3 py-1 text-xs font-medium text-gray-500 uppercase tracking-wide">
-              {dropdownLabel}
-            </p>
-          )}
-          {dropdownItems.map((item) => (
+      {showHistory && recent.length > 0 && !isSearching && (
+        <div role="listbox" aria-label="Recent searches" className="card-float absolute left-0 right-0 top-full z-50 mt-1 rounded-2xl p-1 shadow-hard-sm">
+          <p className="eyebrow px-3 pb-1 pt-2">Recent searches</p>
+          {recent.map((item) => (
             <button
               key={item}
               type="button"
@@ -230,9 +133,10 @@ export function SearchBar() {
               aria-selected={false}
               onMouseDown={(e) => {
                 e.preventDefault();
-                runSearch(item);
+                setShowHistory(false);
+                run(item);
               }}
-              className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-700 transition-colors"
+              className="block w-full truncate rounded-xl px-3 py-2.5 text-left text-sm font-medium hover:bg-surface"
             >
               {item}
             </button>
@@ -240,102 +144,9 @@ export function SearchBar() {
         </div>
       )}
 
-      {/* Filter toggle row */}
-      <div className="mt-1.5 flex items-center gap-3 px-1">
-        <button
-          type="button"
-          onClick={() => setShowFilters((v) => !v)}
-          className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors ${
-            showFilters || activeFilterCount > 0
-              ? "bg-blue-900/60 text-blue-300 hover:bg-blue-900"
-              : "text-gray-400 hover:text-gray-200"
-          }`}
-        >
-          <span>Filters</span>
-          {activeFilterCount > 0 && (
-            <span className="rounded-full bg-blue-600 px-1.5 py-0 text-[10px] font-bold text-white leading-4">
-              {activeFilterCount}
-            </span>
-          )}
-          <span className={`transition-transform duration-150 ${showFilters ? "rotate-180" : ""}`}>▾</span>
-        </button>
-      </div>
-
-      {/* Filter dropdown */}
-      {showFilters && (
-        <div className="mt-1 rounded-lg border border-gray-600 bg-gray-800/95 p-3 shadow-xl backdrop-blur-sm">
-          <div className="flex flex-col gap-3">
-            {/* Include 1–2 family homes */}
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={includeSmallHomes}
-                onChange={(e) => setIncludeSmallHomes(e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 accent-blue-500"
-              />
-              <span className="text-xs text-gray-300 select-none">Include 1–2 family homes</span>
-            </label>
-
-            {/* Borough select */}
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-gray-400">Borough</label>
-              <select
-                value={borough}
-                onChange={(e) => setBorough(e.target.value)}
-                className="rounded border border-gray-600 bg-gray-700 px-2 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
-              >
-                <option value="">Any borough</option>
-                {BOROUGHS.map((b) => (
-                  <option key={b} value={b}>
-                    {b.charAt(0) + b.slice(1).toLowerCase()}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Min units */}
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-gray-400">Minimum units</label>
-              <input
-                type="number"
-                min={1}
-                max={9999}
-                placeholder="e.g. 10"
-                value={minUnits}
-                onChange={(e) => setMinUnits(e.target.value)}
-                className="rounded border border-gray-600 bg-gray-700 px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-              />
-            </div>
-
-            {/* Clear filters */}
-            {activeFilterCount > 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  setIncludeSmallHomes(false);
-                  setBorough("");
-                  setMinUnits("");
-                }}
-                className="self-start text-xs text-gray-500 underline hover:text-gray-300"
-              >
-                Clear all filters
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Error toast */}
       {searchError && (
-        <div className="absolute top-full mt-2 w-full rounded-lg border border-red-800 bg-red-900/90 px-4 py-2 text-sm text-red-200 backdrop-blur-sm z-40">
+        <div role="alert" className="card-float absolute left-0 right-0 top-full z-40 mt-2 rounded-2xl border-grade-f px-4 py-3 text-sm font-semibold shadow-hard-sm">
           {searchError}
-        </div>
-      )}
-
-      {/* Clarification — mobile only (desktop shown in results panel) */}
-      {searchClarification && !searchError && (
-        <div className="absolute top-full mt-2 w-full rounded-lg border border-blue-800 bg-blue-900/80 px-4 py-2 text-sm text-blue-200 backdrop-blur-sm z-40 md:hidden">
-          {searchClarification}
         </div>
       )}
     </div>
