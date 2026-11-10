@@ -32,6 +32,19 @@ BUILDING_SUMMARY_SELECT = """
 _CONDO_CLASSES = {"C6", "D5"}
 _COOP_CLASSES = {"C0", "D0", "D4"}
 
+# PLUTO fills owner_name with these when the real owner is unknown; grouping on
+# them ("owns 6,478 buildings") would be meaningless, so they get no portfolio.
+_PLACEHOLDER_OWNERS = {"UNAVAILABLE OWNER", "NAME NOT ON FILE", "NAN", "UNKNOWN", "NOT AVAILABLE"}
+
+# SQL twin of _compute_rent_status(...) == "likely_stabilized", for the search
+# `rent_stabilized` filter. Keep the two in sync.
+RENT_STABILIZED_SQL = (
+    "(LEFT(b.building_class, 1) IN ('C', 'D')"
+    " AND b.building_class NOT IN ('C6', 'D5', 'C0', 'D0', 'D4')"
+    " AND b.residential_units >= 6"
+    " AND b.year_built > 0 AND b.year_built <= 1974)"
+)
+
 def _compute_rent_status(building_class: str | None, year_built: int | None, residential_units: int) -> str:
     """Derive likely rent regulation status from building attributes.
 
@@ -164,6 +177,30 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         return None
 
     b = dict(building._mapping)
+
+    # Owner portfolio ("owns 6 buildings · average grade D"). Same match as the
+    # /search/by-owner list the panel links to, served by the lower(owner_name)
+    # index from migration 008.
+    owner_portfolio = None
+    if b.get("owner_name") and b["owner_name"].strip().upper() not in _PLACEHOLDER_OWNERS:
+        portfolio = (await db.execute(
+            text("""
+                SELECT COUNT(*) AS building_count,
+                       AVG(COALESCE(hs.composite_score, 0)) AS avg_score
+                FROM buildings b
+                LEFT JOIN health_scores hs ON hs.building_id = b.id
+                WHERE lower(b.owner_name) = lower(:owner)
+                  AND b.latitude IS NOT NULL
+            """),
+            {"owner": b["owner_name"]},
+        )).first()
+        if portfolio and portfolio.building_count:
+            avg = round(float(portfolio.avg_score or 0), 1)
+            owner_portfolio = {
+                "building_count": int(portfolio.building_count),
+                "avg_score": avg,
+                "grade": score_to_grade(avg),
+            }
 
     # Recent complaints (last 50, within the 5-year display window). The window
     # matches the scoring cutoff (DATA_CUTOFF_YEARS in data/scoring/compute.py)
@@ -411,6 +448,7 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         "building_class": b["building_class"],
         "owner_name": b.get("owner_name"),
         "managing_agent": b.get("managing_agent"),
+        "owner_portfolio": owner_portfolio,
         "health_score": b.get("composite_score") or 0,
         "grade": score_to_grade(b.get("composite_score") or 0),
         "score_breakdown": {

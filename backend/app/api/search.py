@@ -180,6 +180,26 @@ async def buildings_by_manager(name: str, db: AsyncSession = Depends(get_db)):
     )
 
 
+def _ai_response(result: dict) -> SearchResponse:
+    """SearchResponse from a search_service result dict (NL or structured path)."""
+    buildings = []
+    for b in result["results"]:
+        row = _sanitize_row(b)  # already coerces NaN/Inf health_score → 0.0
+        buildings.append(
+            BuildingSummaryResponse(**row, grade=score_to_grade(row.get("health_score", 0)))
+        )
+    return SearchResponse(
+        results=buildings,
+        total=result["total"],
+        query=result["query"],
+        clarification=result.get("clarification"),
+        confidence=result.get("confidence"),
+        needs_fallback=result.get("needs_fallback", False),
+        filters=result.get("filters"),
+        filter_chips=result.get("filter_chips", []),
+    )
+
+
 @router.post("/search", response_model=SearchResponse)
 @limiter.limit("60/minute")
 async def search_buildings(
@@ -187,8 +207,18 @@ async def search_buildings(
     body: SearchRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Search buildings by address, BBL, or natural language (AI)."""
+    """Search buildings by address, BBL, natural language (AI), or structured filters."""
     query = body.query.strip().replace("\x00", "")  # strip null bytes
+
+    # Structured override (a removed filter chip, or "Search this area"): skip
+    # every parser and run the client's edited filter set directly.
+    if body.filters is not None:
+        from app.services.search_service import search_with_filters
+        filters = dict(body.filters)
+        if body.bbox is not None:
+            filters["bbox"] = body.bbox
+        result = await search_with_filters(db, query, filters)
+        return _ai_response(result)
 
     # Direct BBL lookup
     if BBL_PATTERN.match(query):
@@ -213,6 +243,8 @@ async def search_buildings(
         extra_filters["borough"] = body.borough.upper()
     if body.min_units is not None:
         extra_filters["min_units"] = body.min_units
+    if body.bbox is not None:
+        extra_filters["bbox"] = body.bbox
 
     # Address search (only if the query looks like a specific street address)
     if looks_like_address(query):
@@ -235,20 +267,7 @@ async def search_buildings(
     try:
         from app.services.search_service import search_buildings_ai
         result = await search_buildings_ai(db, query, extra_filters=extra_filters if extra_filters else None)
-        buildings = []
-        for b in result["results"]:
-            row = _sanitize_row(b)  # already coerces NaN/Inf health_score → 0.0
-            buildings.append(
-                BuildingSummaryResponse(**row, grade=score_to_grade(row.get("health_score", 0)))
-            )
-        return SearchResponse(
-            results=buildings,
-            total=result["total"],
-            query=result["query"],
-            clarification=result.get("clarification"),
-            confidence=result.get("confidence"),
-            needs_fallback=result.get("needs_fallback", False),
-        )
+        return _ai_response(result)
     except Exception:
         logger.exception("AI search failed for query=%r; returning empty results", query)
         return SearchResponse(

@@ -19,6 +19,9 @@ from app.core.database import engine
 from app.core.rate_limit import limiter
 from app.api.analytics import router as analytics_router
 from app.api.buildings import router as buildings_router
+from app.api.commute import router as commute_router
+from app.api.food import router as food_router
+from app.api.listings import router as listings_router
 from app.api.neighborhoods import router as neighborhoods_router
 from app.api.rankings import router as rankings_router
 from app.api.refresh_status import router as refresh_status_router
@@ -119,6 +122,9 @@ async def handle_cors_and_logging(request: Request, call_next):
 
 app.include_router(analytics_router, prefix="/api")
 app.include_router(buildings_router, prefix="/api")
+app.include_router(commute_router, prefix="/api")
+app.include_router(food_router, prefix="/api")
+app.include_router(listings_router, prefix="/api")
 app.include_router(neighborhoods_router, prefix="/api")
 app.include_router(rankings_router, prefix="/api")
 app.include_router(refresh_status_router, prefix="/api")

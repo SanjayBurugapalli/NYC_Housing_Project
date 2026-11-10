@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from geoalchemy2 import Geometry
-from sqlalchemy import BigInteger, DateTime, Float, Index, Integer, String, func
+from sqlalchemy import BigInteger, DateTime, Float, Index, Integer, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -64,4 +64,6 @@ class Building(Base):
         Index("idx_buildings_geom", "geom", postgresql_using="gist"),
         Index("idx_buildings_borough_class", "borough", "building_class"),
         Index("idx_buildings_neighborhood", "neighborhood"),
+        # Owner-portfolio lookups match LOWER(owner_name) (migration 008).
+        Index("idx_buildings_owner_name_lower", text("lower(owner_name)")),
     )

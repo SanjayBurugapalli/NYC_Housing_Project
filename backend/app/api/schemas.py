@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -102,9 +103,16 @@ class EvictionResponse(BaseModel):
     eviction_type: str | None = None
 
 
+class OwnerPortfolioResponse(BaseModel):
+    building_count: int
+    avg_score: float
+    grade: str
+
+
 class BuildingDetailResponse(BuildingSummaryResponse):
     owner_name: str | None = None
     managing_agent: str | None = None
+    owner_portfolio: OwnerPortfolioResponse | None = None
     sub_neighborhood: str | None = None
     score_breakdown: ScoreBreakdownResponse | None = None
     complaints: list[ComplaintResponse] = []
@@ -165,6 +173,17 @@ class SearchRequest(BaseModel):
     include_small_homes: bool = False
     borough: str | None = None
     min_units: int | None = None
+    # Structured override: skip parsing and run these filters directly (after
+    # validate_filters). The frontend resends the `filters` it got back, minus a
+    # removed chip, to drop one interpreted filter.
+    filters: dict | None = None
+    # "Search this area": [west, south, east, north], clamped to NYC.
+    bbox: list[float] | None = Field(None, min_length=4, max_length=4)
+
+
+class FilterChip(BaseModel):
+    key: str
+    label: str
 
 
 class SearchResponse(BaseModel):
@@ -174,3 +193,83 @@ class SearchResponse(BaseModel):
     clarification: str | None = None
     confidence: float | None = None
     needs_fallback: bool = False
+    filters: dict | None = None
+    filter_chips: list[FilterChip] = []
+
+
+# --- Listing links ---
+
+class ResolveListingRequest(BaseModel):
+    url: str = Field(..., min_length=1, max_length=2000)
+
+
+class ResolveListingResponse(BaseModel):
+    status: Literal["found", "no_address", "not_found", "invalid"]
+    source: Literal["streeteasy", "zillow"] | None = None
+    parsed_address: str | None = None
+    building: BuildingSummaryResponse | None = None
+    message: str | None = None
+
+
+# --- Commute ---
+
+class CommuteLegResponse(BaseModel):
+    mode: Literal["WALK", "SUBWAY", "BUS", "RAIL", "FERRY", "OTHER"]
+    duration_min: int
+    from_name: str | None = None
+    to_name: str | None = None
+    route_short_name: str | None = None
+    route_color: str | None = None
+    route_text_color: str | None = None
+    headsign: str | None = None
+    num_stops: int | None = None
+    geometry: list[list[float]] = []
+
+
+class AttributionResponse(BaseModel):
+    text: str
+    url: str
+
+
+class CommuteResponse(BaseModel):
+    duration_min: int
+    depart_at: str
+    arrive_at: str
+    assumption: str
+    legs: list[CommuteLegResponse]
+    attribution: AttributionResponse
+
+
+# --- Food nearby ---
+
+class FoodPlaceResponse(BaseModel):
+    id: str
+    name: str
+    category: Literal["deli", "grocery", "restaurant"]
+    subtype: str | None = None
+    price_tier: int | None = None
+    latitude: float
+    longitude: float
+    distance_m: int
+    walk_min: int
+    address: str | None = None
+
+
+class FoodCountsResponse(BaseModel):
+    deli: int = 0
+    grocery: int = 0
+    restaurant: int = 0
+
+
+class PointResponse(BaseModel):
+    latitude: float
+    longitude: float
+
+
+class FoodNearbyResponse(BaseModel):
+    radius_m: int
+    walk_minutes: int
+    center: PointResponse
+    counts: FoodCountsResponse
+    places: list[FoodPlaceResponse]
+    price_note: str

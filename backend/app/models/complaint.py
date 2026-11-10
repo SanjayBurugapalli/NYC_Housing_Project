@@ -53,5 +53,7 @@ class Complaint(Base):
         Index("idx_complaints_bbl_date", "bbl", "created_date"),
         Index("idx_complaints_source_type", "source", "complaint_type"),
         Index("idx_complaints_category", "category"),
+        # Per-building complaint-type search filters (migration 009).
+        Index("idx_complaints_bbl_category", "bbl", "category"),
         Index("idx_complaints_created_date", "created_date"),
     )

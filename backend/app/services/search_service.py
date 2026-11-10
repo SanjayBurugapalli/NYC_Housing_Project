@@ -23,7 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import MAX_RESULTS
-from app.services.building_service import BUILDING_SUMMARY_SELECT
+from app.services.building_service import BUILDING_SUMMARY_SELECT, RENT_STABILIZED_SQL
 
 logger = logging.getLogger(__name__)
 
@@ -749,6 +749,7 @@ def parse_search_query(query: str) -> dict:
     _extract_year_filters(q, filters)
     _extract_building_class(q, filters)
     _extract_owner(q, filters)
+    _extract_rent_stabilized(q, filters)
     _extract_limit(q, filters)
 
     # Concept pipeline determines sort and contributes to confidence
@@ -770,7 +771,8 @@ def parse_search_query(query: str) -> dict:
     # needs_fallback: no entity filters AND confidence < 0.4
     entity_filter_keys = {"borough", "nta_name", "complaint_types", "min_score", "max_score",
                           "has_litigation", "min_units", "max_units", "min_year_built",
-                          "max_year_built", "building_classes", "owner_name"}
+                          "max_year_built", "building_classes", "owner_name",
+                          "rent_stabilized"}
     has_entity_filters = bool(entity_filter_keys & filters.keys())
     filters["needs_fallback"] = not has_entity_filters and confidence < 0.4
 
@@ -828,12 +830,35 @@ def _extract_complaint_types(q: str, filters: dict) -> None:
         filters["exclude_complaint_types"] = list(excluded)
 
 
+# Explicit letter grades map onto score_to_grade()'s bands (A≥97, B≥90, C≥75,
+# D≥55, F below). Matches "grade a", "graded a", "a grade", "a-grade", "a-rated".
+_GRADE_BANDS: dict[str, tuple[float | None, float | None]] = {
+    "a": (97, None),
+    "b": (90, 96.99),
+    "c": (75, 89.99),
+    "d": (55, 74.99),
+    "f": (None, 54.99),
+}
+_GRADE_LETTER_RE = re.compile(
+    r"\b(?:grade[sd]?[\s-]+([abcdf])|([abcdf])[\s-](?:grade[sd]?|rated))\b"
+)
+
+
 def _extract_score_filters(q: str, filters: dict) -> None:
     """Set min/max composite score ranges. Sort direction is handled by build_sort."""
+    m = _GRADE_LETTER_RE.search(q)
+    if m:
+        lo, hi = _GRADE_BANDS[m.group(1) or m.group(2)]
+        if lo is not None:
+            filters["min_score"] = lo
+        if hi is not None:
+            filters["max_score"] = hi
+        return
+
     bad = {"worst", "unhealthy", "unhealthiest", "bad", "terrible", "dangerous",
-           "failing", "lowest score", "lowest rated", "f grade", "grade f"}
+           "failing", "lowest score", "lowest rated"}
     good = {"best", "healthy", "healthiest", "good", "excellent", "top rated",
-            "highest score", "highest rated", "a grade", "grade a", "well maintained"}
+            "highest score", "highest rated", "well maintained"}
     mid = {"average", "moderate", "mediocre"}
 
     for kw in sorted(bad, key=len, reverse=True):
@@ -961,6 +986,23 @@ def _extract_owner(q: str, filters: dict) -> None:
             filters["owner_name"] = name
 
 
+_RENT_STABILIZED_RE = re.compile(r"\b(?:rent[\s-]+)?(?:stabili[sz]ed|regulated)\b")
+
+
+def _extract_rent_stabilized(q: str, filters: dict) -> None:
+    """"rent stabilized" / "rent-stabilized" / "stabilized" → likely-stabilized only.
+
+    "regulated" alone counts only with a leading "rent" (to skip e.g. "regulated
+    utilities"); a negation in front ("not rent stabilized") flips it.
+    """
+    for m in _RENT_STABILIZED_RE.finditer(q):
+        if "regulated" in m.group(0) and not m.group(0).startswith("rent"):
+            continue
+        negated = any(s <= m.start() <= e for s, e in _negation_spans(q))
+        filters["rent_stabilized"] = not negated
+        return
+
+
 # ---------------------------------------------------------------------------
 # Filter description (clarification text shown to users)
 # ---------------------------------------------------------------------------
@@ -983,6 +1025,10 @@ def _describe_filters(filters: dict) -> str | None:
         parts.append(f"building class {'/'.join(filters['building_classes'])}")
     if "owner_name" in filters:
         parts.append(f"owned by '{filters['owner_name']}'")
+    if "rent_stabilized" in filters:
+        parts.append("likely rent stabilized" if filters["rent_stabilized"] else "not rent stabilized")
+    if "bbox" in filters:
+        parts.append("in this map area")
     if "min_score" in filters or "max_score" in filters:
         lo = filters.get("min_score", 0)
         hi = filters.get("max_score", 100)
@@ -1008,8 +1054,117 @@ def _describe_filters(filters: dict) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Filter chips ("Here's how I read that")
+# ---------------------------------------------------------------------------
+
+_COMPLAINT_LABELS = {
+    "heat": "heat", "pest": "pest", "noise": "noise", "structural": "structural",
+    "hpd_a": "Class A violation", "hpd_b": "Class B violation", "hpd_c": "Class C violation",
+}
+
+_CLASS_PREFIX_LABELS = {
+    "A": "1-family homes", "B": "2-family homes", "C": "Walk-ups",
+    "D": "Elevator buildings", "R": "Condos",
+}
+
+# Score bounds that line up with a letter grade read better as the grade.
+_MIN_SCORE_LABELS = {97: "Grade A only", 90: "Grade B or better", 75: "Grade C or better", 55: "Grade D or better"}
+_MAX_SCORE_LABELS = {96.99: "Below grade A", 89.99: "Grade C or worse", 74.99: "Grade D or worse", 54.99: "Grade F only"}
+
+
+def _complaint_phrase(types: list[str]) -> str:
+    labels = [_COMPLAINT_LABELS.get(t, t) for t in types]
+    if all(t.startswith("hpd_") for t in types):
+        return " or ".join(labels) + "s"
+    return " & ".join(labels) + " complaints"
+
+
+def _class_label(codes: list[str]) -> str:
+    prefixes = {c[:1] for c in codes}
+    if len(prefixes) == 1 and all(len(c) == 1 for c in codes):
+        return _CLASS_PREFIX_LABELS.get(codes[0], f"Class {codes[0]}")
+    return "Class " + "/".join(codes)
+
+
+def filter_chips(filters: dict) -> list[dict]:
+    """One removable chip per user-facing filter key.
+
+    Each chip's ``key`` is exactly one key of ``filters``, so the frontend drops
+    an interpreted filter by resending ``filters`` without that key. Internal
+    keys (sort, include_small_homes, limit metadata) get no chip.
+    """
+    chips: list[dict] = []
+
+    def add(key: str, label: str) -> None:
+        chips.append({"key": key, "label": label})
+
+    if "nta_name" in filters:
+        add("nta_name", filters["nta_name"])
+    if "borough" in filters:
+        add("borough", filters["borough"].title())
+    if "bbox" in filters:
+        add("bbox", "This map area")
+    if filters.get("rent_stabilized") is True:
+        add("rent_stabilized", "Rent stabilized")
+    elif filters.get("rent_stabilized") is False:
+        add("rent_stabilized", "Not rent stabilized")
+    if "min_score" in filters:
+        v = filters["min_score"]
+        add("min_score", _MIN_SCORE_LABELS.get(v, f"Health {v:g}+"))
+    if "max_score" in filters:
+        v = filters["max_score"]
+        add("max_score", _MAX_SCORE_LABELS.get(v, f"Health {v:g} or below"))
+    if filters.get("complaint_types"):
+        add("complaint_types", "Has " + _complaint_phrase(filters["complaint_types"]))
+    if filters.get("exclude_complaint_types"):
+        add("exclude_complaint_types", "No " + _complaint_phrase(filters["exclude_complaint_types"]))
+    if "has_litigation" in filters:
+        add("has_litigation", "Has lawsuits" if filters["has_litigation"] else "No lawsuits")
+    if "min_units" in filters:
+        add("min_units", f"{filters['min_units']}+ units")
+    if "max_units" in filters:
+        add("max_units", f"Up to {filters['max_units']} units")
+    if "min_year_built" in filters:
+        add("min_year_built", f"Built {filters['min_year_built']} or later")
+    if "max_year_built" in filters:
+        add("max_year_built", f"Built before {filters['max_year_built'] + 1}")
+    if filters.get("building_classes"):
+        add("building_classes", _class_label(filters["building_classes"]))
+    if "building_class" in filters:
+        add("building_class", f"Class {filters['building_class']}")
+    if "owner_name" in filters:
+        add("owner_name", f"Owner: {filters['owner_name']}")
+    if "limit" in filters:
+        add("limit", f"Top {filters['limit']}")
+    return chips
+
+
+def public_filters(filters: dict) -> dict:
+    """The validated filters echoed back to the client (minus parser metadata)."""
+    return {k: v for k, v in filters.items() if k not in ("confidence", "needs_fallback")}
+
+
+# ---------------------------------------------------------------------------
 # Filter validation
 # ---------------------------------------------------------------------------
+
+# Same box the viewport endpoint clamps to.
+NYC_BOUNDS = (-74.3, 40.45, -73.65, 40.95)
+
+
+def clamp_bbox(bbox: object) -> list[float] | None:
+    """Validate a [west, south, east, north] box and clamp it to NYC."""
+    if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+        return None
+    try:
+        west, south, east, north = (float(v) for v in bbox)
+    except (TypeError, ValueError):
+        return None
+    west, south = max(west, NYC_BOUNDS[0]), max(south, NYC_BOUNDS[1])
+    east, north = min(east, NYC_BOUNDS[2]), min(north, NYC_BOUNDS[3])
+    if west >= east or south >= north:
+        return None
+    return [west, south, east, north]
 
 
 def validate_filters(filters: dict) -> dict:
@@ -1057,6 +1212,14 @@ def validate_filters(filters: dict) -> dict:
 
     if "owner_name" in filters and isinstance(filters["owner_name"], str):
         validated["owner_name"] = filters["owner_name"][:100]
+
+    if "rent_stabilized" in filters and isinstance(filters["rent_stabilized"], bool):
+        validated["rent_stabilized"] = filters["rent_stabilized"]
+
+    if "bbox" in filters:
+        bbox = clamp_bbox(filters["bbox"])
+        if bbox is not None:
+            validated["bbox"] = bbox
 
     if "limit" in filters and isinstance(filters["limit"], int):
         validated["limit"] = max(1, min(MAX_RESULTS, filters["limit"]))
@@ -1169,6 +1332,13 @@ async def execute_search(db: AsyncSession, filters: dict) -> list[dict]:
         conditions.append("b.owner_name ILIKE :owner_name")
         params["owner_name"] = f"%{filters['owner_name']}%"
 
+    if "rent_stabilized" in filters:
+        conditions.append(RENT_STABILIZED_SQL if filters["rent_stabilized"] else f"NOT {RENT_STABILIZED_SQL}")
+
+    if "bbox" in filters:
+        conditions.append("b.geom && ST_MakeEnvelope(:bbox_w, :bbox_s, :bbox_e, :bbox_n, 4326)")
+        params.update(dict(zip(("bbox_w", "bbox_s", "bbox_e", "bbox_n"), filters["bbox"])))
+
     if not filters.get("include_small_homes"):
         conditions.append(
             "b.building_class NOT LIKE 'A%' AND b.building_class NOT LIKE 'B%'"
@@ -1205,7 +1375,7 @@ ENTITY_FILTER_KEYS = frozenset({
     "borough", "nta_name", "complaint_types", "exclude_complaint_types",
     "min_score", "max_score", "has_litigation", "min_units", "max_units",
     "min_year_built", "max_year_built", "building_classes", "building_class",
-    "owner_name",
+    "owner_name", "rent_stabilized", "bbox",
 })
 
 UNPARSEABLE_MESSAGE = (
@@ -1296,6 +1466,8 @@ async def search_buildings_ai(
             "clarification": UNPARSEABLE_MESSAGE,
             "confidence": confidence,
             "needs_fallback": True,
+            "filters": public_filters(filters),
+            "filter_chips": filter_chips(filters),
         }
         _cache_set(key, result)
         return result
@@ -1310,6 +1482,45 @@ async def search_buildings_ai(
         "clarification": clarification,
         "confidence": confidence,
         "needs_fallback": needs_fallback,
+        "filters": public_filters(filters),
+        "filter_chips": filter_chips(filters),
     }
     _cache_set(key, result)
     return result
+
+
+NO_FILTERS_MESSAGE = "Add a filter to search, or type a new question."
+
+
+async def search_with_filters(db: AsyncSession, query: str, filters: dict) -> dict:
+    """Run a client-supplied structured filter set (skips parsing).
+
+    Used when the user removes an interpreted-filter chip or searches the
+    current map area: the frontend resends the ``filters`` it got back, edited.
+    Like the NL path, a set with no entity filter left short-circuits instead of
+    returning the top-100 buildings city-wide.
+    """
+    filters = validate_filters(filters)
+    if not (ENTITY_FILTER_KEYS & filters.keys()):
+        return {
+            "results": [],
+            "total": 0,
+            "query": query,
+            "clarification": NO_FILTERS_MESSAGE,
+            "confidence": None,
+            "needs_fallback": True,
+            "filters": public_filters(filters),
+            "filter_chips": [],
+        }
+
+    results = await execute_search(db, filters)
+    return {
+        "results": results,
+        "total": len(results),
+        "query": query,
+        "clarification": _describe_filters(filters),
+        "confidence": None,
+        "needs_fallback": False,
+        "filters": public_filters(filters),
+        "filter_chips": filter_chips(filters),
+    }

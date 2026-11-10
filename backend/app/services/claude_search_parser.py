@@ -122,6 +122,14 @@ SEARCH_TOOL = {
                 "type": "string",
                 "description": "Owner/landlord name when user says 'owned by X' or names a landlord.",
             },
+            "rent_stabilized": {
+                "type": "boolean",
+                "description": (
+                    "True when the user wants rent-stabilized / rent-regulated buildings "
+                    "(likely stabilized: 6+ unit rentals built 1974 or earlier); "
+                    "false when they explicitly want non-stabilized ones."
+                ),
+            },
             "sort": {
                 "type": "array",
                 "items": {
@@ -155,6 +163,7 @@ Domain context:
 - Composite columns: hs.composite_score (overall), hs.noise_score, hs.pest_rodent_score,
   hs.heat_hot_water_score, hs.structural_safety_score, hs.hpd_severity_score, hs.litigation_score.
 - Complaint categories: heat, pest, noise, structural, hpd_a, hpd_b, hpd_c.
+- "rent stabilized" / "rent regulated" → rent_stabilized=true.
 
 Sort intent rules:
 - "best" / "healthiest" / "good" → composite_score DESC
@@ -220,7 +229,7 @@ def _normalize_claude_filters(raw: dict) -> dict:
         "borough", "complaint_types", "exclude_complaint_types",
         "min_score", "max_score", "has_litigation",
         "min_units", "max_units", "min_year_built", "max_year_built",
-        "building_classes", "owner_name", "sort", "limit",
+        "building_classes", "owner_name", "rent_stabilized", "sort", "limit",
     )
     for key in passthrough:
         if key in raw and raw[key] is not None:
@@ -238,6 +247,7 @@ def claude_confidence(filters: dict) -> float:
         "borough", "nta_name", "complaint_types", "exclude_complaint_types",
         "min_score", "max_score", "has_litigation", "min_units", "max_units",
         "min_year_built", "max_year_built", "building_classes", "owner_name",
+        "rent_stabilized",
     }
     matched = len(entity_keys & set(filters.keys()))
     if matched == 0:

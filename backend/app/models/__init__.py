@@ -9,6 +9,7 @@ from app.models.neighborhood import Neighborhood
 from app.models.fdny_violation import FDNYViolation
 from app.models.eviction import Eviction
 from app.models.data_refresh_status import DataRefreshStatus
+from app.models.food_place import FoodPlace
 
 __all__ = [
     "AnalyticsEvent",
@@ -23,4 +24,5 @@ __all__ = [
     "FDNYViolation",
     "Eviction",
     "DataRefreshStatus",
+    "FoodPlace",
 ]

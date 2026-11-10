@@ -1,0 +1,123 @@
+{
+ "_comment": "Trimmed real Transitous /api/v6/plan response (Williamsburg -> Union Sq, transitModes=SUBWAY), captured 2026-11-10.",
+ "direct": [],
+ "itineraries": [
+  {
+   "duration": 1200,
+   "startTime": "2026-11-12T13:30:00Z",
+   "endTime": "2026-11-12T13:50:00Z",
+   "transfers": 0,
+   "legs": [
+    {
+     "mode": "WALK",
+     "from": {
+      "name": "START",
+      "lat": 40.7066,
+      "lon": -73.9229
+     },
+     "to": {
+      "name": "Jefferson St",
+      "lat": 40.706608,
+      "lon": -73.92291
+     },
+     "duration": 60,
+     "startTime": "2026-11-12T13:30:00Z",
+     "endTime": "2026-11-12T13:31:00Z",
+     "legGeometry": {
+      "points": "oapslAft{~kCOR",
+      "precision": 6,
+      "length": 2
+     }
+    },
+    {
+     "mode": "SUBWAY",
+     "from": {
+      "name": "Jefferson St",
+      "lat": 40.706608,
+      "lon": -73.92291
+     },
+     "to": {
+      "name": "14 St-Union Sq",
+      "lat": 40.734790000000004,
+      "lon": -73.99073
+     },
+     "duration": 960,
+     "startTime": "2026-11-12T13:31:00Z",
+     "endTime": "2026-11-12T13:47:00Z",
+     "headsign": "8 Av",
+     "routeColor": "7c858c",
+     "routeTextColor": "ffffff",
+     "routeShortName": "L",
+     "intermediateStops": [
+      {
+       "name": "Morgan Av",
+       "lat": 40.706154000000005,
+       "lon": -73.93314000000001
+      },
+      {
+       "name": "Montrose Av",
+       "lat": 40.70774,
+       "lon": -73.93985
+      },
+      {
+       "name": "Grand St",
+       "lat": 40.711926,
+       "lon": -73.94067000000001
+      },
+      {
+       "name": "Graham Av",
+       "lat": 40.714565,
+       "lon": -73.94405000000002
+      },
+      {
+       "name": "Lorimer St",
+       "lat": 40.714059999999996,
+       "lon": -73.95027
+      },
+      {
+       "name": "Bedford Av",
+       "lat": 40.717304,
+       "lon": -73.95687
+      },
+      {
+       "name": "1 Av",
+       "lat": 40.73095300000001,
+       "lon": -73.98163000000001
+      },
+      {
+       "name": "3 Av",
+       "lat": 40.732850000000006,
+       "lon": -73.98612000000001
+      }
+     ],
+     "legGeometry": {
+      "points": "_bpslAzt{~kC{`@ju@cBzDyAtDsA|DkAfE{@rD}@rDo@fEc@fE]rDWfEIfE?fE?~DRnEZfEboAjmNxBbVNjCTjCNvBJjCHbCNrCFjCDjCFjCJrC?bC?~C?tC?tCK~CGjC?`C?hCEbCD~C?jCFjCJjCBjCFjCLvCLhCR`CR~CNjCzZjoC|@zJd@nJ?jIOrHm@vHkAbGcBbGyBfEsCzEyDrDmE~CcFjCcGbBcHzAsHjAwmAzKcpE~a@kBFiBJiBf@kBHiB\\qB\\kB\\oB^wBn@oBZqBr@qBf@qBz@qBf@{Bz@oxCzkA{Ap@{A|@gAz@gAbAcAz@u@dAm@xAm@bBe@nAWnBUjBOvBEvBDvBDjClGzzA|YfxGTnFXbFJfFVnFLdFHdFLzEDnFFzEJnFBzE?fF?bFCdF?pEKtp@?hDGtCEtCWjCM~C_@jCe@jCe@~Co@jCg@`C_A`C{@jCeAvBaAjCuAjCyvDrfHezQ~g]eAnB{@bBeAvBeAlBaA`CeA`C_AxB_AhCkA`C{@jCoA~CcAtCcAtCkA~CcA~CuxErbOquBrwGgxBb_H",
+      "precision": 6,
+      "length": 151
+     }
+    },
+    {
+     "mode": "WALK",
+     "from": {
+      "name": "14 St-Union Sq",
+      "lat": 40.734790000000004,
+      "lon": -73.99073
+     },
+     "to": {
+      "name": "END",
+      "lat": 40.7359,
+      "lon": -73.9911
+     },
+     "duration": 180,
+     "startTime": "2026-11-12T13:47:00Z",
+     "endTime": "2026-11-12T13:50:00Z",
+     "legGeometry": {
+      "points": "qcgulA|c`clCi@k@o@q@q@gA??aAzC??u@tB??mGjR??Ob@??_Bz@aBf@oBb@cBV??{CTsAD??yA?gCM_CUmCi@aFoAwDoA??m@rB??uA_A",
+      "precision": 6,
+      "length": 31
+     }
+    }
+   ]
+  }
+ ]
+}
