@@ -86,6 +86,8 @@ TASK_DEFINITIONS: list[tuple[str, str, str, str]] = [
     ("rodent",           "pull_rodent",       "pull_rodent_inspections", "Rodent inspections"),
     ("evictions",        "pull_evictions",    "pull_evictions",        "Marshal evictions"),
     ("registrations",    "pull_registration", "pull_registrations",    "HPD owner registrations"),
+    ("food_restaurants", "pull_food",         "pull_food_restaurants", "DOHMH restaurants (food nearby)"),
+    ("food_retail",      "pull_food",         "pull_food_retail",      "NYS retail food stores (food nearby)"),
     ("pluto",            "pull_pluto",        "pull_pluto",            "PLUTO building universe"),
 ]
 

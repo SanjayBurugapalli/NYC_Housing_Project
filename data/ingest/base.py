@@ -62,9 +62,13 @@ if "+asyncpg" in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("+asyncpg", "")
 
 
-def get_socrata_client(timeout: int = SOCRATA_TIMEOUT) -> Socrata:
-    """Create a Socrata API client."""
-    return Socrata(SOCRATA_DOMAIN, SOCRATA_APP_TOKEN, timeout=timeout)
+def get_socrata_client(timeout: int = SOCRATA_TIMEOUT, domain: str = SOCRATA_DOMAIN) -> Socrata:
+    """Create a Socrata API client (NYC Open Data unless `domain` says otherwise).
+
+    Socrata app tokens are platform-wide, so the same token raises the rate
+    limit on other portals too (e.g. data.ny.gov).
+    """
+    return Socrata(domain, SOCRATA_APP_TOKEN, timeout=timeout)
 
 
 def paginate_socrata(
