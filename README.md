@@ -12,6 +12,9 @@ An interactive full-stack map application that analyzes NYC residential building
 - Neighborhood resolution from NTA names and community-district codes
 - Search history and example suggestion dropdown
 - CSV export for search results
+- Paste a StreetEasy or Zillow link to jump to that building
+- Subway + walking commute to a saved work address (via Transitous)
+- Food nearby: delis, groceries and restaurants with estimated price tiers
 
 ## Tech Stack
 
@@ -36,7 +39,26 @@ python data/ingest/pull_311.py       # Pull 311 complaints (incremental)
 python data/ingest/pull_hpd.py       # Pull HPD violations/complaints
 python data/transform/normalize.py   # Address normalization + BBL joining
 python data/scoring/compute.py       # Recompute health scores
+python data/ingest/pull_food.py      # Restaurants (DOHMH) + delis/groceries (NY State), full replace
 ```
+
+## API
+
+| Endpoint | What it returns |
+|---|---|
+| `GET /api/buildings?bbox=&zoom=` | Buildings in the map viewport |
+| `GET /api/buildings/{bbl}` | Full building detail: score breakdown, records, owner portfolio |
+| `GET /api/buildings/{bbl}/food?radius_m=400` | Food places within walking distance (counts + nearest 200) |
+| `GET /api/commute?from_lat=&from_lng=&to_lat=&to_lng=` | Weekday 8:30 AM subway + walking trip (Transitous) |
+| `POST /api/resolve-listing` | StreetEasy/Zillow listing URL → building (address parsed from the URL, never fetched) |
+| `POST /api/search` | Address / BBL / plain-English search; returns interpreted filter chips. Accepts `filters` (structured override) and `bbox` |
+| `GET /api/search/by-owner`, `/api/search/by-manager` | An owner's or managing agent's buildings |
+| `GET /api/neighborhoods`, `/api/neighborhoods/polygons` | Neighborhood aggregate scores |
+| `GET /api/rankings/buildings`, `/api/rankings/landlords` | Worst buildings / landlords |
+| `GET /api/refresh-status` | Per-dataset data freshness |
+
+Commute routing is by [Transitous](https://transitous.org), which requires visible
+attribution and open-source, non-commercial use.
 
 ### Incremental pulls & wide re-pull / backfill
 
@@ -65,7 +87,8 @@ Items below are known improvements that have not yet been implemented, along wit
 
 ### Performance
 
-- **Vector tile serving** — Built, pending verification. [tiles/generate.sh](tiles/generate.sh) produces a PMTiles archive (tippecanoe) and [data/publish_tiles.py](data/publish_tiles.py) uploads it to Vercel Blob on the nightly refresh; [Map.tsx](frontend/src/components/Map.tsx) streams the high-zoom `buildings` layer from it when `NEXT_PUBLIC_TILES_URL` is set, falling back to API GeoJSON otherwise. Remaining: set `BLOB_READ_WRITE_TOKEN` (cron) + `NEXT_PUBLIC_TILES_URL` (Vercel) and confirm the dots stream from PMTiles — the vector path is unverified until a reachable tiles URL exists. See `beforeLaunch.md`.
+- **Grade-colored building outlines** — [data/publish_footprints.py](data/publish_footprints.py) joins the city's building footprints (`5zhs-2jue`) to grades by BBL and tiles them (z15–16) into `footprints.pmtiles`; the map fills each outline in its grade color when `NEXT_PUBLIC_FOOTPRINTS_URL` is set and falls back to dots otherwise. Grades are baked in, so rebuild after rescoring. Locally: build with `--no-upload`, copy to `frontend/public/local-tiles/`, and point the env var at `pmtiles://http://localhost:3000/local-tiles/footprints.pmtiles`.
+- **Vector tile serving** — Verified locally. [tiles/generate.sh](tiles/generate.sh) produces `buildings.pmtiles` (tippecanoe) and [data/publish_tiles.py](data/publish_tiles.py) uploads it to Vercel Blob on the nightly refresh; [Map.tsx](frontend/src/components/Map.tsx) draws the building dots from it when `NEXT_PUBLIC_TILES_URL` is set. Tiles carry every building, thinned evenly by tippecanoe at lower zooms, so the dots cover the whole screen with the true grade mix. Without the env var the map falls back to the API's capped, worst-first GeoJSON (500 per viewport), which clumps and skews red. Locally: run `generate.sh` with `OUTPUT_FORMAT=pmtiles`, copy the archive to `frontend/public/local-tiles/`, and set `NEXT_PUBLIC_TILES_URL=pmtiles://http://localhost:3000/local-tiles/buildings.pmtiles`. Remaining for production: set `BLOB_READ_WRITE_TOKEN` (cron) + `NEXT_PUBLIC_TILES_URL` (Vercel) and confirm Blob serves range requests to the site's origin.
 
 - **Scheduled refresh** — Handled by `data/refresh.py`, run nightly on Railway cron (04:00 UTC), with Sentry cron monitoring for missed/failed runs. The earlier Celery beat scaffold was unused (empty stub task bodies) and has been removed.
 

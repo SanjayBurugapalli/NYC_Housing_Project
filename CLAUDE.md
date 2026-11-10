@@ -58,6 +58,13 @@ before-you-rent/
 | Housing Litigations | `59kj-x8nc` | BBL | Lawsuits against landlords |
 | Rodent Inspections | `p937-wjvj` | Address | Rat inspections |
 | MapPLUTO Shapefiles | NYC DCP download | BBL | Building footprint geometries |
+| Building Footprints | `5zhs-2jue` | BBL (`mappluto_bbl`) | Street-level outlines colored by grade; tiled by `data/publish_footprints.py`, not stored in Postgres |
+| DOHMH Restaurant Inspections | `43nn-pn8j` | Lat/lng (CAMIS) | "Food nearby" restaurants; grouped to one row per CAMIS |
+| NYS Retail Food Stores | `9a8c-vfzj` (data.ny.gov) | Lat/lng (license) | "Food nearby" delis/corner stores + groceries |
+
+Food places land in `food_places` (`data/ingest/pull_food.py`); category and the
+1–3 price tier are **estimates** from store type, chain and cuisine
+(`data/ingest/food_classify.py`) — no free price source may be shown on a Mapbox map.
 
 ### Health Score Formula
 Composite score 0-100 (higher = healthier). Weighted sub-scores (canonical
@@ -82,6 +89,14 @@ weights live in `data/scoring/compute.py` `WEIGHTS`):
 - `GET /api/buildings/{bbl}` — full detail for one building (score breakdown, complaint history, violations timeline)
 - `POST /api/search` — AI-powered natural language search. Sends user query to Claude API with tool-use, executes resulting structured query against DB, returns matching buildings.
 - `GET /api/neighborhoods` — pre-computed neighborhood-level aggregate scores
+- `GET /api/buildings/{bbl}/food?radius_m=400` — delis, groceries, restaurants within walking distance (counts + nearest 200)
+- `GET /api/commute?from_lat&from_lng&to_lat&to_lng` — weekday 8:30 AM transit + walking trip via Transitous (cached 6h). Every mode is allowed (subway, bus, SIR, ferry, LIRR/Metro-North) and the fastest trip wins; a subway-only trip wins an exact tie
+- `POST /api/resolve-listing` — StreetEasy/Zillow URL → building. Parses the address from the URL slug only (never fetches the page), geocodes with NYC GeoSearch → BBL
+
+**Transitous terms:** commute routing uses the free Transitous (MOTIS) API, which
+requires visible attribution (link to transitous.org/sources), an identifying
+User-Agent, light traffic, and **open-source, non-commercial** use. Google
+Routes/Places are off-limits: their terms forbid display on a non-Google map.
 
 ### Performance Requirements
 - Viewport queries must respond in <200ms (use PostGIS spatial indexes, GIST on geometry columns)
@@ -120,12 +135,16 @@ python data/ingest/pull_311.py       # Pull 311 complaints (incremental)
 python data/ingest/pull_hpd.py       # Pull HPD violations/complaints
 python data/transform/normalize.py   # Address normalization + BBL joining
 python data/scoring/compute.py       # Recompute health scores
+python data/ingest/pull_food.py      # Pull restaurants + delis/groceries (full replace)
 ```
 
 ### Tile Generation
 ```bash
 ogr2ogr -f GeoJSON buildings.geojson PG:"dbname=nyc_buildings" -sql "SELECT * FROM buildings_with_scores"
 tippecanoe -o tiles/buildings.mbtiles -z 16 -Z 10 --drop-densest-as-needed buildings.geojson
+# Grade-colored building outlines (z15–16) → tiles/footprints.pmtiles; uploads to
+# Blob unless --no-upload. Frontend reads NEXT_PUBLIC_FOOTPRINTS_URL (pmtiles://…).
+python data/publish_footprints.py --no-upload
 ```
 
 ### Database Migrations

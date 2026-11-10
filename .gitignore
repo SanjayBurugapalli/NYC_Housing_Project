@@ -42,6 +42,8 @@ data/raw/
 tiles/*.mbtiles
 tiles/*.pmtiles
 tiles/*.geojson
+# Local copy of the outline tiles served by `next dev` (production uses Blob)
+frontend/public/local-tiles/
 .claude/
 
 # Generated / personal
