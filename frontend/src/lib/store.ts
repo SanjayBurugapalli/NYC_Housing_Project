@@ -130,7 +130,6 @@ interface AppState {
   resetWeights: () => void;
 }
 
-const VIEWPORT_STORAGE_KEY = "nyc_map_viewport";
 const WORKPLACE_STORAGE_KEY = "byr_workplace";
 const RECENT_STORAGE_KEY = "byr_recent_buildings";
 const RECENT_MAX = 6;
@@ -143,19 +142,6 @@ function loadRecent(): string[] {
   } catch {
     return [];
   }
-}
-
-function loadViewport(): { viewport: ViewportBounds; zoom: number } {
-  try {
-    const raw = typeof window !== "undefined" ? localStorage.getItem(VIEWPORT_STORAGE_KEY) : null;
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed.viewport && typeof parsed.zoom === "number") return parsed;
-    }
-  } catch {
-    // ignore parse errors
-  }
-  return { viewport: { west: -74.26, south: 40.49, east: -73.7, north: 40.92 }, zoom: 11 };
 }
 
 function loadWorkplace(): Workplace | null {
@@ -177,16 +163,13 @@ function loadWorkplace(): Workplace | null {
 }
 
 export const useStore = create<AppState>((set) => ({
-  // Map viewport — restored from localStorage or default NYC center
-  ...loadViewport(),
-  setViewport: (viewport, zoom) => {
-    try {
-      localStorage.setItem(VIEWPORT_STORAGE_KEY, JSON.stringify({ viewport, zoom }));
-    } catch {
-      // ignore quota errors
-    }
-    set({ viewport, zoom });
-  },
+  // Map viewport — matches the map's opening camera (Map.tsx: z11 over NYC) and
+  // is kept current by its moveend handler. Not restored from localStorage: the
+  // map doesn't reopen there, and a stored zoom would desync the server-rendered
+  // zoom stepper on hydration.
+  viewport: { west: -74.26, south: 40.49, east: -73.7, north: 40.92 },
+  zoom: 11,
+  setViewport: (viewport, zoom) => set({ viewport, zoom }),
 
   // Map reference
   mapRef: null,
