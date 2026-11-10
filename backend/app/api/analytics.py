@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.rate_limit import limiter
+from app.core.rate_limit import client_ip, limiter
 from app.models.analytics import AnalyticsEvent, Feedback
 
 router = APIRouter(tags=["analytics"])
@@ -41,7 +41,7 @@ async def track_event(
     if body.event_type not in ALLOWED_EVENT_TYPES:
         raise HTTPException(status_code=422, detail=f"Unknown event_type: {body.event_type}")
 
-    ip_raw = request.client.host if request.client else ""
+    ip_raw = client_ip(request)
     ua_raw = request.headers.get("user-agent", "")
 
     event = AnalyticsEvent(

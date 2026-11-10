@@ -16,7 +16,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import engine
-from app.core.rate_limit import limiter
+from app.core.rate_limit import client_ip, limiter
 from app.api.analytics import router as analytics_router
 from app.api.buildings import router as buildings_router
 from app.api.commute import router as commute_router
@@ -112,7 +112,7 @@ async def handle_cors_and_logging(request: Request, call_next):
         request.url.path,
         response.status_code,
         duration_ms,
-        request.client.host if request.client else "unknown",
+        client_ip(request),
     )
     response.headers["X-Request-Id"] = request_id
     for k, v in _origin_headers(origin).items():
