@@ -82,7 +82,7 @@ ogr2ogr -f GeoJSON "${GEOJSON_FILE}" \
             b.building_class,
             b.residential_units,
             b.year_built,
-            ROUND(COALESCE(hs.composite_score, 0)::numeric, 1) AS health_score,
+            ROUND(COALESCE(hs.composite_score, 0)::numeric, 2) AS health_score,
             CASE
                 WHEN COALESCE(hs.composite_score, 0) >= 97 THEN 'A'
                 WHEN COALESCE(hs.composite_score, 0) >= 90 THEN 'B'
