@@ -90,13 +90,14 @@ def transform_litigations(df: pd.DataFrame) -> pd.DataFrame:
     if "bbl" in df.columns:
         df["bbl"] = pd.to_numeric(df["bbl"], errors="coerce").fillna(0).astype(int).astype(str).str.zfill(10)
 
-    # Truncate to fit DB column sizes
+    # Truncate to fit DB column sizes. astype(str) turns a missing value into
+    # "None" or "nan"; both go back to None.
     if "respondent" in df.columns:
-        df["respondent"] = df["respondent"].astype(str).replace("None", None).str[:200]
+        df["respondent"] = df["respondent"].astype(str).replace("None", None).replace("nan", None).str[:200]
     if "case_type" in df.columns:
-        df["case_type"] = df["case_type"].astype(str).replace("None", None).str[:100]
+        df["case_type"] = df["case_type"].astype(str).replace("None", None).replace("nan", None).str[:100]
     if "case_status" in df.columns:
-        df["case_status"] = df["case_status"].astype(str).replace("None", None).str[:50]
+        df["case_status"] = df["case_status"].astype(str).replace("None", None).replace("nan", None).str[:50]
 
     for col in ["case_open_date"]:
         if col in df.columns:

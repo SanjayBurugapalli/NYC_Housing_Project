@@ -97,7 +97,7 @@ def transform_dob_violations(df: pd.DataFrame) -> pd.DataFrame:
         df["status"] = None
     df["status"] = df["status"].astype(str).replace("None", None).replace("nan", None).str[:255]
     if "violation_type" in df.columns:
-        df["violation_type"] = df["violation_type"].astype(str).str[:100]
+        df["violation_type"] = df["violation_type"].astype(str).replace("None", None).replace("nan", None).str[:100]
     if "description" not in df.columns:
         df["description"] = None
 

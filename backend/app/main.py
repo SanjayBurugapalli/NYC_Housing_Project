@@ -17,6 +17,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import engine
 from app.core.rate_limit import client_ip, limiter
+from app.core.responses import SafeJSONResponse
 from app.api.analytics import router as analytics_router
 from app.api.buildings import router as buildings_router
 from app.api.commute import router as commute_router
@@ -72,6 +73,7 @@ app = FastAPI(
     description="API for NYC residential building health scores",
     version="0.1.0",
     lifespan=lifespan,
+    default_response_class=SafeJSONResponse,
 )
 
 app.state.limiter = limiter

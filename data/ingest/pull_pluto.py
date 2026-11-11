@@ -8,7 +8,7 @@ import logging
 import pandas as pd
 from sqlalchemy import text
 
-from base import paginate_socrata, get_db_engine, normalize_borough
+from base import clean_row_for_sql, paginate_socrata, get_db_engine, normalize_borough
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -31,9 +31,7 @@ def pull_pluto(limit: int | None = None):
     for results in paginate_socrata(
         ENDPOINT, select=select, where="unitsres > 0", limit=limit
     ):
-        df = transform_pluto(pd.DataFrame(results))
-
-        records = [row.to_dict() for _, row in df.iterrows()]
+        records = pluto_records(results)
         with engine.begin() as conn:
             conn.execute(
                 text("""
@@ -66,11 +64,22 @@ def pull_pluto(limit: int | None = None):
                 records,
             )
 
-        total_inserted += len(df)
+        total_inserted += len(records)
         logger.info(f"Upserted {total_inserted} buildings so far")
 
     logger.info(f"PLUTO ingestion complete. Total: {total_inserted} buildings")
     return total_inserted
+
+
+def pluto_records(results: list[dict]) -> list[dict]:
+    """Socrata rows → insert parameters, with every missing value as None.
+
+    pandas holds a missing number (and a missing field) as NaN. Passed through,
+    Postgres stores it as a real NaN float, or as the text "NaN" in a string
+    column, and the API can't serialize a NaN coordinate.
+    """
+    df = transform_pluto(pd.DataFrame(results))
+    return [clean_row_for_sql(row.to_dict()) for _, row in df.iterrows()]
 
 
 def transform_pluto(df: pd.DataFrame) -> pd.DataFrame:
