@@ -90,7 +90,7 @@ export function HeroSearch() {
           type="text"
           value={link}
           onChange={(e) => setLink(e.target.value)}
-          placeholder="A listing link, address, or question"
+          placeholder="Link, address, owner, or question"
           className="h-12 min-w-0 flex-[1_1_220px] border-0 bg-transparent px-2.5 text-base font-medium text-ink focus:ring-0"
           autoComplete="off"
         />
