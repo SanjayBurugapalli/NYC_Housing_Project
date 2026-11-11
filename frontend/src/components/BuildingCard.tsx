@@ -27,7 +27,8 @@ function CardSkeleton() {
 /**
  * The floating building card. One component, four faces (see CardView):
  * summary + deep float centered over a faded map and behave like a dialog;
- * commute + food dock at the bottom so the map stays live behind them.
+ * commute + food dock at the bottom so the map stays live behind them, and
+ * can be minimized to a one-line bar to show more of it.
  * On phones the summary starts as a compact bottom sheet.
  */
 export function BuildingCard({ bbl, entering }: { bbl: string; entering: boolean }) {
@@ -40,7 +41,11 @@ export function BuildingCard({ bbl, entering }: { bbl: string; entering: boolean
   const { data, isLoading, error, refetch } = useBuilding(bbl);
   const isMobile = useMediaQuery("(max-width: 767px)");
   const [mobileExpanded, setMobileExpanded] = useState(false);
+  const minimized = useStore((s) => s.cardMinimized);
+  const setMinimized = useStore((s) => s.setCardMinimized);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const toggled = useRef(false);
   const flownFor = useRef<string | null>(null);
 
   const close = () => selectBuilding(null);
@@ -69,6 +74,18 @@ export function BuildingCard({ bbl, entering }: { bbl: string; entering: boolean
   useEffect(() => {
     closeRef.current?.focus({ preventScroll: true });
   }, [view, bbl, !!data, mobileExpanded]);
+
+  // Minimizing swaps the face for its one-line bar (and back); keep focus on
+  // the toggle that was pressed rather than dropping it to the page.
+  const toggleMinimized = () => {
+    toggled.current = true;
+    setMinimized(!minimized);
+  };
+  useEffect(() => {
+    if (!toggled.current) return;
+    toggled.current = false;
+    toggleRef.current?.focus({ preventScroll: true });
+  }, [minimized]);
 
   // Esc steps back one level: a docked or deep face → summary → closed.
   useEffect(() => {
@@ -110,9 +127,9 @@ export function BuildingCard({ bbl, entering }: { bbl: string; entering: boolean
   ) : face === "deep" ? (
     <DeepFace data={data} onClose={close} closeRef={closeRef} />
   ) : face === "commute" ? (
-    <CommuteFace data={data} closeRef={closeRef} />
+    <CommuteFace data={data} closeRef={closeRef} minimized={minimized} onToggleMinimized={toggleMinimized} toggleRef={toggleRef} />
   ) : face === "food" ? (
-    <FoodFace data={data} closeRef={closeRef} />
+    <FoodFace data={data} closeRef={closeRef} minimized={minimized} onToggleMinimized={toggleMinimized} toggleRef={toggleRef} />
   ) : sheet ? (
     <MobileSheet data={data} onClose={close} onExpand={() => setMobileExpanded(true)} closeRef={closeRef} />
   ) : (

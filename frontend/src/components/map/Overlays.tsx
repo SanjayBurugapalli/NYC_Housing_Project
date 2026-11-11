@@ -83,6 +83,23 @@ function cardPadding() {
   return mobile ? { top: 90, bottom, left: 72, right: 72 } : { top: 110, bottom, left: 90, right: 90 };
 }
 
+/**
+ * Re-frame the map when the docked card is minimized or expanded: cardPadding
+ * reads the card's height, and this runs after the card has re-rendered. Each
+ * overlay keeps `refit` pointed at how to frame what it's showing right now.
+ */
+function useRefitOnMinimize(refit: { current: (() => void) | null }) {
+  const minimized = useStore((s) => s.cardMinimized);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    refit.current?.();
+  }, [minimized, refit]);
+}
+
 /** Short place name for the work caption: "Union Square, Manhattan" → "Union Square". */
 function shortPlace(label: string): string {
   return label.split(",")[0].trim();
@@ -113,6 +130,8 @@ export function CommuteOverlay() {
   const { data: commute, isError } = useCommute(from, workplace);
 
   const active = cardView === "commute" && !!mapRef && !!from && !!workplace;
+  const refit = useRef<(() => void) | null>(null);
+  useRefitOnMinimize(refit);
 
   // Frame: veil, the two end markers and a first camera move. Independent of
   // the route so the map responds the moment the face opens.
@@ -171,7 +190,9 @@ export function CommuteOverlay() {
         paint: { "line-color": INK, "line-width": 6, "line-dasharray": [0, 2.5] },
       });
       const pill = new mapboxgl.Marker({ element: labelMarker(pillText, true) }).setLngLat(mid).addTo(m);
+      refit.current = () => m.fitBounds(boundsOf([a, b]), { padding: cardPadding(), maxZoom: 15.5, duration: 600 });
       return () => {
+        refit.current = null;
         pill.remove();
         removeLayers(m, ["byr-commute-arc"], ["byr-commute-arc"]);
       };
@@ -278,6 +299,10 @@ export function CommuteOverlay() {
 
     const wholeTrip = boundsOf([a, b, ...route.all]);
     let finished = false;
+    // Mid-film, the next act's camera move measures the card itself.
+    refit.current = () => {
+      if (finished) m.fitBounds(wholeTrip, { padding: cardPadding(), maxZoom: 15.5, duration: 600 });
+    };
     const finish = (moveCamera: boolean) => {
       if (finished) return;
       finished = true;
@@ -337,6 +362,7 @@ export function CommuteOverlay() {
     else play();
 
     return () => {
+      refit.current = null;
       cancelled = true;
       timers.forEach(clearTimeout);
       cancelAnimationFrame(frame);
@@ -368,6 +394,8 @@ export function FoodOverlay() {
   const center: [number, number] | null =
     building?.latitude != null && building?.longitude != null ? [building.longitude, building.latitude] : null;
   const radius = food?.radius_m ?? 400;
+  const refit = useRef<(() => void) | null>(null);
+  useRefitOnMinimize(refit);
 
   // Walk circle, building tile and framing.
   useEffect(() => {
@@ -399,8 +427,10 @@ export function FoodOverlay() {
     const tile = new mapboxgl.Marker({ element: buildingMarker(building.grade) }).setLngLat(center).addTo(m);
 
     m.fitBounds(boundsOf(ring), { padding: cardPadding(), maxZoom: 17, duration: 900 });
+    refit.current = () => m.fitBounds(boundsOf(ring), { padding: cardPadding(), maxZoom: 17, duration: 600 });
 
     return () => {
+      refit.current = null;
       walkLabel.remove();
       tile.remove();
       removeLayers(m, ["byr-food-circle-line", "byr-food-circle-fill", "byr-food-veil"], ["byr-food-circle", VEIL_SOURCE]);

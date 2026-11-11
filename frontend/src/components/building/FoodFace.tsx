@@ -7,16 +7,22 @@ import { PRICE_META, type PriceTier } from "@/lib/grades";
 import type { BuildingDetail } from "@/types/building";
 import { CloseIcon } from "@/components/ui/icons";
 import { BuildingChip } from "@/components/building/CommuteFace";
-import { FOOD_KINDS, FoodDisc } from "@/components/building/shared";
+import { FOOD_KINDS, FoodDisc, MinimizeButton } from "@/components/building/shared";
 
 const CLOSEST = 4;
 
 export function FoodFace({
   data,
   closeRef,
+  minimized,
+  onToggleMinimized,
+  toggleRef,
 }: {
   data: BuildingDetail;
   closeRef: RefObject<HTMLButtonElement | null>;
+  minimized: boolean;
+  onToggleMinimized: () => void;
+  toggleRef: RefObject<HTMLButtonElement | null>;
 }) {
   const setCardView = useStore((s) => s.setCardView);
   const foodCategories = useStore((s) => s.foodCategories);
@@ -29,6 +35,29 @@ export function FoodFace({
   const closest = food ? food.places.filter((p) => foodCategories[p.category]).slice(0, CLOSEST) : [];
   const minutes = food?.walk_minutes ?? 5;
 
+  const closeButton = (
+    <button ref={closeRef} type="button" onClick={() => setCardView("summary")} aria-label="Close food nearby" className="icon-btn">
+      <CloseIcon size={20} />
+    </button>
+  );
+
+  // One line: how many places, within how far.
+  if (minimized) {
+    return (
+      <div className="flex items-center gap-3">
+        <div className="hidden shrink-0 sm:block">
+          <BuildingChip data={data} />
+        </div>
+        <h2 id="building-card-title" className="m-0 min-w-0 flex-1 truncate font-display text-lg font-extrabold leading-tight tracking-[-0.02em]">
+          {isLoading ? "Finding places to eat…" : food ? `${total} place${total === 1 ? "" : "s"} to eat` : "Food nearby"}
+          {food && <span className="font-sans text-sm font-semibold text-muted"> · {minutes}-min walk</span>}
+        </h2>
+        <MinimizeButton minimized onToggle={onToggleMinimized} toggleRef={toggleRef} />
+        {closeButton}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-3.5">
       <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2.5">
@@ -40,9 +69,10 @@ export function FoodFace({
               ? `${total} place${total === 1 ? "" : "s"} to eat within a ${minutes}-minute walk`
               : "Food nearby"}
         </h2>
-        <button ref={closeRef} type="button" onClick={() => setCardView("summary")} aria-label="Close food nearby" className="icon-btn">
-          <CloseIcon size={20} />
-        </button>
+        <div className="flex shrink-0 gap-1.5">
+          <MinimizeButton minimized={false} onToggle={onToggleMinimized} toggleRef={toggleRef} />
+          {closeButton}
+        </div>
       </div>
 
       {error ? (

@@ -49,6 +49,9 @@ interface AppState {
   selectBuilding: (bbl: string | null) => void;
   cardView: CardView;
   setCardView: (view: CardView) => void;
+  /** Docked faces (commute, food) shrunk to one line to show more map. */
+  cardMinimized: boolean;
+  setCardMinimized: (minimized: boolean) => void;
   /** Coordinates + grade of the selected building once known (drives the map highlight). */
   selectedLocation: { lng: number; lat: number; grade: string } | null;
   setSelectedLocation: (loc: { lng: number; lat: number; grade: string } | null) => void;
@@ -185,11 +188,15 @@ export const useStore = create<AppState>((set) => ({
     set((state) => ({
       selectedBbl: bbl,
       cardView: "summary",
+      cardMinimized: false,
       activeFoodId: null,
       selectedLocation: bbl && bbl === state.selectedBbl ? state.selectedLocation : null,
     })),
   cardView: "summary",
-  setCardView: (cardView) => set({ cardView }),
+  // Each face opens expanded.
+  setCardView: (cardView) => set({ cardView, cardMinimized: false }),
+  cardMinimized: false,
+  setCardMinimized: (cardMinimized) => set({ cardMinimized }),
   selectedLocation: null,
   setSelectedLocation: (selectedLocation) => set({ selectedLocation }),
 

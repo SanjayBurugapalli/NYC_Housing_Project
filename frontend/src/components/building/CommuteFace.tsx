@@ -9,7 +9,7 @@ import type { BuildingDetail, CommuteLeg } from "@/types/building";
 import { GradeTile } from "@/components/ui/GradeTile";
 import { BriefcaseIcon, CheckIcon, ChevronLeftIcon, CloseIcon, RefreshIcon, RestaurantIcon, WalkIcon } from "@/components/ui/icons";
 import { WorkplaceInput } from "@/components/building/WorkplaceInput";
-import { RouteBullet, legSpokenName, mergeWalks, tidyTransitName } from "@/components/building/shared";
+import { MinimizeButton, RouteBullet, legSpokenName, mergeWalks, tidyTransitName } from "@/components/building/shared";
 
 /** The building chip that leads every docked face (tap → back to the summary). */
 export function BuildingChip({ data }: { data: BuildingDetail }) {
@@ -57,9 +57,15 @@ function LegBar({ legs }: { legs: CommuteLeg[] }) {
 export function CommuteFace({
   data,
   closeRef,
+  minimized,
+  onToggleMinimized,
+  toggleRef,
 }: {
   data: BuildingDetail;
   closeRef: RefObject<HTMLButtonElement | null>;
+  minimized: boolean;
+  onToggleMinimized: () => void;
+  toggleRef: RefObject<HTMLButtonElement | null>;
 }) {
   const workplace = useStore((s) => s.workplace);
   const setWorkplace = useStore((s) => s.setWorkplace);
@@ -68,6 +74,56 @@ export function CommuteFace({
   const from = data.latitude != null && data.longitude != null ? { latitude: data.latitude, longitude: data.longitude } : null;
   const { data: commute, isLoading, error } = useCommute(from, workplace);
   const legs = commute ? mergeWalks(commute.legs) : [];
+
+  const closeButton = (
+    <button
+      ref={closeRef}
+      type="button"
+      onClick={() => setCardView("summary")}
+      aria-label="Close commute"
+      className="icon-btn"
+    >
+      <CloseIcon size={20} />
+    </button>
+  );
+
+  // One line: the trip time, where to, and the lines it takes.
+  if (minimized) {
+    return (
+      <div className="flex items-center gap-3">
+        <div className="hidden shrink-0 sm:block">
+          <BuildingChip data={data} />
+        </div>
+        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          {!workplace ? (
+            <span className="truncate text-sm font-semibold">Add your work address</span>
+          ) : isLoading ? (
+            <span className="truncate text-sm font-semibold text-muted">Timing your trip…</span>
+          ) : !commute ? (
+            <span className="truncate text-sm font-semibold">No route</span>
+          ) : (
+            <>
+              <span className="shrink-0 font-display text-[28px] font-extrabold leading-none tracking-[-0.03em]">
+                {commute.duration_min}
+                <span className="text-base"> min</span>
+              </span>
+              {/* The destination gives way before the line bullets do. */}
+              <span className="min-w-0 truncate text-sm text-muted">to {workplace.label.split(",")[0]}</span>
+              <span className="flex shrink-0 gap-1 self-center">
+                {commute.legs
+                  .filter((l) => l.mode !== "WALK")
+                  .map((l, i) => (
+                    <RouteBullet key={i} leg={l} size={18} />
+                  ))}
+              </span>
+            </>
+          )}
+        </div>
+        <MinimizeButton minimized onToggle={onToggleMinimized} toggleRef={toggleRef} />
+        {closeButton}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -94,15 +150,10 @@ export function CommuteFace({
             </span>
           )}
         </div>
-        <button
-          ref={closeRef}
-          type="button"
-          onClick={() => setCardView("summary")}
-          aria-label="Close commute"
-          className="icon-btn"
-        >
-          <CloseIcon size={20} />
-        </button>
+        <div className="flex shrink-0 gap-1.5">
+          <MinimizeButton minimized={false} onToggle={onToggleMinimized} toggleRef={toggleRef} />
+          {closeButton}
+        </div>
       </div>
 
       {!workplace ? (

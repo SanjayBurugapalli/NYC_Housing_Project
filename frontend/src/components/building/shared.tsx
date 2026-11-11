@@ -1,11 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type RefObject } from "react";
 import { searchByManager, searchByOwner } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { GRADE_BAR_SEGMENTS, GRADE_META, INK, PRICE_META, PRICE_UNKNOWN, titleCase } from "@/lib/grades";
 import type { BuildingDetail, CommuteLeg, FoodPlace } from "@/types/building";
-import { BasketIcon, CheckIcon, LinkIcon, RestaurantIcon, StoreIcon } from "@/components/ui/icons";
+import { BasketIcon, CheckIcon, ChevronDownIcon, LinkIcon, RestaurantIcon, StoreIcon } from "@/components/ui/icons";
+
+/**
+ * Shrinks a docked face (commute, food) to a one-line bar so more of the map
+ * shows, and back. The card sits at the bottom, so the chevron points down to
+ * minimize and up to expand.
+ */
+export function MinimizeButton({
+  minimized,
+  onToggle,
+  toggleRef,
+}: {
+  minimized: boolean;
+  onToggle: () => void;
+  toggleRef?: RefObject<HTMLButtonElement | null>;
+}) {
+  return (
+    <button
+      ref={toggleRef}
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!minimized}
+      aria-label={minimized ? "Expand the card" : "Minimize the card"}
+      title={minimized ? "Expand" : "Minimize"}
+      className="icon-btn"
+    >
+      <ChevronDownIcon size={20} className={minimized ? "rotate-180" : ""} />
+    </button>
+  );
+}
 
 /** "Bushwick, Brooklyn" from the NTA/neighborhood + borough. */
 export function placeLine(b: Pick<BuildingDetail, "nta_name" | "neighborhood" | "borough">, sep = ", "): string {
