@@ -227,6 +227,8 @@ export interface WorstBuilding extends BuildingSummary {
   managing_agent: string | null;
   total_violations: number;
   total_complaints: number;
+  /** 1 = worst, in the ranking as filtered. */
+  rank: number;
 }
 
 export interface WorstLandlord {
@@ -239,4 +241,6 @@ export interface WorstLandlord {
   total_units: number;
   boroughs: Borough[];
   worst_bbl: string | null;
+  /** 1 = worst, among the ranked portfolios. */
+  rank: number;
 }

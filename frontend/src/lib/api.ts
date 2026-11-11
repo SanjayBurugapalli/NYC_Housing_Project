@@ -196,27 +196,40 @@ function appendWeights(params: URLSearchParams, weights?: CategoryWeights | null
   }
 }
 
+/** `query` finds buildings by address in the full ranking instead of listing the worst. */
 export async function fetchWorstBuildings(
   borough?: string | null,
   limit = 50,
-  weights?: CategoryWeights | null
-): Promise<{ buildings: WorstBuilding[]; total: number; borough: string | null }> {
+  weights?: CategoryWeights | null,
+  query?: string | null
+): Promise<{ buildings: WorstBuilding[]; total: number; borough: string | null; query: string | null; ranked_total: number | null }> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (borough) params.set("borough", borough);
+  if (query) params.set("q", query);
   appendWeights(params, weights);
   return fetchApi(`/api/rankings/buildings?${params.toString()}`);
 }
 
 export type LandlordGroupBy = "owner" | "manager";
 
+/** `query` finds landlords by name in the full ranking instead of listing the worst. */
 export async function fetchWorstLandlords(
   borough?: string | null,
   groupBy: LandlordGroupBy = "owner",
   limit = 50,
-  weights?: CategoryWeights | null
-): Promise<{ landlords: WorstLandlord[]; total: number; borough: string | null; group_by: LandlordGroupBy }> {
+  weights?: CategoryWeights | null,
+  query?: string | null
+): Promise<{
+  landlords: WorstLandlord[];
+  total: number;
+  borough: string | null;
+  group_by: LandlordGroupBy;
+  query: string | null;
+  ranked_total: number | null;
+}> {
   const params = new URLSearchParams({ limit: String(limit), group_by: groupBy });
   if (borough) params.set("borough", borough);
+  if (query) params.set("q", query);
   appendWeights(params, weights);
   return fetchApi(`/api/rankings/landlords?${params.toString()}`);
 }

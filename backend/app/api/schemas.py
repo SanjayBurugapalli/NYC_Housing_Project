@@ -139,12 +139,15 @@ class WorstBuildingResponse(BuildingSummaryResponse):
     managing_agent: str | None = None
     total_violations: int = 0
     total_complaints: int = 0
+    rank: int  # 1 = worst, in the ranking as filtered (borough, weights)
 
 
 class WorstBuildingsListResponse(BaseModel):
     buildings: list[WorstBuildingResponse]
     total: int
     borough: str | None = None
+    query: str | None = None
+    ranked_total: int | None = None  # how many buildings the ranking holds (set for a search)
 
 
 class WorstLandlordResponse(BaseModel):
@@ -157,6 +160,7 @@ class WorstLandlordResponse(BaseModel):
     total_units: int
     boroughs: list[str] = []
     worst_bbl: str | None = None
+    rank: int  # 1 = worst, among the ranked portfolios
 
 
 class WorstLandlordsListResponse(BaseModel):
@@ -164,6 +168,8 @@ class WorstLandlordsListResponse(BaseModel):
     total: int
     borough: str | None = None
     group_by: str = "owner"
+    query: str | None = None
+    ranked_total: int | None = None  # how many portfolios the ranking holds
 
 
 # --- Search ---

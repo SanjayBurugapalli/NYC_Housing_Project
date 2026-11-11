@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { fetchWorstBuildings, fetchWorstLandlords, type LandlordGroupBy } from "@/lib/api";
 import { DEFAULT_WEIGHTS, SCORING_WEIGHTS, type CategoryWeights } from "@/lib/scoringWeights";
 import type { Borough, Grade } from "@/types/building";
 import { GradeTile } from "@/components/ui/GradeTile";
-import { LogoIcon } from "@/components/ui/icons";
+import { CloseIcon, LogoIcon, SearchIcon } from "@/components/ui/icons";
 import { LandingNav } from "@/components/landing/LandingInputs";
 
 type Tab = "buildings" | "landlords";
@@ -36,57 +36,100 @@ function GradeBadge({ grade, score }: { grade: Grade; score: number }) {
   );
 }
 
-function RankNumber({ n }: { n: number }) {
+/** Search results can rank in the tens of thousands, so they get a wider column. */
+function RankNumber({ n, wide = false }: { n: number; wide?: boolean }) {
   return (
-    <div className="flex w-7 shrink-0 items-center justify-center text-sm font-bold tabular-nums text-muted">
-      {n}
+    <div
+      className={`flex shrink-0 items-center justify-center text-sm font-bold tabular-nums text-muted ${wide ? "w-14" : "w-7"}`}
+    >
+      {n.toLocaleString()}
     </div>
   );
 }
 
-function BuildingsList({ borough, weights }: { borough: Borough | null; weights: CategoryWeights | null }) {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["worst-buildings", borough, weights],
-    queryFn: () => fetchWorstBuildings(borough, 50, weights),
+/** "2 matches for “x” · ranked out of 201,512 buildings", announced as results change. */
+function SearchSummary({ count, query, rankedTotal, noun }: { count: number; query: string; rankedTotal: number; noun: string }) {
+  return (
+    <p className="mb-3 text-[13px] text-muted" aria-live="polite">
+      {count === 50 ? "The worst 50 matches" : `${count} match${count === 1 ? "" : "es"}`} for{" "}
+      <span className="font-semibold text-ink">“{query}”</span> · ranked out of {rankedTotal.toLocaleString()} {noun}
+    </p>
+  );
+}
+
+function BuildingsList({
+  borough,
+  weights,
+  search,
+}: {
+  borough: Borough | null;
+  weights: CategoryWeights | null;
+  search: string;
+}) {
+  const { data, isLoading, isError, isPlaceholderData } = useQuery({
+    queryKey: ["worst-buildings", borough, weights, search],
+    queryFn: () => fetchWorstBuildings(borough, 50, weights, search || null),
+    // Keep the current rows on screen (dimmed) while a search loads.
+    placeholderData: keepPreviousData,
   });
 
   if (isLoading) return <ListSkeleton />;
   if (isError) return <ErrorState />;
-  if (!data || data.buildings.length === 0) return <EmptyState label="buildings" />;
+  const searching = !!data?.query;
+  if (!data || data.buildings.length === 0) {
+    return searching ? (
+      <EmptyState
+        title={`No ranked building matches “${data?.query}”.`}
+        hint={`Try the street number and name, like “322 E 19th St”. 1–2 family homes aren't ranked${borough ? `, and only ${titleCase(borough)} is showing` : ""}.`}
+      />
+    ) : (
+      <EmptyState title="No buildings to show for this filter." hint="Try a different borough." />
+    );
+  }
 
   return (
-    <ul className="divide-y-[1.5px] divide-line overflow-hidden rounded-[20px] border-2 border-ink bg-white">
-      {data.buildings.map((b, i) => (
-        <li key={b.bbl}>
-          <Link
-            href={`/map?bbl=${b.bbl}`}
-            className="flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-surface"
-          >
-            <RankNumber n={i + 1} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[15px] font-semibold text-ink">
-                {b.address || `BBL ${b.bbl}`}
-              </p>
-              <p className="mt-0.5 truncate text-[13px] text-muted">
-                {b.borough ? titleCase(b.borough) : "—"}
-                {b.neighborhood ? ` · ${b.neighborhood}` : ""}
-                {b.residential_units ? ` · ${b.residential_units} units` : ""}
-              </p>
-              {b.owner_name && (
-                <p className="mt-0.5 truncate text-[12px] text-muted">Owner: {b.owner_name}</p>
-              )}
-            </div>
-            <div className="hidden shrink-0 text-right sm:block">
-              <div className="text-sm font-semibold tabular-nums text-grade-f">
-                {b.total_violations.toLocaleString()}
+    <div className={isPlaceholderData ? "opacity-60 transition-opacity" : "transition-opacity"} aria-busy={isPlaceholderData}>
+      {searching && data.ranked_total != null && (
+        <SearchSummary
+          count={data.buildings.length}
+          query={data.query!}
+          rankedTotal={data.ranked_total}
+          noun={`buildings${borough ? ` in ${titleCase(borough)}` : " citywide"}`}
+        />
+      )}
+      <ul className="divide-y-[1.5px] divide-line overflow-hidden rounded-[20px] border-2 border-ink bg-white">
+        {data.buildings.map((b) => (
+          <li key={b.bbl}>
+            <Link
+              href={`/map?bbl=${b.bbl}`}
+              className="flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-surface"
+            >
+              <RankNumber n={b.rank} wide={searching} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[15px] font-semibold text-ink">
+                  {b.address || `BBL ${b.bbl}`}
+                </p>
+                <p className="mt-0.5 truncate text-[13px] text-muted">
+                  {b.borough ? titleCase(b.borough) : "—"}
+                  {b.neighborhood ? ` · ${b.neighborhood}` : ""}
+                  {b.residential_units ? ` · ${b.residential_units} units` : ""}
+                </p>
+                {b.owner_name && (
+                  <p className="mt-0.5 truncate text-[12px] text-muted">Owner: {b.owner_name}</p>
+                )}
               </div>
-              <div className="text-[11px] text-muted">violations</div>
-            </div>
-            <GradeBadge grade={b.grade} score={b.health_score} />
-          </Link>
-        </li>
-      ))}
-    </ul>
+              <div className="hidden shrink-0 text-right sm:block">
+                <div className="text-sm font-semibold tabular-nums text-grade-f">
+                  {b.total_violations.toLocaleString()}
+                </div>
+                <div className="text-[11px] text-muted">violations</div>
+              </div>
+              <GradeBadge grade={b.grade} score={b.health_score} />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -94,56 +137,79 @@ function LandlordsList({
   borough,
   groupBy,
   weights,
+  search,
 }: {
   borough: Borough | null;
   groupBy: LandlordGroupBy;
   weights: CategoryWeights | null;
+  search: string;
 }) {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["worst-landlords", borough, groupBy, weights],
-    queryFn: () => fetchWorstLandlords(borough, groupBy, 50, weights),
+  const { data, isLoading, isError, isPlaceholderData } = useQuery({
+    queryKey: ["worst-landlords", borough, groupBy, weights, search],
+    queryFn: () => fetchWorstLandlords(borough, groupBy, 50, weights, search || null),
+    placeholderData: keepPreviousData,
   });
 
+  const noun = groupBy === "manager" ? "managing agents" : "landlords";
   if (isLoading) return <ListSkeleton />;
   if (isError) return <ErrorState />;
-  if (!data || data.landlords.length === 0)
-    return <EmptyState label={groupBy === "manager" ? "managing agents" : "landlords"} />;
+  const searching = !!data?.query;
+  if (!data || data.landlords.length === 0) {
+    return searching ? (
+      <EmptyState
+        title={`No ranked ${groupBy === "manager" ? "managing agent" : "landlord"} matches “${data?.query}”.`}
+        hint={`Only portfolios of 3 or more buildings are ranked${borough ? `, and only ${titleCase(borough)} is showing` : ""}.`}
+      />
+    ) : (
+      <EmptyState title={`No ${noun} to show for this filter.`} hint="Try a different borough." />
+    );
+  }
 
   return (
-    <ul className="divide-y-[1.5px] divide-line overflow-hidden rounded-[20px] border-2 border-ink bg-white">
-      {data.landlords.map((l, i) => {
-        const inner = (
-          <>
-            <RankNumber n={i + 1} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[15px] font-semibold text-ink">{l.owner_name}</p>
-              <p className="mt-0.5 truncate text-[13px] text-muted">
-                {l.building_count.toLocaleString()} building{l.building_count !== 1 ? "s" : ""}
-                {l.total_units ? ` · ${l.total_units.toLocaleString()} units` : ""}
-                {l.boroughs.length > 0 ? ` · ${l.boroughs.map(titleCase).join(", ")}` : ""}
-              </p>
-              <p className="mt-0.5 truncate text-[12px] text-muted">
-                {l.total_violations.toLocaleString()} violations · {l.total_complaints.toLocaleString()} complaints
-              </p>
-            </div>
-            <GradeBadge grade={l.grade} score={l.avg_score} />
-          </>
-        );
-        const className =
-          "flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-surface";
-        return (
-          <li key={`${l.owner_name}-${i}`}>
-            {l.worst_bbl ? (
-              <Link href={`/map?bbl=${l.worst_bbl}`} className={className}>
-                {inner}
-              </Link>
-            ) : (
-              <div className={className}>{inner}</div>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+    <div className={isPlaceholderData ? "opacity-60 transition-opacity" : "transition-opacity"} aria-busy={isPlaceholderData}>
+      {searching && data.ranked_total != null && (
+        <SearchSummary
+          count={data.landlords.length}
+          query={data.query!}
+          rankedTotal={data.ranked_total}
+          noun={`${noun} with 3+ buildings${borough ? ` in ${titleCase(borough)}` : ""}`}
+        />
+      )}
+      <ul className="divide-y-[1.5px] divide-line overflow-hidden rounded-[20px] border-2 border-ink bg-white">
+        {data.landlords.map((l, i) => {
+          const inner = (
+            <>
+              <RankNumber n={l.rank} wide={searching} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[15px] font-semibold text-ink">{l.owner_name}</p>
+                <p className="mt-0.5 truncate text-[13px] text-muted">
+                  {l.building_count.toLocaleString()} building{l.building_count !== 1 ? "s" : ""}
+                  {l.total_units ? ` · ${l.total_units.toLocaleString()} units` : ""}
+                  {l.boroughs.length > 0 ? ` · ${l.boroughs.map(titleCase).join(", ")}` : ""}
+                </p>
+                <p className="mt-0.5 truncate text-[12px] text-muted">
+                  {l.total_violations.toLocaleString()} violations · {l.total_complaints.toLocaleString()} complaints
+                </p>
+              </div>
+              <GradeBadge grade={l.grade} score={l.avg_score} />
+            </>
+          );
+          const className =
+            "flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-surface";
+          return (
+            <li key={`${l.owner_name}-${i}`}>
+              {l.worst_bbl ? (
+                <Link href={`/map?bbl=${l.worst_bbl}`} className={className}>
+                  {inner}
+                </Link>
+              ) : (
+                <div className={className}>{inner}</div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
@@ -173,11 +239,11 @@ function ErrorState() {
   );
 }
 
-function EmptyState({ label }: { label: string }) {
+function EmptyState({ title, hint }: { title: string; hint: string }) {
   return (
-    <div className="rounded-[20px] border-2 border-ink bg-white px-6 py-16 text-center">
-      <p className="text-sm font-medium text-ink-2">No {label} to show for this filter.</p>
-      <p className="mt-1 text-xs text-muted">Try a different borough.</p>
+    <div className="rounded-[20px] border-2 border-ink bg-white px-6 py-16 text-center" aria-live="polite">
+      <p className="text-sm font-medium text-ink-2">{title}</p>
+      <p className="mt-1 text-xs text-muted">{hint}</p>
     </div>
   );
 }
@@ -273,9 +339,30 @@ export default function RankingsPage() {
   const [groupBy, setGroupBy] = useState<LandlordGroupBy>("owner");
   const [customWeights, setCustomWeights] = useState<CategoryWeights>({ ...DEFAULT_WEIGHTS });
   const [useCustomWeights, setUseCustomWeights] = useState(false);
+  // What's typed, and the search it runs once typing pauses (2+ characters).
+  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const q = query.trim();
+    const t = setTimeout(() => setSearch(q.length >= 2 ? q : ""), q ? 300 : 0);
+    return () => clearTimeout(t);
+  }, [query]);
 
   // null = use the default composite ranking; an object = re-rank server-side.
   const weights = useCustomWeights ? customWeights : null;
+
+  // An address search means nothing on the landlords tab and vice versa.
+  const switchTab = (next: Tab) => {
+    setTab(next);
+    setQuery("");
+  };
+  const searchLabel =
+    tab === "buildings"
+      ? "Find a building by address"
+      : groupBy === "manager"
+        ? "Find a managing agent by name"
+        : "Find a landlord by name";
 
   return (
     <div
@@ -304,7 +391,8 @@ export default function RankingsPage() {
           </h1>
           <p className="mt-4 max-w-2xl text-[17px] leading-relaxed text-muted">
             Ranked by health score — the lowest-scoring buildings and the owners with the worst
-            average record across their portfolio. Built entirely from public NYC data.
+            average record across their portfolio. Built entirely from public NYC data. Search any
+            address or landlord to see where it ranks.
           </p>
         </div>
 
@@ -314,7 +402,7 @@ export default function RankingsPage() {
           <div className="inline-flex gap-1 rounded-2xl border-2 border-ink bg-white p-1">
             <button
               type="button"
-              onClick={() => setTab("buildings")}
+              onClick={() => switchTab("buildings")}
               className={`h-11 rounded-[10px] px-4 text-sm font-semibold transition-colors ${
                 tab === "buildings" ? "bg-ink font-bold text-white" : "text-ink hover:bg-surface"
               }`}
@@ -323,7 +411,7 @@ export default function RankingsPage() {
             </button>
             <button
               type="button"
-              onClick={() => setTab("landlords")}
+              onClick={() => switchTab("landlords")}
               className={`h-11 rounded-[10px] px-4 text-sm font-semibold transition-colors ${
                 tab === "landlords" ? "bg-ink font-bold text-white" : "text-ink hover:bg-surface"
               }`}
@@ -378,6 +466,37 @@ export default function RankingsPage() {
           </div>
         )}
 
+        {/* Search: any building or landlord, with its rank in the current view */}
+        <div className="mb-4 flex h-12 items-center gap-2.5 rounded-2xl border-2 border-ink bg-white pl-3.5 pr-1">
+          <label htmlFor="rankings-search" className="flex shrink-0 text-muted">
+            <SearchIcon size={18} />
+            <span className="sr-only">{searchLabel}</span>
+          </label>
+          <input
+            id="rankings-search"
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setQuery("");
+            }}
+            placeholder={searchLabel}
+            className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-base font-medium text-ink focus:ring-0"
+            autoComplete="off"
+            enterKeyHint="search"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              aria-label="Clear search"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] hover:bg-surface"
+            >
+              <CloseIcon size={16} />
+            </button>
+          )}
+        </div>
+
         {/* Custom scoring weights */}
         <WeightControls
           weights={customWeights}
@@ -391,9 +510,9 @@ export default function RankingsPage() {
 
         {/* List */}
         {tab === "buildings" ? (
-          <BuildingsList borough={borough} weights={weights} />
+          <BuildingsList borough={borough} weights={weights} search={search} />
         ) : (
-          <LandlordsList borough={borough} groupBy={groupBy} weights={weights} />
+          <LandlordsList borough={borough} groupBy={groupBy} weights={weights} search={search} />
         )}
 
         <p className="mt-6 text-[12px] leading-relaxed text-muted">
