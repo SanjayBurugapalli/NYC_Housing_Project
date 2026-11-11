@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/icons";
 
 // --- Sub-scores ---
+// (exported for the homepage's live recreation of this view: components/landing/ProductViews.tsx)
 
 const isOpen = (status: string | null | undefined) => !!status && !/close|dismiss|resolv|complied/i.test(status);
 
@@ -37,7 +38,7 @@ interface SubScore {
   note: string;
 }
 
-function subScores(d: BuildingDetail): SubScore[] {
+export function subScores(d: BuildingDetail): SubScore[] {
   const sb = d.score_breakdown;
   const hpdOpen = d.violations.filter((v) => v.source === "HPD" && isOpen(v.status));
   const openC = hpdOpen.filter((v) => v.severity === "C").length;
@@ -106,7 +107,7 @@ function subScores(d: BuildingDetail): SubScore[] {
   ].sort((a, b) => a.score - b.score) as SubScore[];
 }
 
-function SubScoreRow({ s, last }: { s: SubScore; last: boolean }) {
+export function SubScoreRow({ s, last }: { s: SubScore; last: boolean }) {
   const g = scoreToGrade(s.score);
   const pct = Math.max(0, Math.min(100, s.score));
   return (
@@ -160,7 +161,7 @@ function sentence(s: string | null | undefined): string {
   return t ? t.charAt(0).toUpperCase() + t.slice(1).toLowerCase() : "";
 }
 
-function trails(d: BuildingDetail): { key: string; label: string; noun: string; rows: TrailRow[] }[] {
+export function trails(d: BuildingDetail): { key: string; label: string; noun: string; rows: TrailRow[] }[] {
   const tabs = [
     {
       key: "complaints",

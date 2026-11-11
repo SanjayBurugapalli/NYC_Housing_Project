@@ -26,7 +26,7 @@ export function BuildingChip({ data }: { data: BuildingDetail }) {
   );
 }
 
-function legText(leg: CommuteLeg, index: number, count: number): string {
+export function legText(leg: CommuteLeg, index: number, count: number): string {
   if (leg.mode === "WALK") {
     if (index === 0 && leg.to_name) return `Walk ${leg.duration_min} min to ${tidyTransitName(leg.to_name)}`;
     if (index === count - 1 && leg.from_name) return `Walk ${leg.duration_min} min from ${tidyTransitName(leg.from_name)}`;
@@ -36,7 +36,7 @@ function legText(leg: CommuteLeg, index: number, count: number): string {
   return `${leg.duration_min} min${stops}`;
 }
 
-function LegBar({ legs }: { legs: CommuteLeg[] }) {
+export function LegBar({ legs }: { legs: CommuteLeg[] }) {
   return (
     <div aria-hidden="true" className="flex items-center gap-1">
       {legs.map((leg, i) =>
