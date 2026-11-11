@@ -145,13 +145,14 @@ function GradeScale() {
 }
 
 export default async function LandingPage() {
+  // These throw if the API can't be reached, so the page never renders without its building (see getJson).
   const [record, refresh, food] = await Promise.all([getHeroBuilding(), getRefreshStatus(), getHeroFood()]);
   // Everything but the owner, who may be a private person: the page never needs the name.
-  const hero = record ? { ...record, owner_name: null, managing_agent: null } : null;
+  const hero = { ...record, owner_name: null, managing_agent: null };
   const commute = await getHeroCommute(hero);
   const updated = gradeDataUpdated(refresh);
   const updatedText = updated ? formatDay(updated) : null;
-  const card = hero && { building: hero, commute, food, workLabel: HERO_WORKPLACE.label, href: `/map?bbl=${HERO_BBL}` };
+  const card = { building: hero, commute, food, workLabel: HERO_WORKPLACE.label, href: `/map?bbl=${HERO_BBL}` };
 
   return (
     <div className="min-h-screen bg-surface text-base leading-normal text-ink" style={{ overflowX: "clip" }}>
@@ -190,16 +191,14 @@ export default async function LandingPage() {
         </div>
 
         {/* The map's own card for the example; on phones, the bottom sheet the app opens there. */}
-        {card && (
-          <div className="min-w-0">
-            <div className="md:hidden">
-              <BuildingSheetView {...card} />
-            </div>
-            <div className="hidden max-w-[600px] md:block lg:ml-auto">
-              <BuildingCardView {...card} />
-            </div>
+        <div className="min-w-0">
+          <div className="md:hidden">
+            <BuildingSheetView {...card} />
           </div>
-        )}
+          <div className="hidden max-w-[600px] md:block lg:ml-auto">
+            <BuildingCardView {...card} />
+          </div>
+        </div>
       </section>
 
       {/* FEATURES: four, at different sizes */}
@@ -213,15 +212,13 @@ export default async function LandingPage() {
                 We read years of complaints, violations, lawsuits and inspections so you don&apos;t have to. You get one grade.
                 The paper trail is a tap away if you want it.
               </FeatureText>
-              {hero && (
-                <div className="mt-auto">
-                  <GradeBreakdownView building={hero} />
-                </div>
-              )}
+              <div className="mt-auto">
+                <GradeBreakdownView building={hero} />
+              </div>
             </article>
 
             <article className="flex flex-col gap-5 rounded-[22px] border-2 border-ink bg-white p-5 sm:p-7">
-              {hero && commute && <CommuteCardView building={hero} commute={commute} workLabel={HERO_WORKPLACE.label} />}
+              {commute && <CommuteCardView building={hero} commute={commute} workLabel={HERO_WORKPLACE.label} />}
               <FeatureText title="Time the commute">
                 Tell us where you work, once. Every building then shows the real door-to-door trip by subway, bus and on foot.
               </FeatureText>
@@ -234,7 +231,7 @@ export default async function LandingPage() {
               </FeatureText>
               {/* The owner on record is a private individual, so the view leaves the name out. */}
               <div className="rounded-[18px] bg-white p-2">
-                <OwnerStripView portfolio={hero?.owner_portfolio ?? null} />
+                <OwnerStripView portfolio={hero.owner_portfolio ?? null} />
               </div>
             </article>
 
@@ -242,11 +239,9 @@ export default async function LandingPage() {
               <FeatureText title="Scout the food">
                 Delis, groceries and restaurants within a short walk, each with its own icon and colored by estimated price.
               </FeatureText>
-              {hero && food && (
-                <div className="overflow-hidden rounded-[14px] border-2 border-ink">
-                  <FoodMapView building={hero} food={food} />
-                </div>
-              )}
+              <div className="overflow-hidden rounded-[14px] border-2 border-ink">
+                <FoodMapView building={hero} food={food} />
+              </div>
             </article>
           </div>
         </div>

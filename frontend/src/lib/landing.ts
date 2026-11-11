@@ -1,7 +1,8 @@
 // Homepage data, fetched on the server from this site's own API so nothing
 // about the example building is hardcoded: its grade, score and record counts
 // come from the same endpoint the map's building card uses. Revalidated hourly;
-// if the API can't be reached the page renders without any numbers.
+// a request that can't be served throws instead of rendering a page without
+// its data (see getJson).
 
 import type { BuildingDetail, CommuteResult, FoodResult } from "@/types/building";
 import type { RefreshStatus } from "@/lib/api";
@@ -11,13 +12,29 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 /** 322 East 19 St, Gramercy: the homepage's example. A building, not a listing. */
 export const HERO_BBL = "1009240054";
 
-async function getJson<T>(path: string): Promise<T | null> {
-  try {
-    const res = await fetch(`${API_URL}${path}`, { next: { revalidate: 3600 }, signal: AbortSignal.timeout(6000) });
-    return res.ok ? ((await res.json()) as T) : null;
-  } catch {
-    return null;
+// Waits before each retry: enough to ride out a brief outage, such as the
+// backend redeploying from the same push as the frontend.
+const RETRY_DELAYS_MS = [2000, 8000];
+
+/**
+ * GET from the API, retried; if it still fails, throw. Next keeps serving the
+ * last good page when an hourly revalidation throws, and a build that throws
+ * fails, leaving the current deploy live. Returning nothing instead would cache
+ * a homepage with no building on it for the next hour.
+ */
+async function getJson<T>(path: string): Promise<T> {
+  let failure: unknown;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt - 1]));
+    try {
+      const res = await fetch(`${API_URL}${path}`, { next: { revalidate: 3600 }, signal: AbortSignal.timeout(6000) });
+      if (res.ok) return (await res.json()) as T;
+      failure = `HTTP ${res.status}`;
+    } catch (e) {
+      failure = e;
+    }
   }
+  throw new Error(`Homepage data request failed after ${RETRY_DELAYS_MS.length + 1} tries: ${path}`, { cause: failure });
 }
 
 /** The commute example's destination: the Grace Building, 1114 Avenue of the Americas (NYC GeoSearch). */
@@ -28,8 +45,8 @@ export const getRefreshStatus = () => getJson<RefreshStatus>("/api/refresh-statu
 export const getHeroFood = () => getJson<FoodResult>(`/api/buildings/${HERO_BBL}/food?radius_m=400`);
 
 /** The example's weekday commute, from the building's own coordinates. */
-export function getHeroCommute(building: BuildingDetail | null) {
-  if (building?.latitude == null || building.longitude == null) return Promise.resolve(null);
+export function getHeroCommute(building: BuildingDetail): Promise<CommuteResult | null> {
+  if (building.latitude == null || building.longitude == null) return Promise.resolve(null);
   const q = new URLSearchParams({
     from_lat: String(building.latitude),
     from_lng: String(building.longitude),
