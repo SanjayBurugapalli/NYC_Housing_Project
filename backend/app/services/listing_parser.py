@@ -53,7 +53,7 @@ class ParsedListing:
 
     @property
     def display_address(self) -> str | None:
-        """"418 Larkmoor Street, Brooklyn" — shown back to the user."""
+        """"602 Manhattan Avenue, Brooklyn" — shown back to the user."""
         addr = self.street_address
         if not addr:
             return None

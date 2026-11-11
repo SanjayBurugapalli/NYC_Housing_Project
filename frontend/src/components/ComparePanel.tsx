@@ -180,7 +180,7 @@ function SlotPicker({ exclude, slot }: { exclude: string[]; slot: number }) {
           type="text"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="e.g. 77 Halvard St, or a StreetEasy link"
+          placeholder="An address or a StreetEasy link"
           autoComplete="off"
           className="h-[46px] min-w-0 flex-1 rounded-xl border-2 border-ink bg-white px-3 text-sm font-medium text-ink focus:border-ink focus:ring-0"
         />
