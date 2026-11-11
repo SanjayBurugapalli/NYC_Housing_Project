@@ -71,8 +71,13 @@ export function SearchBar({ variant = "map" }: { variant?: "map" | "panel" | "mo
             setShowHistory(true);
           }}
           onBlur={() => setTimeout(() => setShowHistory(false), 120)}
-          placeholder="Address, a neighborhood, or a listing link"
-          className="h-11 min-w-0 flex-1 text-ellipsis border-0 bg-transparent p-0 text-base font-medium text-ink focus:ring-0"
+          // The phone bar is ~220–250px wide: a shorter line, a touch smaller,
+          // fits down to 360px-wide phones. (Typed text stays 16px so iOS
+          // doesn't zoom in on focus.)
+          placeholder={variant === "mobile" ? "Address, neighborhood, or link" : "Address, a neighborhood, or a listing link"}
+          className={`h-11 min-w-0 flex-1 text-ellipsis border-0 bg-transparent p-0 text-base font-medium text-ink focus:ring-0 ${
+            variant === "mobile" ? "placeholder:text-[15px]" : ""
+          }`}
           autoComplete="off"
           enterKeyHint="search"
         />
