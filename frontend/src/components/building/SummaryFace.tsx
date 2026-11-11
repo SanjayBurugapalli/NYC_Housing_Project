@@ -177,6 +177,8 @@ function OwnerStrip({ data }: { data: BuildingDetail }) {
       ? `Owns ${p.building_count} buildings · average grade ${toGrade(p.grade, "F")}`
       : "This is the only building they own in our data"
     : isOwner ? "Owner on record" : "Managing agent on record";
+  // Nothing more to see when this is their only building: the button greys out.
+  const solo = isOwner && !!p && p.building_count <= 1;
   return (
     <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2.5 rounded-2xl bg-ink px-3.5 py-3 text-white">
       <PersonIcon size={20} />
@@ -187,9 +189,11 @@ function OwnerStrip({ data }: { data: BuildingDetail }) {
       </div>
       <button
         type="button"
-        disabled={pending}
+        disabled={pending || solo}
         onClick={() => run(isOwner ? "owner" : "manager", name)}
-        className="inline-flex h-11 items-center rounded-[11px] bg-white px-3.5 text-[13px] font-bold text-ink hover:bg-surface disabled:opacity-60"
+        className={`inline-flex h-11 items-center rounded-[11px] px-3.5 text-[13px] font-bold ${
+          solo ? "cursor-not-allowed bg-white/20 text-white/60" : "bg-white text-ink hover:bg-surface disabled:opacity-60"
+        }`}
       >
         {pending ? "Searching…" : "See their buildings"}
       </button>
