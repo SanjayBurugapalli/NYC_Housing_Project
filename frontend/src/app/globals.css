@@ -16,6 +16,13 @@ html, body {
 }
 
 @layer base {
+  /* In-page links (the header's section links, "Paste it in.") glide to their
+     section instead of jumping, unless the visitor asks for less motion. */
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
   /* One visible focus treatment for every control in the ink-outlined UI. */
   :focus-visible {
     outline: 3px solid #3D2DB3;
