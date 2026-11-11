@@ -8,7 +8,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { BuildingCard } from "@/components/BuildingCard";
 import { InfoPanel } from "@/components/InfoPanel";
 import { SearchResultsPanel } from "@/components/SearchResultsPanel";
-import { GradeFilter, GradeToggles } from "@/components/GradeFilter";
+import { GradeFilter } from "@/components/GradeFilter";
 import { ComparePanel } from "@/components/ComparePanel";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { CompareTray, LocateButton, MapControls, WorkButton, ZoomStepper } from "@/components/map/MapChrome";
@@ -103,7 +103,6 @@ export default function MapPage() {
 
   const [showInfo, setShowInfo] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
-  const [mobileFilters, setMobileFilters] = useState(false);
 
   // Remember the last bbl shown so the card keeps rendering content during its
   // exit animation (after selectedBbl is cleared to null).
@@ -232,14 +231,9 @@ export default function MapPage() {
         <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex flex-col gap-2.5">
           <div className="pointer-events-auto flex gap-2">
             <LogoTile size={52} />
-            <SearchBar variant="mobile" onToggleFilters={() => setMobileFilters((v) => !v)} filtersOpen={mobileFilters} />
+            <SearchBar variant="mobile" />
           </div>
-          {!selectedBbl && (
-            <div className="card-float pointer-events-auto rounded-[15px] p-1.5">
-              <GradeToggles compact />
-            </div>
-          )}
-          {mobileFilters && !selectedBbl && <GradeFilter hideGrades className="pointer-events-auto" />}
+          {!selectedBbl && <GradeFilter placement="top" className="pointer-events-auto" />}
         </div>
       )}
 
@@ -259,19 +253,28 @@ export default function MapPage() {
           {compareBbls.length > 0 ? <CompareTray /> : <ZoomStepper />}
         </div>
       )}
-      {isMobile && compareBbls.length > 0 && !selectedBbl && !showResults && (
-        <div className="absolute inset-x-3 bottom-3 z-10 flex justify-center">
-          <CompareTray />
+      {/* Phone: the locate button bottom-right — above the compare tray when
+          one's queued, otherwise just clear of the Mapbox attribution. */}
+      {isMobile && !selectedBbl && !showResults && (
+        <div
+          className={`pointer-events-none absolute inset-x-3 z-10 flex flex-col items-end gap-2.5 ${
+            compareBbls.length > 0 ? "bottom-3" : "bottom-11"
+          }`}
+        >
+          <LocateButton onClick={locate} className="pointer-events-auto" />
+          {compareBbls.length > 0 && (
+            <div className="pointer-events-auto self-center">
+              <CompareTray />
+            </div>
+          )}
         </div>
       )}
 
-      {/* Map controls */}
-      {!isMobile ? (
+      {/* Map controls (desktop) */}
+      {!isMobile && (
         <div className={`absolute bottom-4 right-4 z-10 ${dialog ? "hidden" : docked ? "hidden 2xl:block" : ""}`}>
           <MapControls />
         </div>
-      ) : (
-        !selectedBbl && !showResults && <LocateButton onClick={locate} className="absolute right-3 top-[45%] z-10" />
       )}
 
       {/* Building card (all faces) */}

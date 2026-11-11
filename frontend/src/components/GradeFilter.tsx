@@ -8,11 +8,11 @@ import { CheckIcon, ChevronDownIcon, SlidersIcon } from "@/components/ui/icons";
 import { MapFiltersPanel } from "@/components/MapFiltersPanel";
 
 /** Five letter toggles. All shown by default; tapping a letter hides it. */
-export function GradeToggles({ compact = false }: { compact?: boolean }) {
+function GradeToggles() {
   const gradeFilter = useStore((s) => s.gradeFilter);
   const toggleGrade = useStore((s) => s.toggleGrade);
   return (
-    <div role="group" aria-label="Show grades" className={`flex justify-between ${compact ? "gap-1.5" : "gap-2"}`}>
+    <div role="group" aria-label="Show grades" className="flex justify-between gap-2">
       {GRADES.map((g) => {
         const shown = gradeFilter.length === 0 || gradeFilter.includes(g);
         const meta = GRADE_META[g];
@@ -23,9 +23,7 @@ export function GradeToggles({ compact = false }: { compact?: boolean }) {
             aria-pressed={shown}
             aria-label={`Grade ${g}, ${shown ? "shown" : "hidden"}`}
             onClick={() => toggleGrade(g)}
-            className={`relative border-2 border-ink p-0 font-display font-extrabold leading-none transition-opacity ${
-              compact ? "h-11 flex-1 rounded-[10px] text-2xl" : "h-14 w-[50px] rounded-[11px] text-[32px]"
-            }`}
+            className="relative h-14 w-[50px] rounded-[11px] border-2 border-ink p-0 font-display text-[32px] font-extrabold leading-none transition-opacity"
             style={
               shown
                 ? { background: meta.bg, color: meta.fg }
@@ -45,7 +43,7 @@ const ON = "bg-ink text-white";
 const OFF = "bg-white text-ink hover:bg-surface";
 
 /** Borough chip: picks one borough for the map + plain-English searches, and frames it. */
-function BoroughMenu() {
+function BoroughMenu({ opensDown }: { opensDown: boolean }) {
   const boroughFilter = useStore((s) => s.boroughFilter);
   const setBoroughFilter = useStore((s) => s.setBoroughFilter);
   const mapRef = useStore((s) => s.mapRef);
@@ -73,9 +71,11 @@ function BoroughMenu() {
     setBoroughFilter(value);
     setOpen(false);
     if (value && mapRef) {
-      // Leave room for the filter card (desktop, bottom-left) or the top controls (phone).
+      // Leave room for the filter card: bottom-left on desktop, under the search
+      // bar on phones (where its height depends on what's expanded).
+      const cardBottom = ref.current?.closest(".card-float")?.getBoundingClientRect().bottom ?? 200;
       const padding = window.innerWidth < 768
-        ? { top: 200, bottom: 40, left: 30, right: 30 }
+        ? { top: cardBottom + 24, bottom: 40, left: 30, right: 30 }
         : { top: 120, bottom: 60, left: 380, right: 80 };
       mapRef.fitBounds(BOROUGH_BOUNDS[value], { padding, duration: 1000 });
     }
@@ -97,7 +97,7 @@ function BoroughMenu() {
         <ul
           role="listbox"
           aria-label="Borough"
-          className="card-float absolute bottom-full left-0 z-30 mb-2 w-48 rounded-2xl p-1 shadow-hard-sm"
+          className={`card-float absolute left-0 z-30 w-48 rounded-2xl p-1 shadow-hard-sm ${opensDown ? "top-full mt-2" : "bottom-full mb-2"}`}
         >
           {[{ value: null, label: "All five boroughs" }, ...BOROUGH_OPTIONS].map((b) => {
             const selected = boroughFilter === b.value;
@@ -149,8 +149,13 @@ function GradeSwatches() {
   );
 }
 
-/** Bottom-left filter card: grade letters + quick chips + borough + "More filters". */
-export function GradeFilter({ className = "", hideGrades = false }: { className?: string; hideGrades?: boolean }) {
+/**
+ * Filter card: grade letters + quick chips + borough + "More filters", and a
+ * minimize toggle. Bottom-left on desktop; under the search bar on phones
+ * (placement "top"), where it expands downward and its menus open downward.
+ */
+export function GradeFilter({ className = "", placement = "bottom" }: { className?: string; placement?: "top" | "bottom" }) {
+  const atTop = placement === "top";
   const includeSmallHomes = useStore((s) => s.includeSmallHomes);
   const setIncludeSmallHomes = useStore((s) => s.setIncludeSmallHomes);
   const rentStabilizedOnly = useStore((s) => s.rentStabilizedOnly);
@@ -189,7 +194,11 @@ export function GradeFilter({ className = "", hideGrades = false }: { className?
     (boroughFilter ? 1 : 0) +
     moreCount;
 
-  if (!hideGrades && collapsed) {
+  // The chevron points the way the card will grow (or shrink).
+  const expandIcon = <ChevronDownIcon size={18} className={atTop ? "" : "rotate-180"} />;
+  const minimizeIcon = <ChevronDownIcon size={18} className={atTop ? "rotate-180" : ""} />;
+
+  if (collapsed) {
     return (
       <div className={`card-float inline-flex w-max items-center gap-3 whitespace-nowrap rounded-[18px] py-2 pl-4 pr-2 shadow-hard-sm ${className}`}>
         <span className="font-bold">Show grades</span>
@@ -207,7 +216,7 @@ export function GradeFilter({ className = "", hideGrades = false }: { className?
           title="Show the filters"
           className="flex h-11 w-11 items-center justify-center rounded-xl hover:bg-surface"
         >
-          <ChevronDownIcon size={18} className="rotate-180" />
+          {expandIcon}
         </button>
       </div>
     );
@@ -215,28 +224,24 @@ export function GradeFilter({ className = "", hideGrades = false }: { className?
 
   return (
     <div className={`card-float flex flex-col gap-3.5 rounded-[18px] p-4 shadow-hard-sm ${className}`}>
-      {!hideGrades && (
-        <>
-          <div className="-mr-2 -mt-2 flex items-center justify-between gap-2">
-            <span className="font-bold">Show grades</span>
-            <span className="flex items-center gap-1">
-              <span className="text-[13px] text-muted">Tap to hide a letter</span>
-              <button
-                type="button"
-                onClick={toggleCollapsed}
-                aria-expanded={true}
-                aria-label="Minimize the filters"
-                title="Minimize"
-                className="flex h-11 w-11 items-center justify-center rounded-xl hover:bg-surface"
-              >
-                <ChevronDownIcon size={18} />
-              </button>
-            </span>
-          </div>
-          <GradeToggles />
-        </>
-      )}
-      <div className={`flex flex-wrap gap-2 ${hideGrades ? "" : "border-t-[1.5px] border-line pt-3.5"}`}>
+      <div className="-mr-2 -mt-2 flex items-center justify-between gap-2">
+        <span className="font-bold">Show grades</span>
+        <span className="flex items-center gap-1">
+          <span className="text-[13px] text-muted">Tap to hide a letter</span>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-expanded={true}
+            aria-label="Minimize the filters"
+            title="Minimize"
+            className="flex h-11 w-11 items-center justify-center rounded-xl hover:bg-surface"
+          >
+            {minimizeIcon}
+          </button>
+        </span>
+      </div>
+      <GradeToggles />
+      <div className="flex flex-wrap gap-2 border-t-[1.5px] border-line pt-3.5">
         <button
           type="button"
           aria-pressed={rentStabilizedOnly}
@@ -255,7 +260,7 @@ export function GradeFilter({ className = "", hideGrades = false }: { className?
           {!includeSmallHomes && <CheckIcon size={14} />}
           3+ units only
         </button>
-        <BoroughMenu />
+        <BoroughMenu opensDown={atTop} />
         <button
           type="button"
           aria-expanded={moreOpen}

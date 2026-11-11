@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useStore } from "@/lib/store";
 import { loadHistory, useSearchRunner } from "@/hooks/useSearchRunner";
-import { CloseIcon, SearchIcon, SlidersIcon, SparkleIcon } from "@/components/ui/icons";
+import { CloseIcon, SearchIcon, SparkleIcon } from "@/components/ui/icons";
 
 /**
  * The map's one search box: addresses, plain-English questions and pasted
@@ -11,17 +11,9 @@ import { CloseIcon, SearchIcon, SlidersIcon, SparkleIcon } from "@/components/ui
  *
  * variant "map"   — 56px floating bar with the sparkle and a Search button
  * variant "panel" — 52px bar heading the results panel, with a clear button
- * variant "mobile"— compact bar with a filters toggle in place of Search
+ * variant "mobile"— compact bar; the keyboard's search key submits
  */
-export function SearchBar({
-  variant = "map",
-  onToggleFilters,
-  filtersOpen,
-}: {
-  variant?: "map" | "panel" | "mobile";
-  onToggleFilters?: () => void;
-  filtersOpen?: boolean;
-}) {
+export function SearchBar({ variant = "map" }: { variant?: "map" | "panel" | "mobile" }) {
   const searchQuery = useStore((s) => s.searchQuery);
   const isSearching = useStore((s) => s.isSearching);
   const searchError = useStore((s) => s.searchError);
@@ -79,25 +71,14 @@ export function SearchBar({
             setShowHistory(true);
           }}
           onBlur={() => setTimeout(() => setShowHistory(false), 120)}
-          placeholder={variant === "mobile" ? "Address, or just ask" : "Address, a question, or a listing link"}
-          className="h-11 min-w-0 flex-1 border-0 bg-transparent p-0 text-base font-medium text-ink focus:ring-0"
+          placeholder="Address, a neighborhood, or a listing link"
+          className="h-11 min-w-0 flex-1 text-ellipsis border-0 bg-transparent p-0 text-base font-medium text-ink focus:ring-0"
           autoComplete="off"
           enterKeyHint="search"
         />
         {variant !== "map" && input && !isSearching && (
           <button type="button" onClick={clear} aria-label="Clear search" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[11px] hover:bg-surface">
             <CloseIcon size={18} />
-          </button>
-        )}
-        {variant === "mobile" && (
-          <button
-            type="button"
-            onClick={onToggleFilters}
-            aria-label="Filters"
-            aria-expanded={filtersOpen}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[11px] hover:bg-surface"
-          >
-            <SlidersIcon size={20} />
           </button>
         )}
         {variant === "map" && (
