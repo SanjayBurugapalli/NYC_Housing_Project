@@ -10,6 +10,7 @@ import { useBuilding, useCommute, useFood } from "@/hooks/useBuildingData";
 import { arcBetween, boundsOf, circleRing, pointOnCircle } from "@/lib/geo";
 import { INK, shortAddress } from "@/lib/grades";
 import { buildingMarker, foodMarker, labelMarker, setMarkerShown, stationMarker, workMarker } from "@/components/map/markers";
+import { labelObstacles, layoutStationLabels } from "@/components/map/stationLabels";
 import { easeInOut, legSlice, prepareRoute, type PreparedLeg } from "@/components/map/routeAnimation";
 
 // Neighborhood score polygons compete with the commute line when the map
@@ -78,7 +79,8 @@ function cardPadding() {
     ? card.getBoundingClientRect().top
     : window.innerHeight - (mobile ? window.innerHeight * 0.58 : 360);
   const bottom = Math.max(60, Math.round(window.innerHeight - cardTop + 40));
-  return mobile ? { top: 90, bottom, left: 40, right: 40 } : { top: 110, bottom, left: 90, right: 90 };
+  // Sides leave room for the end markers' address captions, centered on their points.
+  return mobile ? { top: 90, bottom, left: 72, right: 72 } : { top: 110, bottom, left: 90, right: 90 };
 }
 
 /** Short place name for the work caption: "Union Square, Manhattan" → "Union Square". */
@@ -130,6 +132,8 @@ export function CommuteOverlay() {
         .setLngLat(b)
         .addTo(m),
     ];
+    // Station names keep clear of both ends (stationLabels.ts).
+    markers.forEach((mk) => mk.getElement().setAttribute("data-label-obstacle", ""));
     m.fitBounds(boundsOf([a, b]), { padding: cardPadding(), maxZoom: 15.5, duration: 900 });
 
     return () => {
@@ -209,7 +213,7 @@ export function CommuteOverlay() {
     const addStation = (leg: PreparedLeg, at: "board" | "exit") => {
       const point = at === "board" ? leg.points[0] : leg.points[leg.points.length - 1];
       const name = tidyTransitName(at === "board" ? leg.leg.from_name : leg.leg.to_name);
-      const marker = new mapboxgl.Marker({ element: stationMarker(name, leg.color ?? INK), anchor: "left", offset: [-8, 0] })
+      const marker = new mapboxgl.Marker({ element: stationMarker(name, leg.color ?? INK) })
         .setLngLat(point)
         .addTo(m);
       stations.push({ leg, at, marker });
@@ -224,7 +228,25 @@ export function CommuteOverlay() {
     const pillInner = pillEl.firstElementChild as HTMLElement;
     pillInner.style.transition = "opacity 250ms ease-out";
     setMarkerShown(pillEl, false);
+    pillEl.setAttribute("data-label-obstacle", "");
     const pill = new mapboxgl.Marker({ element: pillEl }).setLngLat(route.labelAt).addTo(m);
+
+    // Station names make room for each other. Where you first board and where
+    // you finally get off are placed first; transfers fill in around them.
+    const byPriority = (stations.length > 2 ? [stations[0], stations[stations.length - 1], ...stations.slice(1, -1)] : stations)
+      .map((s) => s.marker);
+    let layoutFrame = 0;
+    const layoutLabels = () => {
+      cancelAnimationFrame(layoutFrame);
+      layoutFrame = 0;
+      layoutStationLabels(m, byPriority, labelObstacles(m));
+    };
+    const scheduleLayout = () => {
+      if (!layoutFrame) layoutFrame = requestAnimationFrame(layoutLabels);
+    };
+    m.on("move", scheduleLayout);
+    m.on("resize", scheduleLayout);
+    let shownKey = "";
 
     const render = () => {
       const ride: LineFC = { type: "FeatureCollection", features: [] };
@@ -240,9 +262,17 @@ export function CommuteOverlay() {
       }
       (m.getSource("byr-route-ride") as mapboxgl.GeoJSONSource | undefined)?.setData(ride);
       (m.getSource("byr-route-walk") as mapboxgl.GeoJSONSource | undefined)?.setData(walk);
+      let key = "";
       for (const s of stations) {
         const f = drawn.get(s.leg) ?? 0;
-        setMarkerShown(s.marker.getElement(), s.at === "board" ? f > 0 : f >= 1);
+        const shown = s.at === "board" ? f > 0 : f >= 1;
+        setMarkerShown(s.marker.getElement(), shown);
+        key += shown ? "1" : "0";
+      }
+      // A station just appeared (or a replay hid them): place names before it fades in.
+      if (key !== shownKey) {
+        shownKey = key;
+        layoutLabels();
       }
     };
 
@@ -254,6 +284,7 @@ export function CommuteOverlay() {
       route.legs.forEach((l) => drawn.set(l, 1));
       render();
       setMarkerShown(pillEl, true);
+      layoutLabels(); // the trip-time pill is an obstacle now
       if (moveCamera) m.fitBounds(wholeTrip, { padding: cardPadding(), maxZoom: 15.5, duration: 1100 });
     };
 
@@ -309,7 +340,10 @@ export function CommuteOverlay() {
       cancelled = true;
       timers.forEach(clearTimeout);
       cancelAnimationFrame(frame);
+      cancelAnimationFrame(layoutFrame);
       m.off("movestart", onUserMove);
+      m.off("move", scheduleLayout);
+      m.off("resize", scheduleLayout);
       stations.forEach((s) => s.marker.remove());
       pill.remove();
       removeLayers(m, ROUTE_LAYERS, ROUTE_SOURCES);
