@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { resolveListing } from "@/lib/api";
 import { looksLikeListingUrl } from "@/hooks/useSearchRunner";
 import { titleCase } from "@/lib/grades";
-import { CheckIcon, LinkIcon, MenuIcon, SearchIcon, ArrowRightIcon } from "@/components/ui/icons";
+import { CheckIcon, LinkIcon, MenuIcon, ArrowRightIcon } from "@/components/ui/icons";
 
 type Status = { kind: "idle" } | { kind: "busy" } | { kind: "found"; text: string } | { kind: "error"; text: string };
 
@@ -62,107 +62,45 @@ function StatusLine({ status }: { status: Status }) {
   return <div className="text-[13px] font-semibold text-grade-f" role="alert">{status.text}</div>;
 }
 
-/** Hero box: paste a listing, or search an address / ask a question. */
+/**
+ * The page's one search: paste a StreetEasy or Zillow link. (An address typed
+ * here still works — useTakeMeThere hands anything that isn't a link to the
+ * map's search.) id="search" is the bottom call to action's anchor.
+ */
 export function HeroSearch() {
   const [link, setLink] = useState("");
-  const [query, setQuery] = useState("");
-  const searchRef = useRef<HTMLInputElement>(null);
-  const router = useRouter();
-  const { status, go } = useTakeMeThere(() => searchRef.current?.focus());
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { status, go } = useTakeMeThere(() => inputRef.current?.focus());
 
-  const submitLink = (e: FormEvent) => {
+  const submit = (e: FormEvent) => {
     e.preventDefault();
     go(link);
   };
-  const submitSearch = (e: FormEvent) => {
-    e.preventDefault();
-    if (query.trim()) router.push(`/map?q=${encodeURIComponent(query.trim())}`);
-  };
 
   return (
-    <div className="flex max-w-[620px] flex-col gap-3 rounded-[22px] border-2 border-ink bg-white p-3.5 shadow-hard-md">
-      <form onSubmit={submitLink} className="flex flex-col gap-2">
-        <label htmlFor="hero-link" className="flex items-center gap-2 text-sm font-bold">
-          <LinkIcon size={18} />
-          Paste a StreetEasy or Zillow link
-        </label>
-        <div className="flex flex-wrap gap-2">
-          <input
-            id="hero-link"
-            type="text"
-            inputMode="url"
-            value={link}
-            onChange={(e) => setLink(e.target.value)}
-            placeholder="streeteasy.com/building/…"
-            className="h-[50px] min-w-0 flex-[1_1_260px] rounded-[13px] border-2 border-ink bg-surface px-3.5 text-[15px] font-medium text-ink focus:border-ink focus:ring-0"
-            autoComplete="off"
-          />
-          <button type="submit" disabled={status.kind === "busy"} className="btn-ink h-[50px] rounded-[13px] px-5 text-base">
-            Take me there
-          </button>
-        </div>
-        <div aria-live="polite"><StatusLine status={status} /></div>
-      </form>
-      <div aria-hidden="true" className="flex items-center gap-3 text-xs font-bold uppercase tracking-[0.08em] text-muted">
-        <span className="flex-1 border-t-[1.5px] border-line" />
-        or
-        <span className="flex-1 border-t-[1.5px] border-line" />
-      </div>
-      <form onSubmit={submitSearch} role="search" className="flex flex-wrap items-center gap-2">
-        <label htmlFor="hero-q" className="flex items-center pl-1.5">
-          <SearchIcon size={20} />
-          <span className="sr-only">Search buildings</span>
-        </label>
+    <form id="search" onSubmit={submit} className="flex max-w-[600px] scroll-mt-6 flex-col gap-2">
+      <label htmlFor="hero-link" className="flex items-center gap-2 text-sm font-bold">
+        <LinkIcon size={18} />
+        Paste a StreetEasy or Zillow link
+      </label>
+      <div className="flex flex-wrap gap-2 rounded-[16px] border-2 border-ink bg-white p-1.5 shadow-hard-sm">
         <input
-          ref={searchRef}
-          id="hero-q"
+          ref={inputRef}
+          id="hero-link"
           type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search an address, a landlord, or just ask…"
-          className="h-12 min-w-0 flex-[1_1_240px] border-0 bg-transparent px-1.5 text-base font-medium text-ink focus:ring-0"
+          inputMode="url"
+          value={link}
+          onChange={(e) => setLink(e.target.value)}
+          placeholder="streeteasy.com/building/…"
+          className="h-12 min-w-0 flex-[1_1_220px] border-0 bg-transparent px-2.5 text-base font-medium text-ink focus:ring-0"
           autoComplete="off"
         />
-        <button type="submit" className="btn-outline h-12 rounded-[13px] border-2 px-5 text-[15px]">
-          Search
-        </button>
-      </form>
-    </div>
-  );
-}
-
-/** Closing call to action: one field for a link or an address. */
-export function CtaSearch() {
-  const [value, setValue] = useState("");
-  const { status, go } = useTakeMeThere();
-  return (
-    <div className="flex w-full max-w-[640px] flex-col items-stretch gap-2">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          go(value);
-        }}
-        className="flex flex-wrap items-center gap-2 rounded-[18px] border-2 border-ink bg-white p-2 text-left shadow-hard-md"
-      >
-        <label htmlFor="cta-q" className="flex items-center pl-2.5">
-          <LinkIcon size={20} />
-          <span className="sr-only">Listing link or address</span>
-        </label>
-        <input
-          id="cta-q"
-          type="text"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="A StreetEasy or Zillow link, or an address"
-          className="h-12 min-w-0 flex-[1_1_240px] border-0 bg-transparent px-1.5 text-[17px] font-medium text-ink focus:ring-0"
-          autoComplete="off"
-        />
-        <button type="submit" disabled={status.kind === "busy"} className="btn-ink h-12 px-[22px] text-base">
+        <button type="submit" disabled={status.kind === "busy"} className="btn-ink h-12 w-full rounded-[11px] px-5 text-base sm:w-auto sm:flex-[0_0_auto]">
           Take me there
         </button>
-      </form>
-      <div aria-live="polite" className="flex justify-center"><StatusLine status={status} /></div>
-    </div>
+      </div>
+      <div aria-live="polite"><StatusLine status={status} /></div>
+    </form>
   );
 }
 
