@@ -66,7 +66,8 @@ export function buildingMarker(grade: string, caption?: string): HTMLElement {
 
 /** Ink disc with a briefcase, captioned "Work · <place>". */
 export function workMarker(caption: string): HTMLElement {
-  const root = el("div", { display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }, "byr-marker");
+  // Above station dots (z 2), like the building marker: the last stop often sits under the caption.
+  const root = el("div", { display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", zIndex: "3" }, "byr-marker");
   const disc = el("div", {
     width: "46px",
     height: "46px",
