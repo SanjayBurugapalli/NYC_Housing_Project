@@ -2,23 +2,34 @@
 
 // Full-resolution recreations of the app's views for the homepage, built from
 // the app's own components and real API data instead of screenshots, so they
-// stay sharp at any size. The maps are a Mapbox Static Images basemap with the
-// route, pins and labels drawn on top in HTML/SVG; every overlay is sized in
-// container units, so a map scales as one picture while its text stays text.
-// Rendered on the server (props are plain data); nothing here is interactive.
+// stay sharp at any size. The food map is a Mapbox Static Images basemap with
+// the pins and labels drawn on top in HTML/SVG; every overlay is sized in
+// container units, so the map scales as one picture while its text stays text.
+// Rendered on the server (props are plain data). The only live control is the
+// building card's address, which links to the building on the map.
 
 import type { CSSProperties, ReactNode } from "react";
-import { GRADE_META, INK, PRICE_META, PRICE_UNKNOWN, shortAddress, titleCase, toGrade } from "@/lib/grades";
+import Link from "next/link";
+import { GRADE_META, INK, PRICE_META, PRICE_UNKNOWN, RENT_STATUS_LABEL, shortAddress, titleCase, toGrade } from "@/lib/grades";
 import { pointOnCircle } from "@/lib/geo";
-import { fitFrame, frameForRadius, metersToPixels, staticMapUrl, toPixel, type MapFrame } from "@/lib/staticMap";
+import { frameForRadius, metersToPixels, staticMapUrl, toPixel, type MapFrame } from "@/lib/staticMap";
 import type { BuildingDetail, CommuteResult, FoodPlace, FoodResult, OwnerPortfolio } from "@/types/building";
 import { GradeTile } from "@/components/ui/GradeTile";
-import { BriefcaseIcon, PersonIcon, WalkIcon } from "@/components/ui/icons";
-import { FOOD_KINDS, RouteBullet, legSpokenName, mergeWalks, tidyTransitName } from "@/components/building/shared";
+import {
+  ArrowRightIcon,
+  BriefcaseIcon,
+  ChevronRightIcon,
+  CompareIcon,
+  LinkIcon,
+  PersonIcon,
+  RestaurantIcon,
+  TrainIcon,
+  WalkIcon,
+} from "@/components/ui/icons";
+import { FOOD_KINDS, GradeBar, RouteBullet, legSpokenName, mergeWalks, placeLine } from "@/components/building/shared";
+import { CardIconBox, FactChips } from "@/components/building/SummaryFace";
 import { LegBar, legText } from "@/components/building/CommuteFace";
 import { SubScoreRow, subScores, trails } from "@/components/building/DeepFace";
-import { prepareRoute } from "@/components/map/routeAnimation";
-import { LABEL_SIDES, stationLabelBox, type LabelSide } from "@/components/map/markers";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
 
@@ -70,27 +81,12 @@ function MapCanvas({ frame, label, children }: { frame: MapFrame; label: string;
   );
 }
 
-/** A pill caption ("322 East 19 St", "23 min"), as the map's markers draw them. */
-function Pill({ text, u, size, dark = false, display = false, style }: {
-  text: string;
-  u: (px: number) => string;
-  size: number;
-  dark?: boolean;
-  display?: boolean;
-  style?: CSSProperties;
-}) {
+/** A pill caption ("6 min walk"), as the map's markers draw them. */
+function Pill({ text, u, size, style }: { text: string; u: (px: number) => string; size: number; style?: CSSProperties }) {
   return (
     <span
-      className={`absolute whitespace-nowrap rounded-full ${display ? "font-display font-extrabold" : "font-sans font-bold"}`}
-      style={{
-        fontSize: u(size),
-        lineHeight: 1.35,
-        padding: `${u(display ? 5 : 3)} ${u(display ? 16 : 10)}`,
-        border: `${u(display ? 2.5 : 2)} solid ${INK}`,
-        background: dark ? INK : "#FFFFFF",
-        color: dark ? "#FFFFFF" : INK,
-        ...style,
-      }}
+      className="absolute whitespace-nowrap rounded-full bg-white font-sans font-bold text-ink"
+      style={{ fontSize: u(size), lineHeight: 1.35, padding: `${u(3)} ${u(10)}`, border: `${u(2)} solid ${INK}`, ...style }}
     >
       {text}
     </span>
@@ -98,203 +94,31 @@ function Pill({ text, u, size, dark = false, display = false, style }: {
 }
 
 /** The grade tile with its hard shadow, centered on the building (as the map's building marker). */
-function BuildingTile({ frame, at, grade, caption }: { frame: MapFrame; at: [number, number]; grade: string; caption?: string }) {
+function BuildingTile({ frame, at, grade }: { frame: MapFrame; at: [number, number]; grade: string }) {
   const u = unitFor(frame.width);
   const g = toGrade(grade, "F");
   const [x, y] = at;
   return (
-    <>
-      <span
-        className="absolute flex items-center justify-center font-display font-extrabold"
-        style={{
-          left: pct(x, frame.width),
-          top: pct(y, frame.height),
-          transform: "translate(-50%, -50%)",
-          width: u(38),
-          height: u(46),
-          borderRadius: u(9),
-          border: `${u(2.5)} solid ${INK}`,
-          background: GRADE_META[g].bg,
-          color: GRADE_META[g].fg,
-          boxShadow: `${u(4)} ${u(4)} 0 ${INK}`,
-          fontSize: u(30),
-          lineHeight: 1,
-          zIndex: 3,
-        }}
-      >
-        {g}
-      </span>
-      {caption && (
-        <Pill text={caption} u={u} size={13} dark style={{ left: pct(x, frame.width), top: pct(y + 31, frame.height), transform: "translateX(-50%)", zIndex: 3 }} />
-      )}
-    </>
-  );
-}
-
-// --- The commute, drawn on the map ---
-
-interface Station {
-  at: [number, number];
-  name: string | null;
-  color: string;
-}
-
-/** Place each station's name on the first clear side of its dot (as stationLabels.ts does on the map). */
-function placeLabels(frame: MapFrame, stations: Station[], obstacles: Box[], size: number): (LabelSide | null)[] {
-  const placed = [...obstacles, ...stations.map(({ at: [x, y] }) => ({ x0: x - 8, y0: y - 8, x1: x + 8, y1: y + 8 }))];
-  // First boarding and final exit first; transfers fill in around them.
-  const order = stations.length > 2 ? [0, stations.length - 1, ...stations.slice(1, -1).map((_, i) => i + 1)] : stations.map((_, i) => i);
-  const sides: (LabelSide | null)[] = stations.map(() => null);
-  for (const i of order) {
-    const { at: [x, y], name } = stations[i];
-    if (!name) continue;
-    const w = textWidth(name, size) + 24;
-    const h = size * 1.35 + 10;
-    for (const side of LABEL_SIDES) {
-      const box = stationLabelBox(side, x, y, w, h);
-      if (inFrame(frame, box) && !placed.some((b) => overlaps(b, box))) {
-        placed.push(box);
-        sides[i] = side;
-        break;
-      }
-    }
-  }
-  return sides;
-}
-
-function labelStyle(side: LabelSide, [x, y]: [number, number], frame: MapFrame): CSSProperties {
-  const reach = 8 + 6; // half the dot + the gap, as stationLabelBox
-  switch (side) {
-    case "right":
-      return { left: pct(x + reach, frame.width), top: pct(y, frame.height), transform: "translateY(-50%)" };
-    case "left":
-      return { right: pct(frame.width - (x - reach), frame.width), top: pct(y, frame.height), transform: "translateY(-50%)" };
-    case "below":
-      return { left: pct(x, frame.width), top: pct(y + reach, frame.height), transform: "translateX(-50%)" };
-    case "above":
-      return { left: pct(x, frame.width), bottom: pct(frame.height - (y - reach), frame.height), transform: "translateX(-50%)" };
-  }
-}
-
-export function RouteMapView({
-  building,
-  commute,
-  work,
-  keepClear,
-}: {
-  building: PublicBuilding;
-  commute: CommuteResult | null;
-  work: { label: string; latitude: number; longitude: number };
-  /** A corner (from x, y as fractions, to the bottom right) that something will cover: the route is framed beside it and no label goes in it. */
-  keepClear?: { x: number; y: number };
-}) {
-  const from: LngLat = [building.longitude ?? 0, building.latitude ?? 0];
-  const to: LngLat = [work.longitude, work.latitude];
-  const route = commute ? prepareRoute(commute.legs, from, to) : null;
-  const [W, H] = [760, 590];
-  const right = keepClear ? Math.round((1 - keepClear.x) * W) + 20 : 70;
-  const frame = fitFrame(route ? [from, to, ...route.all] : [from, to], W, H, { top: 52, right, bottom: 82, left: 60 }, 15);
-  const u = unitFor(frame.width);
-  const px = (p: LngLat) => toPixel(frame, p);
-  const home = px(from);
-  const office = px(to);
-  const address = shortAddress(building.address);
-  const workCaption = `Work · ${work.label}`;
-
-  // Stations: one per boarding and exit, a same-name transfer once (as the map overlay).
-  const stations: Station[] = [];
-  const rides = route ? route.legs.filter((l) => !l.walk) : [];
-  rides.forEach((ride, i) => {
-    const color = ride.color ?? INK;
-    if (!rides[i - 1] || rides[i - 1].leg.to_name !== ride.leg.from_name) {
-      stations.push({ at: px(ride.points[0]), name: tidyTransitName(ride.leg.from_name), color });
-    }
-    stations.push({ at: px(ride.points[ride.points.length - 1]), name: tidyTransitName(ride.leg.to_name), color });
-  });
-
-  const minutes = commute ? `${commute.duration_min} min` : null;
-  const pill = route && minutes ? px(route.labelAt) : null;
-  const captionBox = ([x, y]: [number, number], text: string, size: number): Box => {
-    const w = textWidth(text, size) + 24;
-    return { x0: x - w / 2, y0: y + 31, x1: x + w / 2, y1: y + 31 + size * 1.35 + 10 };
-  };
-  const obstacles: Box[] = [
-    { x0: home[0] - 23, y0: home[1] - 27, x1: home[0] + 27, y1: home[1] + 27 },
-    captionBox(home, address, 13),
-    { x0: office[0] - 25, y0: office[1] - 25, x1: office[0] + 25, y1: office[1] + 25 },
-    captionBox(office, workCaption, 12),
-  ];
-  if (pill && minutes) {
-    const w = textWidth(minutes, 18) + 36;
-    obstacles.push({ x0: pill[0] - w / 2, y0: pill[1] - 18, x1: pill[0] + w / 2, y1: pill[1] + 18 });
-  }
-  if (keepClear) obstacles.push({ x0: keepClear.x * W, y0: keepClear.y * H, x1: W, y1: H });
-  const sides = placeLabels(frame, stations, obstacles, 12);
-
-  return (
-    <MapCanvas
-      frame={frame}
-      label={`Map of the weekday commute from ${address} to the ${work.label}${minutes ? `: ${minutes}` : ""}`}
+    <span
+      className="absolute flex items-center justify-center font-display font-extrabold"
+      style={{
+        left: pct(x, frame.width),
+        top: pct(y, frame.height),
+        transform: "translate(-50%, -50%)",
+        width: u(38),
+        height: u(46),
+        borderRadius: u(9),
+        border: `${u(2.5)} solid ${INK}`,
+        background: GRADE_META[g].bg,
+        color: GRADE_META[g].fg,
+        boxShadow: `${u(4)} ${u(4)} 0 ${INK}`,
+        fontSize: u(30),
+        lineHeight: 1,
+        zIndex: 3,
+      }}
     >
-      {route && (
-        <svg viewBox={`0 0 ${frame.width} ${frame.height}`} className="absolute inset-0 h-full w-full" aria-hidden="true">
-          {route.legs.map((leg, i) => {
-            const points = leg.points.map((p) => px(p).map((n) => n.toFixed(1)).join(",")).join(" ");
-            return leg.walk ? (
-              <polyline key={i} points={points} fill="none" stroke={INK} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="0 9" />
-            ) : (
-              <g key={i}>
-                <polyline points={points} fill="none" stroke="#FFFFFF" strokeWidth={11} strokeLinecap="round" strokeLinejoin="round" />
-                <polyline points={points} fill="none" stroke={leg.color ?? INK} strokeWidth={6} strokeLinecap="round" strokeLinejoin="round" />
-              </g>
-            );
-          })}
-        </svg>
-      )}
-
-      {stations.map((s, i) => (
-        <span key={i}>
-          <span
-            className="absolute rounded-full bg-white"
-            style={{
-              left: pct(s.at[0], frame.width),
-              top: pct(s.at[1], frame.height),
-              transform: "translate(-50%, -50%)",
-              width: u(16),
-              height: u(16),
-              border: `${u(4)} solid ${s.color}`,
-              boxShadow: `0 0 0 ${u(1.5)} ${INK}`,
-              zIndex: 2,
-            }}
-          />
-          {s.name && sides[i] && <Pill text={s.name} u={u} size={12} style={{ ...labelStyle(sides[i]!, s.at, frame), zIndex: 2 }} />}
-        </span>
-      ))}
-
-      {/* Work: an ink disc with a briefcase, captioned below */}
-      <span
-        className="absolute flex items-center justify-center rounded-full bg-ink text-white"
-        style={{
-          left: pct(office[0], frame.width),
-          top: pct(office[1], frame.height),
-          transform: "translate(-50%, -50%)",
-          width: u(46),
-          height: u(46),
-          border: `${u(3)} solid #FFFFFF`,
-          boxShadow: `0 0 0 ${u(2)} ${INK}`,
-          zIndex: 3,
-        }}
-      >
-        <BriefcaseIcon style={{ width: u(22), height: u(22) }} />
-      </span>
-      <Pill text={workCaption} u={u} size={12} style={{ left: pct(office[0], frame.width), top: pct(office[1] + 31, frame.height), transform: "translateX(-50%)", zIndex: 3 }} />
-
-      <BuildingTile frame={frame} at={home} grade={building.grade} caption={address} />
-
-      {pill && minutes && (
-        <Pill text={minutes} u={u} size={18} display style={{ left: pct(pill[0], frame.width), top: pct(pill[1], frame.height), transform: "translate(-50%, -50%)", zIndex: 4 }} />
-      )}
-    </MapCanvas>
+      {g}
+    </span>
   );
 }
 
@@ -303,6 +127,67 @@ export function RouteMapView({
 // Names a deli pick shouldn't have (reads as a grocery), and kitchens that aren't restaurants.
 const NOT_DELI = /grocery|market/i;
 const NOT_RESTAURANT = /dorm|school|college|universit|cafeteria|hospital|kitchen$/i;
+
+// A named pin is drawn open (bigger, ringed); its callout's tail ends just above the ring.
+const NAMED_PIN = 30;
+const RING = 5;
+const CALLOUT_LIFT = NAMED_PIN / 2 + RING + 5;
+const CALLOUT_HEIGHT = 12 * 1.35 + 10 + 4; // the pill plus the tail below it
+
+function FoodPin({ frame, place, at, size, open = false }: {
+  frame: MapFrame;
+  place: FoodPlace;
+  at: [number, number];
+  size: number;
+  open?: boolean;
+}) {
+  const u = unitFor(frame.width);
+  const price = place.price_tier ? PRICE_META[place.price_tier] : PRICE_UNKNOWN;
+  const Icon = (FOOD_KINDS.find((k) => k.key === place.category) ?? FOOD_KINDS[2]).Icon;
+  return (
+    <span
+      className="absolute flex items-center justify-center rounded-full"
+      style={{
+        left: pct(at[0], frame.width),
+        top: pct(at[1], frame.height),
+        transform: "translate(-50%, -50%)",
+        width: u(size),
+        height: u(size),
+        border: `${u(2)} solid ${INK}`,
+        background: price.bg,
+        color: price.fg,
+        // The map's open-pin ring (.byr-food[data-active] in globals.css).
+        boxShadow: open ? `0 0 0 ${u(3)} #FFFFFF, 0 0 0 ${u(RING)} ${INK}` : undefined,
+        zIndex: open ? 4 : undefined,
+      }}
+    >
+      <Icon style={{ width: u(size * 0.54), height: u(size * 0.54) }} strokeWidth={2.2} />
+    </span>
+  );
+}
+
+/** A place's name on a pill whose tail points down at its pin. */
+function Callout({ frame, text, at: [x, y] }: { frame: MapFrame; text: string; at: [number, number] }) {
+  const u = unitFor(frame.width);
+  return (
+    <span
+      className="absolute flex flex-col items-center"
+      style={{ left: pct(x, frame.width), bottom: pct(frame.height - (y - CALLOUT_LIFT), frame.height), transform: "translateX(-50%)", zIndex: 5 }}
+    >
+      <span
+        className="whitespace-nowrap rounded-full bg-white font-sans font-bold text-ink"
+        style={{ fontSize: u(12), lineHeight: 1.35, padding: `${u(3)} ${u(10)}`, border: `${u(2)} solid ${INK}` }}
+      >
+        {text}
+      </span>
+      <span
+        aria-hidden="true"
+        className="bg-white"
+        style={{ width: u(10), height: u(10), marginTop: u(-6), borderRight: `${u(2)} solid ${INK}`, borderBottom: `${u(2)} solid ${INK}`, transform: "rotate(45deg)" }}
+      />
+    </span>
+  );
+}
 
 export function FoodMapView({ building, food }: { building: PublicBuilding; food: FoodResult }) {
   const center: LngLat = [food.center.longitude, food.center.latitude];
@@ -314,23 +199,35 @@ export function FoodMapView({ building, food }: { building: PublicBuilding; food
     .filter((p) => p.distance_m <= food.radius_m)
     .slice(0, 110)
     .map((p) => ({ place: p, at: toPixel(frame, [p.longitude, p.latitude]) }));
+  const walk = toPixel(frame, pointOnCircle(center, food.radius_m, 135));
+  const walkText = `${food.walk_minutes} min walk`;
+  const walkWidth = textWidth(walkText, 12) + 24;
 
-  // One name per kind, nearest first: clear of the building tile and of each other.
+  // One name per kind, nearest first, where its callout clears the building
+  // tile, the walk pill and the other names.
+  const taken: Box[] = [
+    { x0: home[0] - 25, y0: home[1] - 29, x1: home[0] + 29, y1: home[1] + 29 },
+    { x0: walk[0] - walkWidth / 2, y0: walk[1] - 13, x1: walk[0] + walkWidth / 2, y1: walk[1] + 13 },
+  ];
   const named: typeof pins = [];
   for (const kind of ["grocery", "deli", "restaurant"] as FoodPlace["category"][]) {
-    const pick = pins.find(
-      ({ place, at }) =>
-        place.category === kind &&
-        !(kind === "deli" && NOT_DELI.test(place.name)) &&
-        !(kind === "restaurant" && NOT_RESTAURANT.test(place.name)) &&
-        Math.hypot(at[0] - home[0], at[1] - home[1]) > 80 &&
-        at[1] > 40 &&
-        named.every((n) => Math.hypot(n.at[0] - at[0], n.at[1] - at[1]) > 95)
-    );
-    if (pick) named.push(pick);
+    for (const pin of pins) {
+      const { place, at: [x, y] } = pin;
+      if (place.category !== kind) continue;
+      if (kind === "deli" && NOT_DELI.test(place.name)) continue;
+      if (kind === "restaurant" && NOT_RESTAURANT.test(place.name)) continue;
+      if (Math.hypot(x - home[0], y - home[1]) < 80) continue;
+      const w = textWidth(place.name, 12) + 24;
+      const reach = NAMED_PIN / 2 + RING;
+      const label = { x0: x - w / 2, y0: y - CALLOUT_LIFT - CALLOUT_HEIGHT, x1: x + w / 2, y1: y - CALLOUT_LIFT + 2 };
+      const disc = { x0: x - reach, y0: y - reach, x1: x + reach, y1: y + reach };
+      if (!inFrame(frame, label) || taken.some((t) => overlaps(t, label) || overlaps(t, disc))) continue;
+      taken.push(label, disc);
+      named.push(pin);
+      break;
+    }
   }
-  const walk = toPixel(frame, pointOnCircle(center, food.radius_m, 135));
-  const kindOf = (p: FoodPlace) => FOOD_KINDS.find((k) => k.key === p.category) ?? FOOD_KINDS[2];
+  const namedIds = new Set(named.map((n) => n.place.id));
 
   return (
     <MapCanvas
@@ -341,47 +238,219 @@ export function FoodMapView({ building, food }: { building: PublicBuilding; food
         <circle cx={fixed(home[0], 1)} cy={fixed(home[1], 1)} r={fixed(radius, 1)} fill="rgba(18,20,26,0.04)" stroke={INK} strokeWidth={2} strokeDasharray="6 8" />
       </svg>
 
-      {[...pins].reverse().map(({ place, at }) => {
-        const price = place.price_tier ? PRICE_META[place.price_tier] : PRICE_UNKNOWN;
-        const Icon = kindOf(place).Icon;
-        return (
-          <span
-            key={place.id}
-            className="absolute flex items-center justify-center rounded-full"
-            style={{
-              left: pct(at[0], frame.width),
-              top: pct(at[1], frame.height),
-              transform: "translate(-50%, -50%)",
-              width: u(24),
-              height: u(24),
-              border: `${u(2)} solid ${INK}`,
-              background: price.bg,
-              color: price.fg,
-            }}
-          >
-            <Icon style={{ width: u(13), height: u(13) }} strokeWidth={2.2} />
-          </span>
-        );
-      })}
+      {[...pins].reverse().map(({ place, at }) =>
+        namedIds.has(place.id) ? null : <FoodPin key={place.id} frame={frame} place={place} at={at} size={24} />
+      )}
 
       {named.map(({ place, at }) => (
-        <Pill
-          key={place.id}
-          text={place.name}
-          u={u}
-          size={12}
-          style={{ left: pct(at[0], frame.width), bottom: pct(frame.height - (at[1] - 17), frame.height), transform: "translateX(-50%)", zIndex: 4 }}
-        />
+        <span key={place.id}>
+          <FoodPin frame={frame} place={place} at={at} size={NAMED_PIN} open />
+          <Callout frame={frame} text={place.name} at={at} />
+        </span>
       ))}
 
       <BuildingTile frame={frame} at={home} grade={building.grade} />
-      <Pill
-        text={`${food.walk_minutes} min walk`}
-        u={u}
-        size={12}
-        style={{ left: pct(walk[0], frame.width), top: pct(walk[1], frame.height), transform: "translate(-50%, -50%)", zIndex: 3 }}
-      />
+      <Pill text={walkText} u={u} size={12} style={{ left: pct(walk[0], frame.width), top: pct(walk[1], frame.height), transform: "translate(-50%, -50%)", zIndex: 3 }} />
     </MapCanvas>
+  );
+}
+
+// --- The building card ---
+
+interface CardProps {
+  /** The example building, owner fields already stripped. */
+  building: BuildingDetail;
+  commute: CommuteResult | null;
+  food: FoodResult | null;
+  workLabel: string;
+  /** The building on the map. */
+  href: string;
+}
+
+// The card's buttons and links are drawn, not wired: the address link covers the whole card.
+const drawnLink = "inline-flex min-h-[44px] items-center text-[13px] font-semibold text-ink underline underline-offset-2";
+
+/** The address, linking to the building on the map; its ::after stretches the link over the card. */
+function CardLink({ href, className, children }: { href: string; className: string; children: ReactNode }) {
+  return (
+    <Link href={href} className={`block text-ink no-underline decoration-[3px] underline-offset-4 after:absolute after:inset-0 after:z-10 hover:underline ${className}`}>
+      {children}
+    </Link>
+  );
+}
+
+/** Commute or Food nearby, as the card's teaser boxes. */
+function Teaser({ Icon, title, sub, action, children }: {
+  Icon: typeof TrainIcon;
+  title: string;
+  sub: string;
+  action: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-[20px] border-2 border-ink p-4">
+      <div className="flex items-center gap-2.5">
+        <CardIconBox><Icon size={20} /></CardIconBox>
+        <div>
+          <div className="font-display text-[19px] font-extrabold leading-tight tracking-[-0.02em]">{title}</div>
+          <div className="text-xs text-muted">{sub}</div>
+        </div>
+      </div>
+      {children}
+      <span aria-hidden="true" className="btn-outline mt-auto h-[46px] w-full border-2 text-sm">{action}</span>
+    </div>
+  );
+}
+
+/** The map's building card (SummaryFace), with the example's commute and food filled in. */
+export function BuildingCardView({ building, commute, food, workLabel, href }: CardProps) {
+  const g = toGrade(building.grade, "F");
+  const meta = GRADE_META[g];
+  const transit = commute ? mergeWalks(commute.legs).filter((l) => l.mode !== "WALK") : [];
+  return (
+    <div className="card-float relative flex flex-col gap-[18px] rounded-[28px] px-5 py-5 shadow-hard-xl sm:px-[26px] sm:py-[22px]">
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div>
+            <CardLink href={href} className="font-display text-[30px] font-extrabold leading-[1.05] tracking-[-0.03em] sm:text-[34px]">
+              {titleCase(building.address)}
+            </CardLink>
+            <div className="text-sm text-muted">{placeLine(building)}</div>
+          </div>
+          <FactChips data={building} />
+        </div>
+        <span aria-hidden="true" className="icon-btn">
+          <LinkIcon size={18} />
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-4 rounded-[22px] border-2 border-ink bg-surface px-5 py-[18px]">
+        <div className="flex items-center gap-5 sm:gap-[22px]">
+          <GradeTile grade={g} size="xl" rotate={-4} shadow="md" />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <div className="eyebrow">Building health</div>
+            <div className="font-display font-extrabold leading-none tracking-[-0.03em]">
+              <span className="text-[56px]">{Math.round(building.health_score)}</span>
+              <span className="text-xl text-muted"> / 100</span>
+            </div>
+            <p className="m-0 text-sm text-ink-2">
+              <strong className="text-ink">{meta.headline}</strong> {meta.detail}
+            </p>
+          </div>
+        </div>
+        <GradeBar score={building.health_score} />
+        <span aria-hidden="true" className="flex min-h-[48px] items-center justify-between gap-3 rounded-[13px] border-[1.5px] border-ink bg-white px-3.5 text-sm font-bold">
+          <span>
+            What&apos;s behind this grade <span className="font-medium text-muted">complaints, violations, lawsuits</span>
+          </span>
+          <ChevronRightIcon size={18} className="shrink-0" />
+        </span>
+      </div>
+
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3.5">
+        <Teaser Icon={TrainIcon} title="Commute" sub="Transit and walking, door to door" action="See the route">
+          <div>
+            <div className="font-display font-extrabold leading-none tracking-[-0.03em]">
+              {commute ? (
+                <>
+                  <span className="text-[40px]">{commute.duration_min}</span>
+                  <span className="text-lg"> min</span>
+                </>
+              ) : (
+                <span className="text-[22px]">No route</span>
+              )}
+            </div>
+            <div className="mt-1 truncate text-xs text-muted">
+              to {workLabel}
+              {transit.length > 0 && " · "}
+              {transit.map((l, i) => (
+                <span key={i} className="ml-1 inline-block align-middle"><RouteBullet leg={l} size={18} /></span>
+              ))}
+            </div>
+          </div>
+        </Teaser>
+        <Teaser Icon={RestaurantIcon} title="Food nearby" sub={`Within a ${food?.walk_minutes ?? 5}-minute walk`} action="Show food on the map">
+          <div className="flex flex-col gap-1 text-[13px] font-semibold">
+            {FOOD_KINDS.map((k) => (
+              <div key={k.key} className="flex justify-between">
+                <span>{k.label}</span>
+                <span>{food ? food.counts[k.key] : "—"}</span>
+              </div>
+            ))}
+          </div>
+        </Teaser>
+      </div>
+
+      <OwnerStripView portfolio={building.owner_portfolio ?? null} />
+
+      <div aria-hidden="true" className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <span className="btn-outline">
+          <CompareIcon size={16} />
+          Compare with another
+        </span>
+        <span className="flex flex-wrap gap-x-4">
+          <span className={drawnLink}>Listings on StreetEasy</span>
+          <span className={drawnLink}>Flag a data issue</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** The phone's bottom sheet (MobileSheet): the same card in three rows. */
+export function BuildingSheetView({ building, commute, food, workLabel, href }: CardProps) {
+  const g = toGrade(building.grade, "F");
+  const rent = RENT_STATUS_LABEL[building.rent_status];
+  const foodTotal = food ? food.counts.deli + food.counts.grocery + food.counts.restaurant : null;
+  const row = "flex items-center gap-2.5 border-t-[1.5px] border-line py-0.5";
+  return (
+    <div className="card-float relative flex flex-col gap-4 rounded-[24px] px-4 pb-5 pt-2.5 shadow-hard-md">
+      <span aria-hidden="true" className="h-[5px] w-11 self-center rounded-full bg-ink" />
+      <div className="flex items-center gap-3.5">
+        <GradeTile grade={g} size="lg" rotate={-4} shadow="sm" />
+        <div className="min-w-0 flex-1">
+          <CardLink href={href} className="truncate font-display text-2xl font-extrabold leading-tight tracking-[-0.02em]">
+            {shortAddress(building.address)}
+          </CardLink>
+          <div className="text-[13px] text-muted">
+            {[titleCase(building.nta_name || building.neighborhood), building.residential_units ? `${building.residential_units} units` : null, rent?.toLowerCase()]
+              .filter(Boolean)
+              .join(" · ")}
+          </div>
+          <div className="text-[13px] font-bold">
+            {Math.round(building.health_score)} out of 100 · {GRADE_META[g].short}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col border-b-[1.5px] border-line">
+        <div className={row}>
+          <span className="flex-1 text-sm font-bold">Building health</span>
+          <span className={drawnLink}>What&apos;s behind the {g}</span>
+        </div>
+        <div className={row}>
+          <span className="flex-1 text-sm font-bold">Commute</span>
+          <span className={drawnLink}>{commute ? `${commute.duration_min} min to ${workLabel}` : "See the route"}</span>
+        </div>
+        <div className={row}>
+          <span className="flex-1 text-sm font-bold">Food nearby</span>
+          <span className={drawnLink}>{foodTotal != null ? `${foodTotal} spots within ${food?.walk_minutes ?? 5} min` : "—"}</span>
+        </div>
+      </div>
+
+      <div aria-hidden="true" className="flex gap-2">
+        <span className="btn-ink h-[50px] flex-1 rounded-[14px] text-base">
+          Open the full card
+          <ArrowRightIcon size={18} />
+        </span>
+        <span className="icon-btn h-[50px] w-[50px] rounded-[14px] border-2">
+          <CompareIcon size={20} />
+        </span>
+        <span className="icon-btn h-[50px] w-[50px] rounded-[14px] border-2">
+          <LinkIcon size={18} />
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -492,10 +561,11 @@ export function GradeBreakdownView({ building }: { building: BuildingDetail }) {
 
 /** The owner strip, with the name left out entirely (the owner on record may be a private person). */
 export function OwnerStripView({ portfolio }: { portfolio: OwnerPortfolio | null }) {
-  const holds =
-    portfolio && portfolio.building_count > 1
-      ? `Owns ${portfolio.building_count} buildings · average grade ${toGrade(portfolio.grade, "F")}`
-      : "This is the only building they own in our data";
+  // One building is nothing more to see, so the button greys out (as on the map's card).
+  const solo = !portfolio || portfolio.building_count <= 1;
+  const holds = solo
+    ? "This is the only building they own in our data"
+    : `Owns ${portfolio.building_count} buildings · average grade ${toGrade(portfolio.grade, "F")}`;
   return (
     <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2.5 rounded-2xl bg-ink px-3.5 py-3 text-white">
       <PersonIcon size={20} />
@@ -503,7 +573,10 @@ export function OwnerStripView({ portfolio }: { portfolio: OwnerPortfolio | null
         <span aria-hidden="true" className="block h-3.5 w-40 max-w-full rounded-full bg-white/25" />
         <span className="text-line">{holds}</span>
       </div>
-      <span aria-hidden="true" className="inline-flex h-10 items-center rounded-[11px] bg-white px-3.5 text-[13px] font-bold text-ink">
+      <span
+        aria-hidden="true"
+        className={`inline-flex h-10 items-center rounded-[11px] px-3.5 text-[13px] font-bold ${solo ? "bg-white/20 text-white/60" : "bg-white text-ink"}`}
+      >
         See their buildings
       </span>
     </div>

@@ -54,7 +54,7 @@ export function FactChips({ data }: { data: BuildingDetail }) {
   );
 }
 
-function CardIconBox({ children }: { children: React.ReactNode }) {
+export function CardIconBox({ children }: { children: React.ReactNode }) {
   return (
     <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[10px] border-2 border-ink">
       {children}

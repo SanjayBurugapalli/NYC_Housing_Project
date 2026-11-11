@@ -3,14 +3,13 @@
 // come from the same endpoint the map's building card uses. Revalidated hourly;
 // if the API can't be reached the page renders without any numbers.
 
-import type { BuildingDetail, CommuteResult, FoodResult, ScoreBreakdown } from "@/types/building";
+import type { BuildingDetail, CommuteResult, FoodResult } from "@/types/building";
 import type { RefreshStatus } from "@/lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 /** 322 East 19 St, Gramercy: the homepage's example. A building, not a listing. */
 export const HERO_BBL = "1009240054";
-export const HERO_FALLBACK = { address: "322 East 19 St", place: "Gramercy, Manhattan" };
 
 async function getJson<T>(path: string): Promise<T | null> {
   try {
@@ -75,18 +74,3 @@ export function gradeDataUpdated(status: RefreshStatus | null): string | null {
 
 export const formatDay = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" });
-
-type CountKey = keyof Pick<
-  ScoreBreakdown,
-  "pest_rodent_count" | "heat_hot_water_count" | "structural_safety_count" | "hpd_severity_count" | "litigation_count" | "noise_count"
->;
-
-/** The six sub-scores in weight order, named as the grade section names them. */
-export const RECORD_CATEGORIES: { key: CountKey; name: string }[] = [
-  { key: "pest_rodent_count", name: "Pests" },
-  { key: "heat_hot_water_count", name: "Heat" },
-  { key: "structural_safety_count", name: "Structural" },
-  { key: "hpd_severity_count", name: "Housing code" },
-  { key: "litigation_count", name: "Lawsuits" },
-  { key: "noise_count", name: "Noise" },
-];

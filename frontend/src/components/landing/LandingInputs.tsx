@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { resolveListing } from "@/lib/api";
 import { looksLikeListingUrl } from "@/hooks/useSearchRunner";
 import { titleCase } from "@/lib/grades";
-import { CheckIcon, LinkIcon, MenuIcon, ArrowRightIcon } from "@/components/ui/icons";
+import { CheckIcon, MenuIcon, ArrowRightIcon } from "@/components/ui/icons";
 
 type Status = { kind: "idle" } | { kind: "busy" } | { kind: "found"; text: string } | { kind: "error"; text: string };
 
@@ -63,9 +63,10 @@ function StatusLine({ status }: { status: Status }) {
 }
 
 /**
- * The page's one search: paste a StreetEasy or Zillow link. (An address typed
- * here still works — useTakeMeThere hands anything that isn't a link to the
- * map's search.) id="search" is the bottom call to action's anchor.
+ * The page's one search: a StreetEasy or Zillow link resolves here; anything
+ * else (an address, neighborhood, landlord or question) goes to the map's
+ * search. The subhead above names the options, so the label is for screen
+ * readers. id="search" is the bottom call to action's anchor.
  */
 export function HeroSearch() {
   const [link, setLink] = useState("");
@@ -79,19 +80,17 @@ export function HeroSearch() {
 
   return (
     <form id="search" onSubmit={submit} className="flex max-w-[600px] scroll-mt-6 flex-col gap-2">
-      <label htmlFor="hero-link" className="flex items-center gap-2 text-sm font-bold">
-        <LinkIcon size={18} />
-        Paste a StreetEasy or Zillow link
+      <label htmlFor="hero-link" className="sr-only">
+        Search by listing link, address, neighborhood, landlord or question
       </label>
       <div className="flex flex-wrap gap-2 rounded-[16px] border-2 border-ink bg-white p-1.5 shadow-hard-sm">
         <input
           ref={inputRef}
           id="hero-link"
           type="text"
-          inputMode="url"
           value={link}
           onChange={(e) => setLink(e.target.value)}
-          placeholder="streeteasy.com/building/…"
+          placeholder="A listing link, address, or question"
           className="h-12 min-w-0 flex-[1_1_220px] border-0 bg-transparent px-2.5 text-base font-medium text-ink focus:ring-0"
           autoComplete="off"
         />

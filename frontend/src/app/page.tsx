@@ -1,12 +1,10 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { DEFAULT_WEIGHTS } from "@/lib/scoringWeights";
-import { GRADE_BAR_SEGMENTS, GRADE_META, shortAddress, titleCase, toGrade } from "@/lib/grades";
+import { GRADE_BAR_SEGMENTS, GRADE_META } from "@/lib/grades";
 import {
   GRADE_DATASETS,
   HERO_BBL,
-  HERO_FALLBACK,
-  RECORD_CATEGORIES,
   datasetUrl,
   formatDay,
   HERO_WORKPLACE,
@@ -17,16 +15,15 @@ import {
   gradeDataUpdated,
   refreshedAt,
 } from "@/lib/landing";
-import type { BuildingDetail } from "@/types/building";
-import { GradeTile } from "@/components/ui/GradeTile";
 import { ArrowRightIcon, ChevronDownIcon, LogoIcon } from "@/components/ui/icons";
 import { HeroSearch, LandingNav } from "@/components/landing/LandingInputs";
 import {
+  BuildingCardView,
+  BuildingSheetView,
   CommuteCardView,
   FoodMapView,
   GradeBreakdownView,
   OwnerStripView,
-  RouteMapView,
 } from "@/components/landing/ProductViews";
 
 const REPO_URL = "https://github.com/SanjayBurugapalli/NYC_Housing_Project";
@@ -80,47 +77,6 @@ function FeatureText({ title, light = false, children }: { title: string; light?
     <div className="flex flex-col gap-1.5">
       <h3 className="m-0 font-display text-[26px] font-extrabold tracking-[-0.02em]">{title}</h3>
       <p className={`m-0 max-w-[520px] text-base ${light ? "text-line" : "text-ink-2"}`}>{children}</p>
-    </div>
-  );
-}
-
-/** The example building's numbers, straight from its API record. Never a listing: no rent, no unit count. */
-function HeroCard({ hero }: { hero: BuildingDetail | null }) {
-  const name = hero ? shortAddress(hero.address) : HERO_FALLBACK.address;
-  const place = hero ? [titleCase(hero.nta_name || hero.neighborhood), titleCase(hero.borough)].filter(Boolean).join(", ") : HERO_FALLBACK.place;
-  return (
-    <div className="relative z-10 mx-3 mt-3 flex flex-col gap-3 rounded-[18px] border-2 border-ink bg-white p-4 shadow-hard-md sm:mx-6 lg:absolute lg:-bottom-16 lg:-right-6 lg:mx-0 lg:mt-0 lg:w-[300px] xl:-right-14">
-      <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">A real building, not a listing</div>
-      <div className="flex items-center gap-3">
-        {hero && <GradeTile grade={toGrade(hero.grade, "F")} size="li" />}
-        <div className="min-w-0">
-          <div className="font-display text-xl font-extrabold leading-tight tracking-[-0.02em]">{name}</div>
-          <div className="text-[13px] text-muted">{place}</div>
-        </div>
-      </div>
-      {hero && (
-        <>
-          <div className="flex items-baseline justify-between border-t-[1.5px] border-line pt-2.5 text-sm">
-            <span className="font-semibold">Building health</span>
-            <span className="font-display text-lg font-extrabold">{Math.round(hero.health_score)} / 100</span>
-          </div>
-          <div>
-            <div className="pb-1 text-[11px] font-bold uppercase tracking-[0.08em] text-muted">On record, last five years</div>
-            <dl className="m-0 grid grid-cols-2 gap-x-5 gap-y-0.5 text-[13px]">
-              {RECORD_CATEGORIES.map((c) => (
-                <div key={c.key} className="flex justify-between gap-2">
-                  <dt className="text-ink-2">{c.name}</dt>
-                  <dd className="m-0 font-bold">{hero.score_breakdown[c.key]}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        </>
-      )}
-      <Link href={`/map?bbl=${HERO_BBL}`} className="inline-flex min-h-[44px] items-center gap-1.5 self-start text-sm font-bold text-ink underline underline-offset-2">
-        See it on the map
-        <ArrowRightIcon size={16} />
-      </Link>
     </div>
   );
 }
@@ -195,6 +151,7 @@ export default async function LandingPage() {
   const commute = await getHeroCommute(hero);
   const updated = gradeDataUpdated(refresh);
   const updatedText = updated ? formatDay(updated) : null;
+  const card = hero && { building: hero, commute, food, workLabel: HERO_WORKPLACE.label, href: `/map?bbl=${HERO_BBL}` };
 
   return (
     <div className="min-h-screen bg-surface text-base leading-normal text-ink" style={{ overflowX: "clip" }}>
@@ -211,14 +168,17 @@ export default async function LandingPage() {
         </div>
       </header>
 
-      {/* HERO: copy on the left, the example's commute on the map on the right */}
-      <section className="mx-auto grid max-w-[1232px] gap-x-12 gap-y-8 px-4 pb-12 pt-8 sm:px-6 sm:pt-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:pb-24">
+      {/* HERO: copy on the left, the example's building card on the right */}
+      <section className="mx-auto grid max-w-[1232px] gap-x-12 gap-y-8 px-4 pb-12 pt-8 sm:px-6 sm:pt-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:pb-16">
         <div className="flex min-w-0 flex-col gap-6">
           <h1 className="m-0 font-display text-[clamp(42px,4.6vw,66px)] font-extrabold leading-[0.98] tracking-[-0.035em]">
             Know your building <span style={gradeStripe(12)}>before you sign.</span>
           </h1>
-          <p className="m-0 max-w-[520px] text-[18px] leading-[1.55] text-ink-2">
-            Paste a StreetEasy or Zillow link and see the building&apos;s city record before signing your lease.
+          {/* Everything the search takes (useSearchRunner + the search parser), the options in ink. */}
+          <p className="m-0 max-w-[520px] text-pretty text-[18px] leading-[1.55] text-ink-2 [&_strong]:font-semibold [&_strong]:text-ink">
+            Paste a <strong>StreetEasy or Zillow link</strong>, look up an <strong>address</strong>, <strong>neighborhood</strong> or{" "}
+            <strong>landlord</strong>, or just <strong>ask in plain English</strong>, and see each building&apos;s city record before
+            signing your lease.
           </p>
           <HeroSearch />
           <div className="flex flex-wrap items-center gap-2">
@@ -229,15 +189,17 @@ export default async function LandingPage() {
           </div>
         </div>
 
-        <figure className="m-0 min-w-0 lg:mt-4">
-          <div className="relative">
-            <div className="overflow-hidden rounded-[22px] border-2 border-ink bg-white shadow-hard-lg">
-              {/* keepClear: the lower right, where the building card overlaps on desktop */}
-              {hero && <RouteMapView building={hero} commute={commute} work={HERO_WORKPLACE} keepClear={{ x: 0.62, y: 0.4 }} />}
+        {/* The map's own card for the example; on phones, the bottom sheet the app opens there. */}
+        {card && (
+          <div className="min-w-0">
+            <div className="md:hidden">
+              <BuildingSheetView {...card} />
             </div>
-            <HeroCard hero={hero} />
+            <div className="hidden max-w-[600px] md:block lg:ml-auto">
+              <BuildingCardView {...card} />
+            </div>
           </div>
-        </figure>
+        )}
       </section>
 
       {/* FEATURES: four, at different sizes */}
@@ -270,13 +232,10 @@ export default async function LandingPage() {
                 One bad building can be bad luck. Six is a pattern. See everything an owner holds, or browse the{" "}
                 <Link href="/rankings" className="font-semibold text-white underline underline-offset-2">worst landlords &amp; buildings rankings</Link>.
               </FeatureText>
-              <figure className="m-0 flex flex-col gap-2">
-                <div className="rounded-[18px] bg-white p-2">
-                  <OwnerStripView portfolio={hero?.owner_portfolio ?? null} />
-                </div>
-                {/* The owner on record is a private individual, so the view leaves the name out. */}
-                <figcaption className="text-xs text-[#B9C0CC]">From 322 East 19 St. The owner&apos;s name is left out here.</figcaption>
-              </figure>
+              {/* The owner on record is a private individual, so the view leaves the name out. */}
+              <div className="rounded-[18px] bg-white p-2">
+                <OwnerStripView portfolio={hero?.owner_portfolio ?? null} />
+              </div>
             </article>
 
             <article className="grid gap-6 rounded-[22px] border-2 border-ink bg-surface p-5 sm:p-7 lg:col-span-2 lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)] lg:items-center">
