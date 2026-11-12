@@ -99,7 +99,7 @@ SEARCH_TOOL = {
             },
             "max_units": {
                 "type": "integer", "minimum": 1,
-                "description": "Maximum residential units (use 10 for 'small'/'walk-up').",
+                "description": "Maximum residential units (use 10 for 'small'). A walk-up is building class C, not a size.",
             },
             "min_year_built": {
                 "type": "integer",

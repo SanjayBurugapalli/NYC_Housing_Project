@@ -10,6 +10,7 @@ Run with: cd backend && pytest tests/test_search_parser.py -v
 import pytest
 
 from app.services.search_service import (
+    COOP_CLASSES,
     MAX_RESULTS,
     build_sort,
     compute_confidence,
@@ -188,8 +189,20 @@ class TestParseSearchQuery:
         assert f.get("min_year_built") == 1946
 
     def test_year_before(self):
+        # Bounds are inclusive in SQL, so "before 1950" ends at 1949.
         f = parse_search_query("buildings built before 1950")
-        assert f.get("max_year_built") == 1950
+        assert f.get("max_year_built") == 1949
+
+    def test_year_after_excludes_the_year(self):
+        f = parse_search_query("buildings in long island city built after 2010")
+        assert f.get("min_year_built") == 2011
+
+    @pytest.mark.parametrize("query", [
+        "buildings in long island city built since 2010",
+        "long island city buildings 2010 or later",
+    ])
+    def test_year_since_includes_the_year(self, query):
+        assert parse_search_query(query).get("min_year_built") == 2010
 
     def test_year_decade(self):
         f = parse_search_query("buildings from the 1920s")
@@ -199,6 +212,38 @@ class TestParseSearchQuery:
     def test_litigation_keyword(self):
         f = parse_search_query("buildings with lawsuits in brooklyn")
         assert f.get("has_litigation") is True
+
+    @pytest.mark.parametrize("query", [
+        "elevator buildings in astoria with no lawsuits",
+        "buildings in astoria without litigation",
+        "never sued buildings in astoria",
+        "lawsuit-free co-ops in astoria",
+    ])
+    def test_negated_litigation(self, query):
+        assert parse_search_query(query).get("has_litigation") is False
+
+    def test_negation_stops_at_a_new_clause(self):
+        f = parse_search_query("buildings without rats with lawsuits in crown heights")
+        assert f.get("exclude_complaint_types") == ["pest"]
+        assert f.get("has_litigation") is True
+
+    def test_negation_spans_or(self):
+        f = parse_search_query("buildings with no rats or roaches in bushwick")
+        assert f.get("exclude_complaint_types") == ["pest"]
+        assert "complaint_types" not in f
+
+    @pytest.mark.parametrize("query", [
+        "big buildings in harlem",
+        "large apartment buildings in harlem",
+        "high-rises in harlem",
+    ])
+    def test_big_buildings(self, query):
+        assert parse_search_query(query).get("min_units") == 50
+
+    def test_walkup_is_a_type_not_a_size(self):
+        f = parse_search_query("walk-ups in park slope")
+        assert f.get("building_classes") == ["C"]
+        assert "max_units" not in f
 
     def test_limit_top_n(self):
         f = parse_search_query("top 10 worst buildings")
@@ -218,6 +263,58 @@ class TestParseSearchQuery:
         f = parse_search_query("co-op buildings in manhattan")
         # Co-op maps to a specific list of class codes
         assert "C6" in f.get("building_classes", [])
+
+    @pytest.mark.parametrize("query, classes", [
+        ("co-ops in jackson heights", COOP_CLASSES),
+        ("condos in brooklyn", ["R"]),
+        ("walk-ups in park slope", ["C"]),
+        ("elevator buildings in astoria", ["D"]),
+        ("elevator apartments in astoria", ["D"]),
+    ])
+    def test_building_class_plurals(self, query, classes):
+        assert parse_search_query(query).get("building_classes") == classes
+
+    @pytest.mark.parametrize("query, classes", [
+        ("elevator buildings in astoria", ["D"]),
+        ("buildings with an elevator in harlem", ["D"]),
+        ("buildings with no elevator in harlem", ["C"]),
+    ])
+    def test_elevator_as_building_type_is_not_a_complaint(self, query, classes):
+        f = parse_search_query(query)
+        assert f.get("building_classes") == classes
+        assert "complaint_types" not in f
+        assert "exclude_complaint_types" not in f
+        assert all(s["column"] != "hs.structural_safety_score" for s in f["sort"])
+
+    def test_elevator_complaints_still_count(self):
+        f = parse_search_query("broken elevator complaints in queens")
+        assert f.get("complaint_types") == ["structural"]
+        assert "building_classes" not in f
+
+    def test_hpd_class_c_is_not_a_building_class(self):
+        f = parse_search_query("buildings with class c violations in the bronx")
+        assert f.get("complaint_types") == ["hpd_c"]
+        assert "building_classes" not in f
+
+    def test_building_class_code_is_not_a_violation_class(self):
+        f = parse_search_query("building class c in brooklyn")
+        assert f.get("building_classes") == ["C"]
+        assert "complaint_types" not in f
+
+    @pytest.mark.parametrize("query, lo, hi", [
+        ("pre-war walk-ups in park slope with an a", 97, None),
+        ("buildings that got a b in astoria", 90, 96.99),
+        ("condos graded b or better in brooklyn", 90, None),
+        ("buildings rated c or worse in harlem", None, 89.99),
+    ])
+    def test_letter_grade_phrasings(self, query, lo, hi):
+        f = parse_search_query(query)
+        assert f.get("min_score") == lo
+        assert f.get("max_score") == hi
+
+    def test_article_alone_is_not_a_grade(self):
+        f = parse_search_query("buildings with a doorman in chelsea")
+        assert "min_score" not in f and "max_score" not in f
 
     def test_owner_extraction(self):
         f = parse_search_query("buildings owned by Acme Corp in brooklyn")

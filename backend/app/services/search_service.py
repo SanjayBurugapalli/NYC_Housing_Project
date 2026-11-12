@@ -364,7 +364,11 @@ _COMPLAINT_SORTED = sorted(COMPLAINT_KEYWORDS.items(), key=lambda x: -len(x[0]))
 
 LITIGATION_KEYWORDS = {"lawsuit", "lawsuits", "litigation", "litigations", "sued", "legal action"}
 
-# Maps keyword/phrase → list of building class codes (prefix = all codes starting with letter)
+# PLUTO's cooperative classes (walk-up, elevator, loft conversions, condo-held).
+COOP_CLASSES = ["C6", "C8", "D0", "D4", "DC", "CC", "R9"]
+
+# Maps keyword/phrase → list of building class codes (prefix = all codes starting with letter).
+# Matched with plurals allowed ("co-ops", "walk-ups", "elevator buildings").
 BUILDING_CLASS_KEYWORDS: list[tuple[str, list[str]]] = sorted([
     # One family
     ("one family", ["A"]), ("single family", ["A"]), ("1 family", ["A"]),
@@ -387,9 +391,7 @@ BUILDING_CLASS_KEYWORDS: list[tuple[str, list[str]]] = sorted([
     ("condo", ["R"]), ("condominium", ["R"]),
     ("condo rental", ["RR"]),
     # Co-ops / cooperatives
-    ("co-op", ["C6", "C8", "D0", "D4", "DC", "CC", "R9"]),
-    ("coop", ["C6", "C8", "D0", "D4", "DC", "CC", "R9"]),
-    ("cooperative", ["C6", "C8", "D0", "D4", "DC", "CC", "R9"]),
+    ("co-op", COOP_CLASSES), ("coop", COOP_CLASSES), ("cooperative", COOP_CLASSES),
     # Mixed use
     ("mixed use", ["S"]), ("mixed-use", ["S"]),
     # Hotels
@@ -608,21 +610,33 @@ def normalize(query: str) -> str:
 
 
 _NEGATION_RE = re.compile(
-    r"\b(?:without|no|not having|not any|not|free from|lacking)\b"
+    r"\b(?:without|no|never|not having|not any|not|free from|lacking)\b"
 )
 
 # How many characters after a negation word it is considered to scope over.
 _NEGATION_WINDOW = 60
 
+# A new clause ends a negation early: in "no rats with lawsuits" the lawsuits
+# are wanted, not excluded. "and"/"or" don't end it ("no rats or roaches").
+_CLAUSE_BREAK_RE = re.compile(r"\b(?:with|that|which|who|but)\b")
+
 
 def _negation_spans(q: str) -> list[tuple[int, int]]:
-    """(start, start+window) span for each negation word in the query.
+    """(start, end) span for each negation word in the query.
 
     A keyword whose start index falls inside any span is treated as negated
-    (e.g. "without rats", "no heat"). The "X-free" pattern is handled
+    (e.g. "without rats", "no heat"). A span runs up to 60 characters, or to
+    the next clause break if that comes first. The "X-free" pattern is handled
     separately by the caller.
     """
-    return [(m.start(), m.start() + _NEGATION_WINDOW) for m in _NEGATION_RE.finditer(q)]
+    spans = []
+    for m in _NEGATION_RE.finditer(q):
+        end = m.start() + _NEGATION_WINDOW
+        brk = _CLAUSE_BREAK_RE.search(q, m.end())
+        if brk and brk.start() < end:
+            end = brk.start()
+        spans.append((m.start(), end))
+    return spans
 
 
 def match_concepts(q: str) -> list[SortClause]:
@@ -739,21 +753,25 @@ def parse_search_query(query: str) -> dict:
     q = normalize(query)
     filters: dict = {}
 
+    # Building type first: the words it used ("elevator buildings") are blanked
+    # out before complaint and concept matching, so they aren't read a second
+    # time as an elevator complaint.
+    q_rest = _extract_building_class(q, filters)
+
     # Entity / filter extraction (order matters: entity extraction before stopword logic)
     _extract_borough(q, filters)
     _extract_neighborhood(q, filters)
-    _extract_complaint_types(q, filters)
+    _extract_complaint_types(q_rest, filters)
     _extract_score_filters(q, filters)
     _extract_litigation(q, filters)
     _extract_size_filters(q, filters)
     _extract_year_filters(q, filters)
-    _extract_building_class(q, filters)
     _extract_owner(q, filters)
     _extract_rent_stabilized(q, filters)
     _extract_limit(q, filters)
 
     # Concept pipeline determines sort and contributes to confidence
-    concepts = match_concepts(q)
+    concepts = match_concepts(q_rest)
     global_intent = detect_global_intent(q)
 
     # Special-case: explicit sort-by-count phrases override concept sort
@@ -782,6 +800,11 @@ def parse_search_query(query: str) -> dict:
 def _word_match(needle: str, haystack: str) -> bool:
     """Check if needle appears as a whole word/phrase in haystack."""
     return bool(re.search(r"\b" + re.escape(needle) + r"\b", haystack))
+
+
+def _plural_search(needle: str, haystack: str) -> re.Match | None:
+    """Whole-word match that also takes the plural: "co-op" finds "co-ops", "church" finds "churches"."""
+    return re.search(r"\b" + re.escape(needle) + r"(?:s|es)?\b", haystack)
 
 
 def _extract_borough(q: str, filters: dict) -> None:
@@ -840,7 +863,12 @@ _GRADE_BANDS: dict[str, tuple[float | None, float | None]] = {
     "f": (None, 54.99),
 }
 _GRADE_LETTER_RE = re.compile(
-    r"\b(?:grade[sd]?[\s-]+([abcdf])|([abcdf])[\s-](?:grade[sd]?|rated))\b"
+    r"\b(?:grade[sd]?[\s-]+([abcdf])|([abcdf])[\s-](?:grade[sd]?|rated)"
+    # "with an A", "that got a B" (the article is required: "with a doorman" is
+    # not a grade), and "rated C"
+    r"|(?:with|has|have|having|got|gets|earned)\s+an?\s+([abcdf])(?![\w-])"
+    r"|rated\s+(?:an?\s+)?([abcdf])(?![\w-]))"
+    r"(?:\s+or\s+(better|higher|above|worse|lower|below))?\b"
 )
 
 
@@ -848,7 +876,13 @@ def _extract_score_filters(q: str, filters: dict) -> None:
     """Set min/max composite score ranges. Sort direction is handled by build_sort."""
     m = _GRADE_LETTER_RE.search(q)
     if m:
-        lo, hi = _GRADE_BANDS[m.group(1) or m.group(2)]
+        lo, hi = _GRADE_BANDS[m.group(1) or m.group(2) or m.group(3) or m.group(4)]
+        direction = m.group(5)
+        # "B or better" keeps only the floor; "C or worse" only the ceiling.
+        if direction in ("better", "higher", "above"):
+            hi = None
+        elif direction in ("worse", "lower", "below"):
+            lo = None
         if lo is not None:
             filters["min_score"] = lo
         if hi is not None:
@@ -877,17 +911,29 @@ def _extract_score_filters(q: str, filters: dict) -> None:
 
 
 def _extract_litigation(q: str, filters: dict) -> None:
-    for kw in LITIGATION_KEYWORDS:
-        if _word_match(kw, q):
-            filters["has_litigation"] = True
+    """"lawsuits" → buildings with a case; "no lawsuits" / "never sued" / "lawsuit-free" → without one."""
+    if re.search(r"\b(?:lawsuit|litigation)s?-free\b", q):
+        filters["has_litigation"] = False
+        return
+    neg_spans = _negation_spans(q)
+    for kw in sorted(LITIGATION_KEYWORDS, key=len, reverse=True):
+        m = re.search(r"\b" + re.escape(kw) + r"\b", q)
+        if m:
+            filters["has_litigation"] = not any(s <= m.start() <= e for s, e in neg_spans)
             return
 
 
+# "big buildings", "large apartment buildings", "tall elevator buildings".
+_BIG_RE = re.compile(r"\b(?:big|large|huge|tall)\s+(?:[a-z-]+\s+)?(?:buildings?|apartments?|complex(?:es)?)\b")
+_SMALL_RE = re.compile(r"\b(?:small|little|tiny)\s+(?:[a-z-]+\s+)?(?:buildings?|apartments?)\b")
+
+
 def _extract_size_filters(q: str, filters: dict) -> None:
-    if any(_word_match(p, q) for p in ("large building", "big building", "high rise", "high-rise", "highrise")):
+    # Walk-up is a building type (class C), not a size: plenty have 20+ apartments.
+    if _BIG_RE.search(q) or any(_plural_search(p, q) for p in ("high rise", "high-rise", "highrise")):
         filters["min_units"] = 50
         return
-    if any(_word_match(p, q) for p in ("small building", "walk-up", "walkup", "walk up")):
+    if _SMALL_RE.search(q):
         filters["max_units"] = 10
         return
 
@@ -913,18 +959,24 @@ def _extract_year_filters(q: str, filters: dict) -> None:
         filters["min_year_built"] = 1946
         return
 
+    # Year bounds are inclusive in SQL, so "before 1950" stops at 1949 and
+    # "after 2010" starts at 2011; "since 2010" / "2010 or later" include it.
     m = re.search(r"\b(?:built\s+)?before\s+(\d{4})\b", q)
     if m:
-        filters["max_year_built"] = int(m.group(1))
+        filters["max_year_built"] = int(m.group(1)) - 1
         return
     m = re.search(r"\bpre[\s-]?(\d{4})\b", q)
     if m:
-        filters["max_year_built"] = int(m.group(1))
+        filters["max_year_built"] = int(m.group(1)) - 1
         return
 
     m = re.search(r"\b(?:built\s+)?after\s+(\d{4})\b", q)
     if m:
-        filters["min_year_built"] = int(m.group(1))
+        filters["min_year_built"] = int(m.group(1)) + 1
+        return
+    m = re.search(r"\b(?:built\s+)?since\s+(\d{4})\b|\b(\d{4})\s+(?:or|and)\s+(?:later|newer|after)\b", q)
+    if m:
+        filters["min_year_built"] = int(m.group(1) or m.group(2))
         return
 
     m = re.search(r"\b(?:from|in)\s+(?:the\s+)?(\d{4})s\b", q)
@@ -960,22 +1012,43 @@ def _extract_limit(q: str, filters: dict) -> None:
             filters["limit"] = n
 
 
-def _extract_building_class(q: str, filters: dict) -> None:
+# Elevator as a building type rather than a complaint: "with an elevator" is an
+# elevator building, "no elevator" a walk-up. Checked before the keywords.
+_ELEVATOR_TYPE_RES: list[tuple[re.Pattern, list[str]]] = [
+    (re.compile(r"\b(?:without|no|not)\s+(?:an?\s+)?elevators?\b"), ["C"]),
+    (re.compile(r"\b(?:with|has|have|having)\s+(?:an?\s+)?elevators?\b"), ["D"]),
+]
+
+
+def _extract_building_class(q: str, filters: dict) -> str:
     """Match building class keywords and set building_classes filter.
 
     Single-letter codes (e.g. "A") are treated as prefix matches (A%) in execute_search.
-    Multi-char codes (e.g. "A9") are exact matches.
+    Multi-char codes (e.g. "A9") are exact matches. Returns the query with the
+    matched words blanked out (same length, so later offsets still line up).
     """
-    # Direct code mention: "class A9", "type C", "building class D"
+    # Direct code mention: "class A9", "type C", "building class D". "class a/b/c"
+    # alone is an HPD violation class, handled with the complaint types.
+    def blank(m: re.Match) -> str:
+        return q[: m.start()] + " " * (m.end() - m.start()) + q[m.end():]
+
     m = re.search(r"\b(?:building\s+)?(?:class|type|code)\s+([A-Za-z][A-Za-z0-9]?)\b", q)
-    if m:
+    if m and not re.fullmatch(r"class [abc]", m.group(0)):
         filters["building_classes"] = [m.group(1).upper()]
-        return
+        return blank(m)
+
+    for pattern, codes in _ELEVATOR_TYPE_RES:
+        m = pattern.search(q)
+        if m:
+            filters["building_classes"] = codes
+            return blank(m)
 
     for keyword, codes in BUILDING_CLASS_KEYWORDS:
-        if _word_match(keyword, q):
+        m = _plural_search(keyword, q)
+        if m:
             filters["building_classes"] = codes
-            return
+            return blank(m)
+    return q
 
 
 def _extract_owner(q: str, filters: dict) -> None:
@@ -1020,9 +1093,9 @@ def _describe_filters(filters: dict) -> str | None:
     if "exclude_complaint_types" in filters:
         parts.append(f"without {', '.join(filters['exclude_complaint_types'])} issues")
     if "has_litigation" in filters:
-        parts.append("with litigation history")
+        parts.append("with litigation history" if filters["has_litigation"] else "with no litigation history")
     if "building_classes" in filters:
-        parts.append(f"building class {'/'.join(filters['building_classes'])}")
+        parts.append(f"limited to {_class_label(filters['building_classes']).lower()}")
     if "owner_name" in filters:
         parts.append(f"owned by '{filters['owner_name']}'")
     if "rent_stabilized" in filters:
@@ -1037,9 +1110,9 @@ def _describe_filters(filters: dict) -> str | None:
         if "min_year_built" in filters and "max_year_built" in filters:
             parts.append(f"built {filters['min_year_built']}-{filters['max_year_built']}")
         elif "min_year_built" in filters:
-            parts.append(f"built after {filters['min_year_built']}")
+            parts.append(f"built {filters['min_year_built']} or later")
         else:
-            parts.append(f"built before {filters['max_year_built']}")
+            parts.append(f"built before {filters['max_year_built'] + 1}")
     if "min_units" in filters or "max_units" in filters:
         if "min_units" in filters and "max_units" in filters:
             parts.append(f"{filters['min_units']}-{filters['max_units']} units")
@@ -1080,6 +1153,8 @@ def _complaint_phrase(types: list[str]) -> str:
 
 
 def _class_label(codes: list[str]) -> str:
+    if set(codes) == set(COOP_CLASSES):
+        return "Co-ops"
     prefixes = {c[:1] for c in codes}
     if len(prefixes) == 1 and all(len(c) == 1 for c in codes):
         return _CLASS_PREFIX_LABELS.get(codes[0], f"Class {codes[0]}")
