@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import MAX_RESULTS
 from app.services.building_service import BUILDING_SUMMARY_SELECT, RENT_STABILIZED_SQL
+from app.services.building_service import COOP_CLASSES as BUILDING_COOP_CLASSES
 
 logger = logging.getLogger(__name__)
 
@@ -364,8 +365,9 @@ _COMPLAINT_SORTED = sorted(COMPLAINT_KEYWORDS.items(), key=lambda x: -len(x[0]))
 
 LITIGATION_KEYWORDS = {"lawsuit", "lawsuits", "litigation", "litigations", "sued", "legal action"}
 
-# PLUTO's cooperative classes (walk-up, elevator, loft conversions, condo-held).
-COOP_CLASSES = ["C6", "C8", "D0", "D4", "DC", "CC", "R9"]
+# What "co-ops" searches for: the cooperative classes the building card labels
+# "Co-op", plus R9 (a co-op inside a condominium).
+COOP_CLASSES = [*sorted(BUILDING_COOP_CLASSES), "R9"]
 
 # Maps keyword/phrase → list of building class codes (prefix = all codes starting with letter).
 # Matched with plurals allowed ("co-ops", "walk-ups", "elevator buildings").

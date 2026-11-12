@@ -8,7 +8,7 @@ import mapboxgl, { type ExpressionSpecification } from "mapbox-gl";
 import { PmTilesSource } from "mapbox-pmtiles/dist/mapbox-pmtiles.js";
 import { useStore } from "@/lib/store";
 import { fetchNeighborhoodPolygons } from "@/lib/api";
-import { GRADES, GRADE_META, INK, rentStatus } from "@/lib/grades";
+import { COOP_CLASS_CODES, GRADES, GRADE_META, INK, rentStatus } from "@/lib/grades";
 import { HoverCard, type HoveredBuilding } from "@/components/map/HoverCard";
 import { FOOTPRINTS_MINZOOM, FOOTPRINTS_URL, USE_FOOTPRINTS } from "@/lib/tiles";
 
@@ -69,9 +69,9 @@ type LayerToggles = {
 const boroughFilterExpr = (borough: string) =>
   ["==", ["upcase", ["coalesce", ["get", "borough"], ""]], borough.toUpperCase()] as unknown as mapboxgl.FilterSpecification;
 
-// Building classes that rentStatus() maps to condo/co-op rather than
-// "likely stabilized" — mirrored here for the vector-tile filter expression.
-const NON_RENTAL_CLASSES = ["C6", "D5", "C0", "D0", "D4"];
+// C/D classes that rentStatus() maps to co-op rather than "likely stabilized"
+// (condos are R, already outside C/D), for the vector-tile filter expression.
+const NON_RENTAL_CLASSES = COOP_CLASS_CODES;
 
 const BUILDING_CLASS_EXPR = ["upcase", ["coalesce", ["get", "building_class"], ""]];
 const CLASS_LETTER_EXPR = ["slice", BUILDING_CLASS_EXPR, 0, 1];

@@ -59,8 +59,14 @@ export function toGrade(value: unknown, fallback: Grade = "A"): Grade {
 
 export type RentStatus = "likely_stabilized" | "condo" | "coop" | "not_regulated" | "unknown";
 
-const CONDO_CLASSES = new Set(["C6", "D5"]);
-const COOP_CLASSES = new Set(["C0", "D0", "D4"]);
+/**
+ * PLUTO's cooperative classes: walk-up (C6, C8 loft conversion, CC) and
+ * elevator (D4, D0 loft conversion, DC). Condos are the R classes. Not co-ops:
+ * C0 is a three-family walk-up, D5 a converted elevator rental. Mirrors
+ * COOP_CLASSES in backend/app/services/building_service.py.
+ */
+export const COOP_CLASS_CODES = ["C6", "C8", "CC", "D0", "D4", "DC"];
+const COOP_CLASSES = new Set(COOP_CLASS_CODES);
 
 export function rentStatus(
   buildingClass: string | null | undefined,
@@ -69,7 +75,7 @@ export function rentStatus(
 ): RentStatus {
   const bc = (buildingClass ?? "").toUpperCase().trim();
   if (!bc) return "unknown";
-  if (CONDO_CLASSES.has(bc) || bc.startsWith("R")) return "condo";
+  if (bc.startsWith("R")) return "condo";
   if (COOP_CLASSES.has(bc)) return "coop";
   const first = bc[0];
   if (first === "A" || first === "B") return "not_regulated";

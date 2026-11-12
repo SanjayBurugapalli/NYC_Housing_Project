@@ -33,8 +33,11 @@ BUILDING_SUMMARY_SELECT = """
 """
 
 
-_CONDO_CLASSES = {"C6", "D5"}
-_COOP_CLASSES = {"C0", "D0", "D4"}
+# PLUTO's cooperative classes: walk-up (C6, C8 loft conversion, CC) and
+# elevator (D4, D0 loft conversion, DC). Condos are the R classes. Not co-ops:
+# C0 is a three-family walk-up, D5 a converted elevator rental. Mirrored in
+# frontend/src/lib/grades.ts (COOP_CLASS_CODES).
+COOP_CLASSES = frozenset({"C6", "C8", "CC", "D0", "D4", "DC"})
 
 # PLUTO fills owner_name with these when the real owner is unknown; grouping on
 # them ("owns 6,478 buildings") would be meaningless, so they get no portfolio.
@@ -44,7 +47,7 @@ _PLACEHOLDER_OWNERS = {"UNAVAILABLE OWNER", "NAME NOT ON FILE", "NAN", "UNKNOWN"
 # `rent_stabilized` filter. Keep the two in sync.
 RENT_STABILIZED_SQL = (
     "(LEFT(b.building_class, 1) IN ('C', 'D')"
-    " AND b.building_class NOT IN ('C6', 'D5', 'C0', 'D0', 'D4')"
+    " AND b.building_class NOT IN (" + ", ".join(f"'{c}'" for c in sorted(COOP_CLASSES)) + ")"
     " AND b.residential_units >= 6"
     " AND b.year_built > 0 AND b.year_built <= 1974)"
 )
@@ -58,9 +61,9 @@ def _compute_rent_status(building_class: str | None, year_built: int | None, res
     bc = (building_class or "").upper().strip()
     if not bc:
         return "unknown"
-    if bc in _CONDO_CLASSES or bc.startswith("R"):
+    if bc.startswith("R"):
         return "condo"
-    if bc in _COOP_CLASSES:
+    if bc in COOP_CLASSES:
         return "coop"
     first = bc[0]
     if first in ("A", "B"):
