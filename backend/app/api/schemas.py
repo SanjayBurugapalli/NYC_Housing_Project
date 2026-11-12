@@ -109,6 +109,17 @@ class OwnerPortfolioResponse(BaseModel):
     grade: str
 
 
+class RecordTotalsResponse(BaseModel):
+    """How many of each record the building has (5-year window); the lists hold at most 50."""
+
+    complaints: int = 0
+    violations: int = 0
+    litigations: int = 0
+    rodent_inspections: int = 0
+    fdny_violations: int = 0
+    evictions: int = 0
+
+
 class BuildingDetailResponse(BuildingSummaryResponse):
     owner_name: str | None = None
     managing_agent: str | None = None
@@ -121,6 +132,7 @@ class BuildingDetailResponse(BuildingSummaryResponse):
     rodent_inspections: list[RodentInspectionResponse] = []
     fdny_violations: list[FDNYViolationResponse] = []
     evictions: list[EvictionResponse] = []
+    record_totals: RecordTotalsResponse = RecordTotalsResponse()
     litigation_count: int = 0
     rodent_inspection_count: int = 0
     eviction_count: int = 0

@@ -13,6 +13,10 @@ from app.api.neighborhood_names import get_neighborhood_name
 # next to a score computed only from recent data.
 _DISPLAY_WINDOW_SQL = "NOW() - INTERVAL '5 years'"
 
+# Each record list in the detail panel sends the newest 50; its query's
+# COUNT(*) OVER () (taken before the LIMIT) carries the real total alongside.
+_TRAIL_LIMIT = 50
+
 
 # Shared SELECT-list + FROM/JOIN for the building "summary" projection used by
 # the viewport, search, and lookup queries. Callers append their own WHERE /
@@ -208,15 +212,18 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
     complaints_result = await db.execute(
         text(f"""
             SELECT id, source, complaint_type, descriptor, created_date, closed_date,
-                   status, description, category, resolution_days
+                   status, description, category, resolution_days,
+                   COUNT(*) OVER () AS total
             FROM complaints
             WHERE bbl = :bbl
                 AND created_date >= {_DISPLAY_WINDOW_SQL}
             ORDER BY created_date DESC NULLS LAST
-            LIMIT 50
+            LIMIT :limit
         """),
-        {"bbl": bbl},
+        {"bbl": bbl, "limit": _TRAIL_LIMIT},
     )
+    complaints_result = complaints_result.all()
+    complaints_total = complaints_result[0].total if complaints_result else 0
     complaints = [
         {
             "id": str(row.id),
@@ -240,7 +247,8 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         text(f"""
             SELECT id, source, violation_type, severity, inspection_date, status, description,
                    order_number, status_date, approved_date,
-                   original_certify_by_date, original_correct_by_date
+                   original_certify_by_date, original_correct_by_date,
+                   COUNT(*) OVER () AS total
             FROM violations
             WHERE bbl = :bbl
                 AND inspection_date >= {_DISPLAY_WINDOW_SQL}
@@ -249,10 +257,12 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
                 AND NOT (source = 'HPD' AND severity = 'I')
                 AND (description IS NOT NULL OR (severity IS NOT NULL AND severity != ''))
             ORDER BY inspection_date DESC NULLS LAST
-            LIMIT 50
+            LIMIT :limit
         """),
-        {"bbl": bbl, "filing_pattern": "%failure to file%", "dismissed_pattern": "%dismissed%"},
+        {"bbl": bbl, "filing_pattern": "%failure to file%", "dismissed_pattern": "%dismissed%", "limit": _TRAIL_LIMIT},
     )
+    violations_result = violations_result.all()
+    violations_total = violations_result[0].total if violations_result else 0
     violations = [
         {
             "id": str(row.id),
@@ -282,7 +292,7 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
     )
     litigation_count = lit_result.scalar() or 0
 
-    # Recent litigations (last 5 years, up to 20)
+    # Recent litigations (last 5 years, up to 50; litigation_count is the total)
     litigations_result = await db.execute(
         text("""
             SELECT external_id, case_type, case_status, case_open_date, case_judgment, respondent
@@ -290,9 +300,9 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
             WHERE bbl = :bbl
               AND (case_open_date IS NULL OR case_open_date >= NOW() - INTERVAL '5 years')
             ORDER BY case_open_date DESC NULLS LAST
-            LIMIT 20
+            LIMIT :limit
         """),
-        {"bbl": bbl},
+        {"bbl": bbl, "limit": _TRAIL_LIMIT},
     )
     litigations = [
         {
@@ -306,20 +316,23 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         for row in litigations_result
     ]
 
-    # Recent rodent inspections (last 20 within the 5-year window, excluding
+    # Recent rodent inspections (last 50 within the 5-year window, excluding
     # passed inspections)
     rodent_result = await db.execute(
         text(f"""
-            SELECT external_id, inspection_type, result, inspection_date, address
+            SELECT external_id, inspection_type, result, inspection_date, address,
+                   COUNT(*) OVER () AS total
             FROM rodent_inspections
             WHERE bbl = :bbl
                 AND inspection_date >= {_DISPLAY_WINDOW_SQL}
                 AND (result IS NULL OR result != 'Passed')
             ORDER BY inspection_date DESC NULLS LAST
-            LIMIT 20
+            LIMIT :limit
         """),
-        {"bbl": bbl},
+        {"bbl": bbl, "limit": _TRAIL_LIMIT},
     )
+    rodent_result = rodent_result.all()
+    rodent_count = rodent_result[0].total if rodent_result else 0
     rodent_inspections = [
         {
             "id": row.external_id,
@@ -331,21 +344,22 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         for row in rodent_result
     ]
 
-    rodent_count = len(rodent_inspections)
-
-    # FDNY violations (by BIN, last 5 years, up to 20, open/active only)
+    # FDNY violations (by BIN, last 5 years, up to 50, open/active only)
     fdny_result = await db.execute(
         text("""
             SELECT external_id, violation_number, violation_type, description,
-                   status, violation_date, address
+                   status, violation_date, address,
+                   COUNT(*) OVER () AS total
             FROM fdny_violations
             WHERE bin = :bin
               AND (violation_date IS NULL OR violation_date >= NOW() - INTERVAL '5 years')
             ORDER BY violation_date DESC NULLS LAST
-            LIMIT 20
+            LIMIT :limit
         """),
-        {"bin": b.get("bin") or ""},
+        {"bin": b.get("bin") or "", "limit": _TRAIL_LIMIT},
     )
+    fdny_result = fdny_result.all()
+    fdny_total = fdny_result[0].total if fdny_result else 0
     fdny_violations = [
         {
             "id": row.external_id or str(row[0]),
@@ -359,19 +373,22 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         for row in fdny_result
     ]
 
-    # Evictions (by BBL, last 5 years, up to 20)
+    # Evictions (by BBL, last 5 years, up to 50)
     evictions_result = await db.execute(
         text("""
             SELECT external_id, address, apartment_no, respondent,
-                   executed_date, marshal_name, eviction_type
+                   executed_date, marshal_name, eviction_type,
+                   COUNT(*) OVER () AS total
             FROM evictions
             WHERE bbl = :bbl
               AND (executed_date IS NULL OR executed_date >= NOW() - INTERVAL '5 years')
             ORDER BY executed_date DESC NULLS LAST
-            LIMIT 20
+            LIMIT :limit
         """),
-        {"bbl": bbl},
+        {"bbl": bbl, "limit": _TRAIL_LIMIT},
     )
+    evictions_result = evictions_result.all()
+    evictions_total = evictions_result[0].total if evictions_result else 0
     evictions = [
         {
             "id": row.external_id or str(row[0]),
@@ -474,9 +491,18 @@ async def get_building_detail(db: AsyncSession, bbl: str) -> dict | None:
         "rodent_inspections": rodent_inspections,
         "fdny_violations": fdny_violations,
         "evictions": evictions,
-        "litigation_count": len(litigations),
+        # Real totals: each list above holds at most the newest _TRAIL_LIMIT.
+        "record_totals": {
+            "complaints": complaints_total,
+            "violations": violations_total,
+            "litigations": litigation_count,
+            "rodent_inspections": rodent_count,
+            "fdny_violations": fdny_total,
+            "evictions": evictions_total,
+        },
+        "litigation_count": litigation_count,
         "rodent_inspection_count": rodent_count,
-        "eviction_count": len(evictions),
+        "eviction_count": evictions_total,
         "rent_status": _compute_rent_status(
             b.get("building_class"),
             b.get("year_built"),

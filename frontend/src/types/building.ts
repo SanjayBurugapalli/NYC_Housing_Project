@@ -121,6 +121,11 @@ export interface BuildingDetail extends BuildingSummary {
   rodent_inspections: RodentInspectionRecord[];
   fdny_violations: FDNYViolationRecord[];
   evictions: EvictionRecord[];
+  /** How many of each record there are; each list above holds at most the newest 50. */
+  record_totals?: Record<
+    "complaints" | "violations" | "litigations" | "rodent_inspections" | "fdny_violations" | "evictions",
+    number
+  >;
   litigation_count: number;
   rodent_inspection_count: number;
   eviction_count: number;

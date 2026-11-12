@@ -161,10 +161,12 @@ function sentence(s: string | null | undefined): string {
   return t ? t.charAt(0).toUpperCase() + t.slice(1).toLowerCase() : "";
 }
 
-export function trails(d: BuildingDetail): { key: string; label: string; noun: string; rows: TrailRow[] }[] {
+export function trails(d: BuildingDetail): { key: string; label: string; noun: string; rows: TrailRow[]; total: number }[] {
+  const totals = d.record_totals;
   const tabs = [
     {
       key: "complaints",
+      total: totals?.complaints ?? d.complaints.length,
       label: "Complaints",
       noun: "complaints",
       rows: d.complaints.map((c) => ({
@@ -177,6 +179,7 @@ export function trails(d: BuildingDetail): { key: string; label: string; noun: s
     },
     {
       key: "violations",
+      total: totals?.violations ?? d.violations.length,
       label: "Violations",
       noun: "violations",
       rows: d.violations.map((v) => ({
@@ -189,6 +192,7 @@ export function trails(d: BuildingDetail): { key: string; label: string; noun: s
     },
     {
       key: "lawsuits",
+      total: totals?.litigations ?? d.litigations.length,
       label: "Lawsuits",
       noun: "lawsuits",
       rows: d.litigations.map((l) => ({
@@ -201,6 +205,7 @@ export function trails(d: BuildingDetail): { key: string; label: string; noun: s
     },
     {
       key: "evictions",
+      total: totals?.evictions ?? d.evictions.length,
       label: "Evictions",
       noun: "evictions",
       rows: d.evictions.map((e) => ({
@@ -213,6 +218,7 @@ export function trails(d: BuildingDetail): { key: string; label: string; noun: s
     },
     {
       key: "rodents",
+      total: totals?.rodent_inspections ?? d.rodent_inspections.length,
       label: "Rodent inspections",
       noun: "rodent inspections",
       rows: d.rodent_inspections.map((r) => ({
@@ -225,6 +231,7 @@ export function trails(d: BuildingDetail): { key: string; label: string; noun: s
     },
     {
       key: "fire",
+      total: totals?.fdny_violations ?? d.fdny_violations.length,
       label: "Fire code",
       noun: "fire code violations",
       rows: d.fdny_violations.map((f) => ({
@@ -237,7 +244,7 @@ export function trails(d: BuildingDetail): { key: string; label: string; noun: s
     },
   ];
   // The four core tabs always show (a zero is information); the rest only when present.
-  return tabs.filter((t, i) => i < 4 || t.rows.length > 0);
+  return tabs.filter((t, i) => i < 4 || t.total > 0);
 }
 
 const PREVIEW = 4;
@@ -248,6 +255,8 @@ function PaperTrail({ data }: { data: BuildingDetail }) {
   const [expanded, setExpanded] = useState(false);
   const current = tabs.find((t) => t.key === tab) ?? tabs[0];
   const rows = expanded ? current.rows : current.rows.slice(0, PREVIEW);
+  // The API sends the newest 50; past that, "all" would be a promise the list can't keep.
+  const truncated = current.total > current.rows.length;
 
   return (
     <div className="flex min-w-0 flex-[1_1_380px] flex-col gap-3">
@@ -269,7 +278,7 @@ function PaperTrail({ data }: { data: BuildingDetail }) {
               t.key === current.key ? "bg-ink font-bold text-white" : "bg-white font-semibold text-ink hover:bg-surface"
             }`}
           >
-            {t.label} {t.rows.length}
+            {t.label} {t.total.toLocaleString()}
           </button>
         ))}
       </div>
@@ -305,6 +314,11 @@ function PaperTrail({ data }: { data: BuildingDetail }) {
             );
           })
         )}
+        {expanded && truncated && (
+          <p className="m-0 pt-2.5 text-[13px] text-muted">
+            The latest {current.rows.length} of {current.total.toLocaleString()} {current.noun}.
+          </p>
+        )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-x-4">
         {current.rows.length > PREVIEW ? (
@@ -313,7 +327,7 @@ function PaperTrail({ data }: { data: BuildingDetail }) {
             onClick={() => setExpanded((v) => !v)}
             className="inline-flex min-h-[44px] items-center text-sm font-bold underline underline-offset-2"
           >
-            {expanded ? "Show fewer" : `Show all ${current.rows.length} ${current.noun}`}
+            {expanded ? "Show fewer" : truncated ? `Show more ${current.noun}` : `Show all ${current.rows.length} ${current.noun}`}
           </button>
         ) : (
           <span />

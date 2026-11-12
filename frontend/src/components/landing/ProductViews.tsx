@@ -539,7 +539,7 @@ export function GradeBreakdownView({ building }: { building: BuildingDetail }) {
           <div className="flex flex-wrap gap-1.5 pb-2.5">
             {tabs.map((t, i) => (
               <span key={t.key} className={`rounded-full border-[1.5px] border-ink px-2.5 py-1 text-xs font-bold ${i === 0 ? "bg-ink text-white" : "bg-white"}`}>
-                {t.label} {t.rows.length}
+                {t.label} {t.total.toLocaleString()}
               </span>
             ))}
           </div>
