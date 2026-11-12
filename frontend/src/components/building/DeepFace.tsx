@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ComponentType, type RefObject } from "react";
+import { useRef, useState, type ComponentType, type RefObject } from "react";
 import { useStore } from "@/lib/store";
 import { GRADE_META, scoreToGrade, titleCase, toGrade } from "@/lib/grades";
 import type { BuildingDetail, ScoreBreakdown } from "@/types/building";
@@ -247,16 +247,14 @@ export function trails(d: BuildingDetail): { key: string; label: string; noun: s
   return tabs.filter((t, i) => i < 4 || t.total > 0);
 }
 
-const PREVIEW = 4;
-
 function PaperTrail({ data }: { data: BuildingDetail }) {
   const tabs = trails(data);
   const [tab, setTab] = useState(tabs[0].key);
-  const [expanded, setExpanded] = useState(false);
   const current = tabs.find((t) => t.key === tab) ?? tabs[0];
-  const rows = expanded ? current.rows : current.rows.slice(0, PREVIEW);
-  // The API sends the newest 50; past that, "all" would be a promise the list can't keep.
-  const truncated = current.total > current.rows.length;
+  const rows = current.rows;
+  // The API sends the newest 50 of each; the tab count is the full total.
+  const truncated = current.total > rows.length;
+  const listRef = useRef<HTMLDivElement>(null);
 
   return (
     <div className="flex min-w-0 flex-[1_1_380px] flex-col gap-3">
@@ -272,7 +270,7 @@ function PaperTrail({ data }: { data: BuildingDetail }) {
             aria-controls="trail-panel"
             onClick={() => {
               setTab(t.key);
-              setExpanded(false);
+              listRef.current?.scrollTo({ top: 0 });
             }}
             className={`h-11 rounded-full border-[1.5px] border-ink px-3.5 text-[13px] ${
               t.key === current.key ? "bg-ink font-bold text-white" : "bg-white font-semibold text-ink hover:bg-surface"
@@ -282,16 +280,22 @@ function PaperTrail({ data }: { data: BuildingDetail }) {
           </button>
         ))}
       </div>
-      <div id="trail-panel" role="tabpanel" aria-labelledby={`trail-tab-${current.key}`} className="flex flex-col">
+      {/* Every row the API sent (up to 50), scrolling past the first four or so. Focusable so keyboards can scroll it. */}
+      <div
+        ref={listRef}
+        id="trail-panel"
+        role="tabpanel"
+        aria-labelledby={`trail-tab-${current.key}`}
+        tabIndex={rows.length > 4 ? 0 : undefined}
+        className="flex max-h-[296px] flex-col overflow-y-auto border-y-[1.5px] border-line"
+      >
         {rows.length === 0 ? (
-          <p className="m-0 border-y-[1.5px] border-line py-4 text-sm text-muted">
-            No {current.noun} in the last five years.
-          </p>
+          <p className="m-0 py-4 text-sm text-muted">No {current.noun} in the last five years.</p>
         ) : (
           rows.map((r, i) => {
             const [md, y] = dateCell(r.date);
             return (
-              <div key={r.id} className={`flex gap-3 border-t-[1.5px] border-line py-3 ${i === rows.length - 1 ? "border-b-[1.5px]" : ""}`}>
+              <div key={r.id} className={`flex shrink-0 gap-3 py-3 ${i > 0 ? "border-t-[1.5px] border-line" : ""}`}>
                 <span className="w-[62px] shrink-0 text-xs font-semibold text-muted">
                   {md}
                   <br />
@@ -314,21 +318,12 @@ function PaperTrail({ data }: { data: BuildingDetail }) {
             );
           })
         )}
-        {expanded && truncated && (
-          <p className="m-0 pt-2.5 text-[13px] text-muted">
-            The latest {current.rows.length} of {current.total.toLocaleString()} {current.noun}.
-          </p>
-        )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-x-4">
-        {current.rows.length > PREVIEW ? (
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className="inline-flex min-h-[44px] items-center text-sm font-bold underline underline-offset-2"
-          >
-            {expanded ? "Show fewer" : truncated ? `Show more ${current.noun}` : `Show all ${current.rows.length} ${current.noun}`}
-          </button>
+        {truncated ? (
+          <span className="text-[13px] text-muted">
+            Showing the newest {rows.length} of {current.total.toLocaleString()} {current.noun} ({rows.length} max).
+          </span>
         ) : (
           <span />
         )}
