@@ -57,15 +57,14 @@ export function getHeroCommute(building: BuildingDetail): Promise<CommuteResult 
 }
 
 /**
- * The seven city datasets data/scoring/compute.py reads, keyed as
- * data/refresh.py logs them. DOB complaints feed the structural sub-score
- * alongside DOB violations; keep the homepage's "Seven city datasets" in step.
+ * The five city datasets the grade is built from, keyed as data/refresh.py
+ * logs them. HPD and DOB complaints have pullers but were never loaded, so
+ * they're left out of the refresh and of this list; keep the homepage's
+ * "Five city datasets" in step.
  */
 export const GRADE_DATASETS = [
   { key: "311_complaints", name: "311 service requests", id: "erm2-nwe9" },
-  { key: "hpd_complaints", name: "HPD complaints", id: "uwyv-629c" },
   { key: "hpd_violations", name: "HPD violations", id: "wvxf-dwi5" },
-  { key: "dob_complaints", name: "DOB complaints", id: "eabe-havv" },
   { key: "dob_violations", name: "DOB violations", id: "3h2n-5cm9" },
   { key: "litigations", name: "HPD housing litigation", id: "59kj-x8nc" },
   { key: "rodent", name: "Rodent inspections", id: "p937-wjvj" },

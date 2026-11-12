@@ -52,9 +52,9 @@ before-you-rent/
 | PLUTO (building universe) | `64uk-42ks` | BBL | Master dataset — defines our building list |
 | 311 Complaints | `erm2-nwe9` | Address (needs normalization) | 30M+ rows, use incremental sync |
 | HPD Violations | `wvxf-dwi5` | BBL | Class A/B/C severity levels |
-| HPD Complaints | `uwyv-629c` | BBL | Tenant complaints |
+| HPD Complaints | `uwyv-629c` | BBL | Tenant complaints. **Not loaded** and not in the grade or `data/refresh.py` |
 | DOB Violations | `3h2n-5cm9` | BIN | Dept of Buildings |
-| DOB Complaints | `eabe-havv` | BIN | Building complaints |
+| DOB Complaints | `eabe-havv` | BIN | Building complaints. **Not loaded** and not in the grade or `data/refresh.py` |
 | Housing Litigations | `59kj-x8nc` | BBL | Lawsuits against landlords |
 | Rodent Inspections | `p937-wjvj` | Address | Rat inspections |
 | MapPLUTO Shapefiles | NYC DCP download | BBL | Building footprint geometries |
@@ -69,7 +69,7 @@ Food places land in `food_places` (`data/ingest/pull_food.py`); category and the
 ### Health Score Formula
 Composite score 0-100 (higher = healthier). Weighted sub-scores (canonical
 weights live in `data/scoring/compute.py` `WEIGHTS`):
-- Heat/hot water complaints (311 + HPD): 20%
+- Heat/hot water complaints (311): 20%
 - Pest/rodent (311 + rodent inspections): 22%
 - Structural/safety violations (DOB): 20%
 - HPD violation severity (Class A/B/C): 20%

@@ -130,9 +130,9 @@ function AboutTab() {
 
 function ScoringTab() {
   const categories = [
-    { name: "Heat & Hot Water", weight: "20%", desc: "311 complaints and HPD complaints related to heat and hot water outages." },
+    { name: "Heat & Hot Water", weight: "20%", desc: "311 complaints about heat and hot water outages." },
     { name: "Pest & Rodent", weight: "22%", desc: "311 pest complaints combined with DOHMH rodent inspection results showing active infestations." },
-    { name: "Structural Safety", weight: "20%", desc: "DOB violations and complaints related to building structure, excluding administrative filing violations." },
+    { name: "Structural Safety", weight: "20%", desc: "DOB violations related to building structure, excluding administrative filing violations." },
     { name: "HPD Violation Severity", weight: "20%", desc: "HPD violations weighted by severity: Class C (immediately hazardous) = 5x, Class B (hazardous) = 3x, Class A (non-hazardous) = 1x." },
     { name: "Noise", weight: "5%", desc: "311 noise complaints attributed to the building." },
     { name: "Litigation", weight: "13%", desc: "Housing litigations filed against the building owner or manager." },

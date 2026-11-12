@@ -77,11 +77,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 # Lazy-imported inside _load_tasks so a broken puller doesn't kill the whole orchestrator.
 TASK_DEFINITIONS: list[tuple[str, str, str, str]] = [
     # (dataset_key, module, function_name, description)
+    # HPD and DOB complaints (pull_hpd_complaints, pull_dob_complaints) are left
+    # out: they were never loaded, the homepage lists the five datasets the
+    # grade is actually built from, and both pullers re-pull the whole dataset
+    # (no days_back). Add them back together with that copy if they're loaded.
     ("311_complaints",   "pull_311",          "pull_311",              "311 service requests"),
     ("hpd_violations",   "pull_hpd",          "pull_hpd_violations",   "HPD violations"),
-    ("hpd_complaints",   "pull_hpd",          "pull_hpd_complaints",   "HPD complaints"),
     ("dob_violations",   "pull_dob",          "pull_dob_violations",   "DOB violations"),
-    ("dob_complaints",   "pull_dob",          "pull_dob_complaints",   "DOB complaints"),
     ("litigations",      "pull_litigations",  "pull_litigations",      "Housing litigations"),
     ("rodent",           "pull_rodent",       "pull_rodent_inspections", "Rodent inspections"),
     ("evictions",        "pull_evictions",    "pull_evictions",        "Marshal evictions"),

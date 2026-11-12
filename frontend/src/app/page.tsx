@@ -33,8 +33,8 @@ const TRY_ASKING = "Rent-stabilized buildings in Bushwick";
 // (kept in sync with data/scoring/compute.py WEIGHTS).
 const WEIGHT_ROWS = [
   { key: "pest_rodent", label: "Pests", source: "311, rodent inspections" },
-  { key: "heat_hot_water", label: "Heat", source: "311, HPD complaints" },
-  { key: "structural_safety", label: "Structural", source: "DOB complaints and violations" },
+  { key: "heat_hot_water", label: "Heat", source: "311 complaints" },
+  { key: "structural_safety", label: "Structural", source: "DOB violations" },
   { key: "hpd_severity", label: "Housing code", source: "HPD Class A, B, C violations" },
   { key: "litigation", label: "Lawsuits", source: "HPD litigation" },
   { key: "noise", label: "Noise", source: "311 complaints" },
@@ -261,7 +261,7 @@ export default async function LandingPage() {
           <summary className="flex min-h-[64px] cursor-pointer items-center justify-between gap-4 px-[22px] text-[17px] font-bold">
             <span>
               Curious how the grade is built?{" "}
-              <span className="font-medium text-muted">Seven city datasets, weighted and scored.</span>
+              <span className="font-medium text-muted">Five city datasets, weighted and scored.</span>
             </span>
             <ChevronDownIcon size={22} className="shrink-0 transition-transform group-open:rotate-180" />
           </summary>
@@ -318,7 +318,7 @@ export default async function LandingPage() {
           </div>
           <div className="flex flex-col gap-4 border-t-[1.5px] border-white/25 pt-8">
             <Eyebrow light>The city data behind the grade</Eyebrow>
-            <ul className="m-0 grid list-none gap-x-10 gap-y-4 p-0 sm:grid-cols-2 lg:grid-cols-4">
+            <ul className="m-0 grid list-none gap-x-10 gap-y-4 p-0 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               {GRADE_DATASETS.map((d) => {
                 const at = refreshedAt(refresh, d.key);
                 return (
@@ -326,7 +326,6 @@ export default async function LandingPage() {
                     <a href={datasetUrl(d.id)} target="_blank" rel="noopener noreferrer" className="font-semibold text-white underline underline-offset-2">
                       {d.name}
                     </a>
-                    {/* TODO: only 311 and rodent inspections have a logged pull date; the others need a refresh run to log one. */}
                     <span className="text-sm text-[#B9C0CC]">{at ? `Last pulled ${formatDay(at)}` : "Pull date not logged yet"}</span>
                   </li>
                 );
