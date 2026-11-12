@@ -31,6 +31,7 @@ function setNeighborhoodsVisible(m: mapboxgl.Map, visible: boolean) {
 // owns its sources/layers/markers and removes them when its face closes.
 
 const VEIL_SOURCE = "byr-veil";
+const VEIL_LAYER = "byr-veil";
 // A white wash over the base map + building dots so the overlay reads first,
 // like the faded backgrounds in the design.
 const VEIL_POLYGON: GeoJSON.Feature<GeoJSON.Polygon> = {
@@ -42,26 +43,57 @@ const VEIL_POLYGON: GeoJSON.Feature<GeoJSON.Polygon> = {
   },
 };
 
-function addVeil(m: mapboxgl.Map, layerId: string, opacity: number) {
-  if (!m.getSource(VEIL_SOURCE)) m.addSource(VEIL_SOURCE, { type: "geojson", data: VEIL_POLYGON });
-  if (!m.getLayer(layerId)) {
-    m.addLayer({
-      id: layerId,
-      type: "fill",
-      source: VEIL_SOURCE,
-      paint: { "fill-color": "#FFFFFF", "fill-opacity": opacity },
-    });
+/**
+ * The veil lives for the map's lifetime at opacity 0, and a face only changes
+ * its opacity. Adding it on open meant a new GeoJSON source, which Mapbox
+ * tiles in a worker before it can draw: for a few frames neither the summary
+ * card's backdrop nor the veil faded the map, a visible flash.
+ */
+function ensureVeil(m: mapboxgl.Map) {
+  try {
+    if (!m.getSource(VEIL_SOURCE)) m.addSource(VEIL_SOURCE, { type: "geojson", data: VEIL_POLYGON });
+    if (!m.getLayer(VEIL_LAYER)) {
+      m.addLayer({
+        id: VEIL_LAYER,
+        type: "fill",
+        source: VEIL_SOURCE,
+        // No ease (Mapbox's default is 300ms): it takes over from the card's
+        // backdrop, which comes and goes in the same frame.
+        paint: { "fill-color": "#FFFFFF", "fill-opacity": 0, "fill-opacity-transition": { duration: 0, delay: 0 } },
+      });
+    }
+  } catch {
+    // style already removed
   }
+}
+
+/** Fade the map behind a face; its own layers, added after this, stay on top. */
+function showVeil(m: mapboxgl.Map, opacity: number) {
+  ensureVeil(m);
+  m.moveLayer(VEIL_LAYER);
+  m.setPaintProperty(VEIL_LAYER, "fill-opacity", opacity);
+}
+
+function hideVeil(m: mapboxgl.Map) {
+  try {
+    if (m.getLayer(VEIL_LAYER)) m.setPaintProperty(VEIL_LAYER, "fill-opacity", 0);
+  } catch {
+    // style already removed
+  }
+}
+
+/** Create the veil as soon as the map is ready, so its tiles exist before a face first opens. */
+function useVeil(m: mapboxgl.Map | null) {
+  useEffect(() => {
+    if (m) ensureVeil(m);
+  }, [m]);
 }
 
 function removeLayers(m: mapboxgl.Map, layers: string[], sources: string[]) {
   // The map may already be torn down (route change) — removal is best effort.
   try {
     for (const id of layers) if (m.getLayer(id)) m.removeLayer(id);
-    for (const id of sources) {
-      if (id === VEIL_SOURCE && (m.getLayer("byr-commute-veil") || m.getLayer("byr-food-veil"))) continue;
-      if (m.getSource(id)) m.removeSource(id);
-    }
+    for (const id of sources) if (m.getSource(id)) m.removeSource(id);
   } catch {
     // style already removed
   }
@@ -132,6 +164,7 @@ export function CommuteOverlay() {
   const active = cardView === "commute" && !!mapRef && !!from && !!workplace;
   const refit = useRef<(() => void) | null>(null);
   useRefitOnMinimize(refit);
+  useVeil(mapRef);
 
   // Frame: veil, the two end markers and a first camera move. Independent of
   // the route so the map responds the moment the face opens.
@@ -142,7 +175,7 @@ export function CommuteOverlay() {
     const b: [number, number] = [workplace.longitude, workplace.latitude];
 
     setNeighborhoodsVisible(m, false);
-    addVeil(m, "byr-commute-veil", 0.5);
+    showVeil(m, 0.5);
     const markers = [
       new mapboxgl.Marker({ element: buildingMarker(building.grade, shortAddress(building.address)), anchor: "top", offset: [0, -23] })
         .setLngLat(a)
@@ -157,7 +190,7 @@ export function CommuteOverlay() {
 
     return () => {
       markers.forEach((mk) => mk.remove());
-      removeLayers(m, ["byr-commute-veil"], [VEIL_SOURCE]);
+      hideVeil(m);
       setNeighborhoodsVisible(m, true);
     };
     // Coordinates (not object identity) decide when to redraw.
@@ -396,6 +429,7 @@ export function FoodOverlay() {
   const radius = food?.radius_m ?? 400;
   const refit = useRef<(() => void) | null>(null);
   useRefitOnMinimize(refit);
+  useVeil(mapRef);
 
   // Walk circle, building tile and framing.
   useEffect(() => {
@@ -403,7 +437,7 @@ export function FoodOverlay() {
     const m = mapRef;
     const ring = circleRing(center, radius);
 
-    addVeil(m, "byr-food-veil", 0.55);
+    showVeil(m, 0.55);
     m.addSource("byr-food-circle", {
       type: "geojson",
       data: { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [ring] } },
@@ -433,7 +467,8 @@ export function FoodOverlay() {
       refit.current = null;
       walkLabel.remove();
       tile.remove();
-      removeLayers(m, ["byr-food-circle-line", "byr-food-circle-fill", "byr-food-veil"], ["byr-food-circle", VEIL_SOURCE]);
+      hideVeil(m);
+      removeLayers(m, ["byr-food-circle-line", "byr-food-circle-fill"], ["byr-food-circle"]);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, mapRef, center?.[0], center?.[1], radius, building?.grade, food?.walk_minutes]);

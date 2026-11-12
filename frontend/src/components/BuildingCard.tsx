@@ -25,6 +25,23 @@ function CardSkeleton() {
 }
 
 /**
+ * The faded, click-to-close backdrop behind the summary and deep faces. It
+ * fades in when the card opens, but not when the card comes back from a docked
+ * face: the map is already faded there (Overlays' veil), and fading in from
+ * clear would flash it unfaded. Decided once, when the backdrop mounts.
+ */
+function Backdrop({ entering, instant, onClose }: { entering: boolean; instant: boolean; onClose: () => void }) {
+  const [skipFadeIn] = useState(instant);
+  return (
+    <div
+      aria-hidden="true"
+      onClick={onClose}
+      className={`fixed inset-0 z-30 bg-white/50 ${entering ? (skipFadeIn ? "" : "animate-fade-in") : "animate-fade-out"}`}
+    />
+  );
+}
+
+/**
  * The floating building card. One component, four faces (see CardView):
  * summary + deep float centered over a faded map and behave like a dialog;
  * commute + food dock at the bottom so the map stays live behind them, and
@@ -109,6 +126,12 @@ export function BuildingCard({ bbl, entering }: { bbl: string; entering: boolean
   const face = entering ? view : lastView.current;
 
   const docked = face === "commute" || face === "food";
+  // The face the last render showed, to know when the summary is coming back from a docked face.
+  const prevFace = useRef(face);
+  useEffect(() => {
+    prevFace.current = face;
+  });
+  const fromDocked = prevFace.current === "commute" || prevFace.current === "food";
   const sheet = isMobile && face === "summary" && !mobileExpanded;
   const anim = entering ? "animate-card-in" : "animate-card-out";
 
@@ -170,11 +193,7 @@ export function BuildingCard({ bbl, entering }: { bbl: string; entering: boolean
   // Centered dialog faces (summary / deep) over a faded, click-to-close backdrop.
   return (
     <>
-      <div
-        aria-hidden="true"
-        onClick={close}
-        className={`fixed inset-0 z-30 bg-white/50 ${entering ? "animate-fade-in" : "animate-fade-out"}`}
-      />
+      <Backdrop entering={entering} instant={fromDocked} onClose={close} />
       <div
         className={`pointer-events-none fixed inset-0 z-40 flex justify-center px-3 sm:px-4 ${
           face === "deep" ? "items-center py-3 sm:py-6" : "items-center pb-3 pt-[84px] sm:pb-6"
