@@ -38,9 +38,11 @@ def pull_rodent_inspections(limit: int | None = None, days_back: int = NIGHTLY_L
 
     for results in paginate_socrata(
         ENDPOINT,
+        # The city dropped approved_date from this dataset in 2026; rows loaded
+        # before then keep theirs, new rows leave the column NULL.
         select=(
             "job_id,inspection_type,result,"
-            "approved_date,inspection_date,"
+            "inspection_date,"
             "house_number,street_name,boro_code,"
             "zip_code,latitude,longitude,bbl"
         ),
@@ -55,11 +57,11 @@ def pull_rodent_inspections(limit: int | None = None, days_back: int = NIGHTLY_L
                 text("""
                     INSERT INTO rodent_inspections (
                         external_id, address, borough, zipcode, bbl,
-                        inspection_type, result, approved_date,
+                        inspection_type, result,
                         inspection_date, latitude, longitude
                     ) VALUES (
                         :external_id, :address, :borough, :zipcode, :bbl,
-                        :inspection_type, :result, :approved_date,
+                        :inspection_type, :result,
                         :inspection_date, :latitude, :longitude
                     ) ON CONFLICT (external_id) DO UPDATE SET
                         result = EXCLUDED.result
@@ -101,9 +103,8 @@ def transform_rodent(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    for col in ["inspection_date", "approved_date"]:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
+    if "inspection_date" in df.columns:
+        df["inspection_date"] = pd.to_datetime(df["inspection_date"], errors="coerce")
 
     return df
 
