@@ -62,11 +62,16 @@ function SectionHead({ eyebrow, title }: { eyebrow: string; title: string }) {
   );
 }
 
-/** Underline in the five grade colors, for the hero headline. */
-function gradeStripe(height: number) {
+/**
+ * Underline in the five grade colors, for the hero headline. Sized in em so it
+ * scales with the headline: with the h1's 1.16 line height, a stripe that wraps
+ * onto the next line sits clear of both its own descenders and the tall
+ * letters ("it") below it.
+ */
+function gradeStripe() {
   return {
-    background: `linear-gradient(90deg, ${GRADE_META.A.bg} 0 20%, ${GRADE_META.B.bg} 20% 40%, ${GRADE_META.C.bg} 40% 60%, ${GRADE_META.D.bg} 60% 80%, ${GRADE_META.F.bg} 80% 100%) left bottom / 100% ${height}px no-repeat`,
-    paddingBottom: height - 4,
+    background: `linear-gradient(90deg, ${GRADE_META.A.bg} 0 20%, ${GRADE_META.B.bg} 20% 40%, ${GRADE_META.C.bg} 40% 60%, ${GRADE_META.D.bg} 60% 80%, ${GRADE_META.F.bg} 80% 100%) left bottom / 100% 0.14em no-repeat`,
+    paddingBottom: "0.08em",
     WebkitBoxDecorationBreak: "clone",
     boxDecorationBreak: "clone",
   } as const;
@@ -172,13 +177,13 @@ export default async function LandingPage() {
       {/* HERO: copy on the left, the example's building card on the right */}
       <section className="mx-auto grid max-w-[1232px] gap-x-12 gap-y-8 px-4 pb-12 pt-8 sm:px-6 sm:pt-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:pb-16">
         <div className="flex min-w-0 flex-col gap-6">
-          <h1 className="m-0 font-display text-[clamp(42px,4.6vw,66px)] font-extrabold leading-[0.98] tracking-[-0.035em]">
-            Know your building <span style={gradeStripe(12)}>before you sign.</span>
+          <h1 className="m-0 font-display text-[clamp(42px,4.6vw,66px)] font-extrabold leading-[1.16] tracking-[-0.035em]">
+            Know your building <span style={gradeStripe()}>before you rent</span> it.
           </h1>
           {/* Everything the search takes (useSearchRunner + the search parser), the options in ink. */}
           <p className="m-0 max-w-[520px] text-pretty text-[18px] leading-[1.55] text-ink-2 [&_strong]:font-semibold [&_strong]:text-ink">
             Paste a <strong>StreetEasy or Zillow link</strong>, look up an <strong>address</strong>, <strong>neighborhood</strong> or{" "}
-            <strong>landlord</strong>, or just <strong>ask in plain English</strong>, and see each building&apos;s city record before
+            <strong>landlord</strong>, or just <strong>ask in plain English</strong>, and see each apartment&apos;s city record before
             signing your lease.
           </p>
           <HeroSearch />
