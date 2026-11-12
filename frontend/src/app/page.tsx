@@ -27,7 +27,14 @@ import {
 } from "@/components/landing/ProductViews";
 
 const REPO_URL = "https://github.com/SanjayBurugapalli/NYC_Housing_Project";
-const TRY_ASKING = "Rent-stabilized buildings in Bushwick";
+// Each checked against the live search: the parser reads every filter in the
+// wording below, and every result meets it. Re-check after rewording one.
+const TRY_ASKING = [
+  "Rent-stabilized buildings in Bushwick",
+  "Harlem buildings with no heat complaints",
+  "Pre-war buildings in Park Slope",
+  "New construction in Long Island City",
+];
 
 // What feeds the grade, in weight order. Percentages come from DEFAULT_WEIGHTS
 // (kept in sync with data/scoring/compute.py WEIGHTS).
@@ -142,9 +149,6 @@ function GradeScale() {
           </div>
         ))}
       </dl>
-      <p className="m-0 max-w-[640px] text-[15px] text-ink-2">
-        Drawn to scale: an A covers only 97–100, so it takes a near-spotless record. F covers everything under 55.
-      </p>
     </div>
   );
 }
@@ -177,8 +181,11 @@ export default async function LandingPage() {
       {/* HERO: copy on the left, the example's building card on the right */}
       <section className="mx-auto grid max-w-[1232px] gap-x-12 gap-y-8 px-4 pb-12 pt-8 sm:px-6 sm:pt-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:pb-16">
         <div className="flex min-w-0 flex-col gap-6">
-          <h1 className="m-0 font-display text-[clamp(42px,4.6vw,66px)] font-extrabold leading-[1.16] tracking-[-0.035em]">
-            Know your building <span style={gradeStripe()}>before you rent</span> it.
+          {/* Sized so "apartment before" fits the column on one line (it measures
+              about 8.3em); balanced, and "rent it." never splits, so "it." can't
+              end up alone on the last line. */}
+          <h1 className="m-0 text-balance font-display text-[clamp(42px,4.3vw,56px)] font-extrabold leading-[1.16] tracking-[-0.035em]">
+            Know your apartment <span style={gradeStripe()}>before you rent</span>{" "}it.
           </h1>
           {/* Everything the search takes (useSearchRunner + the search parser), the options in ink. */}
           <p className="m-0 max-w-[520px] text-pretty text-[18px] leading-[1.55] text-ink-2 [&_strong]:font-semibold [&_strong]:text-ink">
@@ -187,11 +194,17 @@ export default async function LandingPage() {
             signing your lease.
           </p>
           <HeroSearch />
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold text-muted">Try asking:</span>
-            <Link href={`/map?q=${encodeURIComponent(TRY_ASKING)}`} className="chip no-underline">
-              {TRY_ASKING}
-            </Link>
+          <div className="flex flex-col gap-2.5">
+            <span id="try-asking" className="text-sm font-semibold text-muted">Try asking</span>
+            <ul aria-labelledby="try-asking" className="m-0 flex list-none flex-wrap gap-2 p-0">
+              {TRY_ASKING.map((q) => (
+                <li key={q}>
+                  <Link href={`/map?q=${encodeURIComponent(q)}`} className="chip no-underline hover:bg-surface">
+                    {q}
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
 
@@ -214,8 +227,8 @@ export default async function LandingPage() {
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
             <article className="flex flex-col gap-6 rounded-[22px] border-2 border-ink bg-surface p-5 sm:p-7 lg:row-span-2">
               <FeatureText title="Building health, in one letter">
-                We read years of complaints, violations, lawsuits and inspections so you don&apos;t have to. You get one grade.
-                The paper trail is a tap away if you want it.
+                We read years of complaints, violations, lawsuits and inspections so you don&apos;t have to. Catch any red
+                flags before you move in. The paper trail is a click away if you want it.
               </FeatureText>
               <div className="mt-auto">
                 <GradeBreakdownView building={hero} />

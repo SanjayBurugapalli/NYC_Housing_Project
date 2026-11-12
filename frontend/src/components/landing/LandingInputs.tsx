@@ -83,6 +83,9 @@ export function HeroSearch() {
       <label htmlFor="hero-link" className="sr-only">
         Search by listing link, address, neighborhood, landlord or question
       </label>
+      {/* The input needs 280px for its whole placeholder; with less room the button
+          wraps below. Both may grow, but the input's 1000:1 share means the button
+          only widens when it's alone on its line (then it fills it, as on phones). */}
       <div className="flex flex-wrap gap-2 rounded-[16px] border-2 border-ink bg-white p-1.5 shadow-hard-sm">
         <input
           ref={inputRef}
@@ -91,10 +94,10 @@ export function HeroSearch() {
           value={link}
           onChange={(e) => setLink(e.target.value)}
           placeholder="Link, address, owner, or question"
-          className="h-12 min-w-0 flex-[1_1_220px] border-0 bg-transparent px-2.5 text-base font-medium text-ink focus:ring-0"
+          className="h-12 min-w-0 flex-[1000_1_280px] border-0 bg-transparent px-2.5 text-base font-medium text-ink focus:ring-0"
           autoComplete="off"
         />
-        <button type="submit" disabled={status.kind === "busy"} className="btn-ink h-12 w-full rounded-[11px] px-5 text-base sm:w-auto sm:flex-[0_0_auto]">
+        <button type="submit" disabled={status.kind === "busy"} className="btn-ink h-12 flex-[1_0_auto] rounded-[11px] px-5 text-base">
           Take me there
         </button>
       </div>
